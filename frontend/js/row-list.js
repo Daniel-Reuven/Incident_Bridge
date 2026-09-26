@@ -24,6 +24,20 @@
  * @param emptyMessage - shown when items is empty
  */
 export function renderRowList(container, items, keyFn, renderFn, emptyMessage) {
+  // First call on this container: it still holds whatever static HTML the
+  // page shipped with (e.g. a hardcoded "Loading…" placeholder in
+  // dashboard.html), which isn't a data-key row and isn't tracked by the
+  // empty/non-empty bookkeeping below - so without this, that placeholder
+  // would never get cleared and would sit alongside the real rows forever.
+  // Wiping it once, up front, makes every call after this one able to
+  // safely assume the container only ever holds what THIS function put
+  // there.
+  if (container.dataset.rowlistInit !== "1") {
+    container.innerHTML = "";
+    container.dataset.rowlistInit = "1";
+    container.dataset.empty = "0";
+  }
+
   if (items.length === 0) {
     if (container.dataset.empty !== "1") {
       container.innerHTML = `<p class="empty">${emptyMessage}</p>`;
