@@ -298,4 +298,3 @@ All open questions from v0.1 are now resolved — no outstanding items.
 - Data structures: `collections.deque` (maintenance, single FIFO queue, immutable order), `heapq` (single shared fault priority queue, all severities)
 - Auth: pre-provisioned users (env/config), session cookie or JWT, 2 roles (Admin/User), shared password policy validator (min 8 chars, alphanumeric only)
 
-*(No change to the tech stack in this revision — per your instruction #5, this section will only be updated/flagged again if the stack actually changes in a later stage.)*

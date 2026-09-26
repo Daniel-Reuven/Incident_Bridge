@@ -1,0 +1,271 @@
+/*
+  Incident Bridge — shared stylesheet.
+
+  Design tokens live as CSS custom properties in :root so severity/status
+  color meaning stays defined in exactly one place. Severity colors are
+  functional, not decorative - they only ever appear as a row's left
+  border accent and a small text label, never as a repeated badge+icon+
+  background combo.
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+:root {
+  --ink: #1A2330;
+  --ink-soft: #5B6B79;
+  --paper: #F3F6F7;
+  --surface: #FFFFFF;
+  --line: #D8E0E3;
+  --accent: #0B6E67;
+  --accent-ink: #FFFFFF;
+
+  --critical: #C1432A;
+  --major: #B8790A;
+  --minor: #5B6B79;
+
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+
+  --radius: 6px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+h1, h2, .wordmark {
+  font-family: var(--font-display);
+  font-weight: 600;
+  margin: 0;
+}
+
+h1 { font-size: 26px; }
+h2 { font-size: 17px; margin-bottom: 12px; }
+
+a { color: var(--accent); }
+
+button, input, select, textarea { font-family: inherit; font-size: inherit; }
+
+/* --- buttons --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  padding: 9px 16px;
+  font-weight: 500;
+  cursor: pointer;
+  background: transparent;
+}
+.btn-primary { background: var(--accent); color: var(--accent-ink); }
+.btn-primary:hover { background: #095b55; }
+.btn-ghost { border-color: var(--line); color: var(--ink); background: var(--surface); }
+.btn-ghost:hover { border-color: var(--ink-soft); }
+.btn-sm { padding: 5px 10px; font-size: 13px; }
+.btn-block { width: 100%; justify-content: center; }
+
+/* --- forms --- */
+label { display: block; font-size: 13px; color: var(--ink-soft); margin-bottom: 14px; }
+label.checkbox { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink); }
+label.checkbox input { margin: 0; }
+label.inline-select { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+input[type="text"], input[type="password"], input[type="number"], select, textarea {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+input:focus, select:focus, textarea:focus, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+textarea { resize: vertical; }
+.stack > * + * { margin-top: 14px; }
+.form-error { color: var(--critical); font-size: 13px; }
+.hint { font-size: 13px; color: var(--ink-soft); font-weight: 400; margin-inline-start: 8px; }
+
+/* --- login page --- */
+.login-body {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.login-panel {
+  width: 100%;
+  max-width: 340px;
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.login-panel .wordmark { font-size: 22px; margin-bottom: 4px; }
+.login-sub { color: var(--ink-soft); margin: 0 0 24px; font-size: 14px; }
+
+/* --- top bar --- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.topbar .wordmark { font-size: 18px; text-decoration: none; color: var(--ink); }
+.topbar-user { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.topbar-username { font-weight: 500; }
+.topbar-role { color: var(--ink-soft); text-transform: lowercase; }
+
+/* --- dialogs --- */
+.dialog {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0;
+  max-width: 420px;
+  width: 90vw;
+}
+.dialog::backdrop { background: rgba(26, 35, 48, 0.4); }
+.dialog-form { padding: 24px; }
+.dialog-form h2 { margin-bottom: 18px; }
+.dialog-actions { display: flex; align-items: center; gap: 10px; margin-top: 20px; }
+.fault-fields { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin: 14px 0; }
+.fault-fields legend { font-size: 13px; color: var(--ink-soft); padding: 0 4px; }
+.fault-fields > * + * { margin-top: 10px; }
+
+/* --- dashboard layout --- */
+.dashboard { max-width: 960px; margin: 0 auto; padding: 24px; }
+.dashboard-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+.filters { display: flex; gap: 16px; flex-wrap: wrap; }
+.filters label { margin-bottom: 0; }
+.queue-section { margin-bottom: 32px; }
+.queue-section h2 { display: flex; align-items: center; }
+
+/* --- row lists (maintenance + fault queue + full incident list) --- */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+.row:hover { border-color: var(--ink-soft); }
+.row.sev-critical { border-left-color: var(--critical); }
+.row.sev-major { border-left-color: var(--major); }
+.row.sev-minor { border-left-color: var(--minor); }
+.row-position { font-size: 13px; color: var(--ink-soft); min-width: 92px; }
+.row-badge { font-size: 13px; font-weight: 500; min-width: 76px; }
+.row-title { flex: 1; font-weight: 500; }
+.row-status { font-size: 13px; color: var(--ink-soft); text-transform: capitalize; }
+.row-meta { font-size: 13px; color: var(--ink-soft); white-space: nowrap; }
+.empty { color: var(--ink-soft); font-size: 14px; padding: 12px 0; }
+
+/* --- incident detail page --- */
+.incident-page { max-width: 720px; margin: 0 auto; padding: 24px; }
+.back-link { display: inline-block; margin-bottom: 20px; font-size: 14px; }
+.incident-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.incident-meta { color: var(--ink-soft); font-size: 13px; margin: 6px 0 0; }
+.incident-description { white-space: pre-wrap; margin-bottom: 20px; }
+.detail-badge {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.detail-badge.sev-critical { border-color: var(--critical); color: var(--critical); }
+.detail-badge.sev-major { border-color: var(--major); color: var(--major); }
+.detail-badge.sev-minor { border-color: var(--minor); color: var(--minor); }
+.actions-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 28px; }
+.resolution-panel {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--ink-soft);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 28px;
+}
+.resolution-panel strong { text-transform: capitalize; }
+.resolution-panel p { margin: 6px 0 0; }
+
+.comments-section h2 { margin-bottom: 14px; }
+.comments-list { margin-bottom: 18px; }
+.comment { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.comment-author { font-weight: 500; }
+.comment-time { color: var(--ink-soft); font-size: 13px; margin-inline-start: 8px; }
+.comment p { margin: 4px 0 0; }
+.comment-form { display: flex; gap: 10px; align-items: flex-start; }
+.comment-form textarea { flex: 1; }
+
+/* --- responsive --- */
+@media (max-width: 640px) {
+  .dashboard, .incident-page { padding: 16px; }
+  .row { flex-wrap: wrap; }
+  .incident-header { flex-direction: column; }
+}
+
+/* --- toast notifications (live updates) --- */
+.toast-stack {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 340px;
+}
+.toast {
+  background: var(--ink);
+  color: var(--surface);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+.toast-visible { opacity: 1; transform: translateY(0); }
+
+/* --- stale-data banner (incident page, after declining a refresh) --- */
+.stale-banner {
+  position: sticky;
+  top: 0;
+  z-index: 900;
+  background: var(--major);
+  color: var(--surface);
+  text-align: center;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* --- reduced motion --- */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Log in — Incident Bridge</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body class="login-body">
+  <main class="login-panel">
+    <h1 class="wordmark">Incident Bridge</h1>
+    <p class="login-sub">Sign in to view and work incidents.</p>
+    <form id="login-form" class="stack">
+      <label>Username<input type="text" name="username" autocomplete="username" required autofocus></label>
+      <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+      <p class="form-error" id="login-error" hidden></p>
+      <button type="submit" class="btn btn-primary btn-block">Log in</button>
+    </form>
+  </main>
+  <script type="module" src="/js/login.js"></script>
+</body>
+</html>

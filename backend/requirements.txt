@@ -1,0 +1,4 @@
+fastapi>=0.141
+uvicorn[standard]>=0.53
+itsdangerous>=2.2
+python-dotenv>=1.2

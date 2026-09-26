@@ -1,2 +1,9 @@
-.venv
+# Environment / secrets
+.env
 
+# Python
+__pycache__/
+*.pyc
+
+# SQLite database (created automatically - see backend/README.md's Persistence section)
+*.db

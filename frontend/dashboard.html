@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard — Incident Bridge</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header id="topbar"></header>
+  <main class="dashboard">
+    <div class="dashboard-toolbar">
+      <div class="filters">
+        <label>Type
+          <select id="filter-type">
+            <option value="">All</option>
+            <option value="maintenance">Maintenance</option>
+            <option value="fault">Fault</option>
+          </select>
+        </label>
+        <label>Status
+          <select id="filter-status">
+            <option value="">All</option>
+            <option value="open">Open</option>
+            <option value="in_progress">In progress</option>
+            <option value="closed">Closed</option>
+          </select>
+        </label>
+        <label>Sort by
+          <select id="sort-by">
+            <option value="severity">Severity</option>
+            <option value="created_at">Newest</option>
+            <option value="status">Status</option>
+          </select>
+        </label>
+      </div>
+      <button class="btn btn-primary" id="new-incident-btn">New incident</button>
+    </div>
+
+    <section class="queue-section">
+      <h2>Maintenance queue <span class="hint">FIFO — one at a time, in order</span></h2>
+      <div class="actions-row" style="margin-bottom:12px">
+        <button class="btn btn-ghost btn-sm" id="start-next-btn">Start next</button>
+      </div>
+      <div id="maintenance-queue"><p class="empty">Loading…</p></div>
+    </section>
+
+    <section class="queue-section">
+      <h2>Fault queue <span class="hint">Priority order — most severe first, every severity together</span></h2>
+      <div class="actions-row" style="margin-bottom:12px">
+        <button class="btn btn-ghost btn-sm" id="claim-next-btn">Claim next</button>
+      </div>
+      <div id="fault-queue"><p class="empty">Loading…</p></div>
+    </section>
+
+    <section class="queue-section">
+      <h2>All incidents</h2>
+      <div id="incident-list"><p class="empty">Loading…</p></div>
+    </section>
+  </main>
+
+  <dialog id="new-incident-dialog" class="dialog">
+    <form id="new-incident-form" class="dialog-form">
+      <h2>New incident</h2>
+      <label>Kind
+        <select name="kind" id="new-kind">
+          <option value="maintenance">Maintenance task</option>
+          <option value="fault">Fault / issue</option>
+        </select>
+      </label>
+      <label>Title<input type="text" name="title" required></label>
+      <label>Description<textarea name="description" rows="3" required></textarea></label>
+      <fieldset id="fault-fields" class="fault-fields" hidden>
+        <legend>Severity details (used to score the fault)</legend>
+        <label class="checkbox"><input type="checkbox" name="system_unavailable"> System is unavailable</label>
+        <label class="checkbox"><input type="checkbox" name="security_breach"> Security breach</label>
+        <label class="checkbox"><input type="checkbox" name="performance_degraded"> Performance degraded</label>
+        <label>Affected users (%)<input type="number" name="affected_users_percent" min="0" max="100" value="0"></label>
+      </fieldset>
+      <p class="form-error" id="new-incident-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/js/dashboard.js"></script>
+</body>
+</html>
