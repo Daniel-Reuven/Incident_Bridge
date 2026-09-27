@@ -1,0 +1,9 @@
+# Extra dependencies needed ONLY to run the automated test suite
+# (backend/tests/) - the running app itself doesn't need any of these,
+# so they're kept out of requirements.txt.
+#
+# Install alongside the app's normal dependencies:
+#   pip install -r requirements.txt -r requirements-dev.txt
+#
+pytest>=8.0
+pytest-cov>=5.0

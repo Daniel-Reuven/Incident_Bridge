@@ -1,0 +1,39 @@
+# Runs the backend automated test suite (backend/tests/) automatically on
+# every push and every pull request, for any branch. See
+# backend/README.md's "Automated tests" section for how to run the exact
+# same suite locally on your own machine.
+#
+# GitHub shows the result directly on the commit and on any pull request
+# as a green check-mark (all tests passed) or a red X (something failed)
+# - click it to see the full pytest output, no separate dashboard needed.
+name: Backend Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run the test suite
+        working-directory: backend
+        run: python -m pytest -v --cov=app --cov-report=term-missing

@@ -7,3 +7,5 @@ __pycache__/
 
 # SQLite database (created automatically - see backend/README.md's Persistence section)
 *.db
+
+.idea/

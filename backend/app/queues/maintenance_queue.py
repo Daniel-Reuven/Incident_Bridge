@@ -84,6 +84,7 @@ class MaintenanceQueue:
         task = self._current
         task.close(actor, resolution_type, message)
         self._current = None
+        self._renumber()
         return task
 
     def pending_tasks(self) -> Iterator[MaintenanceTask]:
