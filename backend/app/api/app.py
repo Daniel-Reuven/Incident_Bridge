@@ -5,6 +5,20 @@ mapping.
 Run with (from inside backend/):
     uvicorn app.api.app:app --reload
 """
+import mimetypes
+
+# Windows can have broken or missing registry MIME-type entries for
+# common static file types. When that happens, Starlette's StaticFiles
+# (which relies on Python's mimetypes module) reports "text/plain" for
+# .js files instead of a JS MIME type - and browsers refuse to execute
+# <script type="module"> when the response's MIME type isn't
+# JavaScript ("disallowed MIME type" error), which silently breaks the
+# whole frontend (the submit handler in login.js, and everything else,
+# never runs). Registering these explicitly overrides whatever (if
+# anything) the OS-level registry says, on every platform, so this
+# doesn't depend on a given machine's configuration.
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
 
 import asyncio
 import os
