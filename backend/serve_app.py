@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 # variable that's already set in the real environment (e.g. one Render
 # injects directly) - .env is a local-dev convenience, not an authority
 # over real deployment secrets.
+# test
 load_dotenv()
 
 import uvicorn  # noqa: E402 - must come after load_dotenv() so PORT etc. are already set
