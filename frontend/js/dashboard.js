@@ -72,7 +72,7 @@ function escapeHtml(s) {
 // double-bind on a reused row (attaching the same handler twice), neither
 // of which is right. Each row's data-key is its incident id.
 function wireDelegatedNavigation() {
-  ["maintenance-queue", "fault-queue", "incident-list"].forEach((id) => {
+  ["maintenance-queue", "fault-queue", "incident-list", "urgent-list"].forEach((id) => {
     document.getElementById(id).addEventListener("click", (e) => {
       const row = e.target.closest("[data-key]");
       if (row) window.location.href = `/incident.html?id=${row.dataset.key}`;
@@ -121,6 +121,33 @@ async function loadFaultQueue() {
   );
 }
 
+// Urgent faults: the backend runs a lazy three-stage pipeline (see
+// backend/app/iterators.py) and stops after `limit` results. The stats
+// line shows how many incidents it actually had to look at.
+async function loadUrgent() {
+  const limit = document.getElementById("urgent-limit").value;
+  const data = await api.urgentFaults(limit);
+
+  renderRowList(
+    document.getElementById("urgent-list"),
+    data.results,
+    (r) => r.id,
+    (r) => ({
+      className: `row sev-${r.severity.toLowerCase()}`,
+      html: `
+        <span class="row-badge">${r.severity.charAt(0) + r.severity.slice(1).toLowerCase()}</span>
+        <span class="row-title">${escapeHtml(r.title)}</span>
+        <span class="row-meta">${r.id.slice(0, 8)}</span>`,
+      sig: JSON.stringify([r.severity, r.title]),
+    }),
+    "No open Critical or Major faults."
+  );
+
+  document.getElementById("urgent-stats").textContent =
+    `Examined ${data.examined} of ${data.total_incidents} incidents` +
+    (data.stopped_early ? " — stopped early, the rest were never looked at." : ".");
+}
+
 async function loadIncidents() {
   const type = document.getElementById("filter-type").value;
   const status = document.getElementById("filter-status").value;
@@ -156,13 +183,14 @@ async function loadIncidents() {
 }
 
 async function refresh() {
-  await Promise.all([loadMaintenance(), loadFaultQueue(), loadIncidents()]);
+  await Promise.all([loadUrgent(), loadMaintenance(), loadFaultQueue(), loadIncidents()]);
 }
 
 function wireFilters() {
   ["filter-type", "filter-status", "sort-by"].forEach((id) =>
     document.getElementById(id).addEventListener("change", loadIncidents)
   );
+  document.getElementById("urgent-limit").addEventListener("change", loadUrgent);
 }
 
 function wireNewIncidentDialog() {

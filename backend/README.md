@@ -152,3 +152,20 @@ other within about a second, with no flicker anywhere else on the page.
 ## Next step
 
 Dark/light theme toggle and renaming the account modal to "Settings" with an Interface tab, then Stage 2 external service integration, Stage 3 automated tests, and Stage 4 concurrency/asyncio refinements — see the project's main README for how these are scoped.
+
+
+
+## Lazy pipeline (`app/iterators.py`)
+
+`urgent_fault_summaries(incidents)` chains three generator expressions over the incident repository, with no intermediate lists:
+
+1. keep only **open faults**;
+2. keep only **Critical/Major**, converting each to a `(severity, title, id)` tuple;
+3. return a small record with the incident **id** and a one-line **summary** such as `[CRITICAL] Payment API down (a1b2c3d4)`.
+
+It is exposed at `GET /incidents/faults/urgent?limit=2` and shown in the "Urgent faults" section of the dashboard (it refreshes on every live update, and each row links to its incident).
+
+- **What makes the pipeline start working?** Nothing happens when it is built. Work begins only when a consumer asks for a value (`next()`, a `for` loop, `islice`). Each request pulls one incident through all three stages.
+- **What did not need processing after stopping?** With `limit=2`, once the second urgent fault is found the source is never read again. The `examined` field in the API response shows how many incidents were pulled; every incident after that point was never touched.
+- **List comprehension vs. expression generator here:** a list comprehension would scan every incident and build full lists at each stage before returning anything. The generator expression produces one result at a time and can stop early, using no extra memory for intermediate results.
+- **Why a new generator is needed to go again:** a generator keeps its position and is exhausted once consumed. Iterating again from the start requires calling `urgent_fault_summaries(...)` to create a fresh one (shown in `tests/test_iterators.py`).

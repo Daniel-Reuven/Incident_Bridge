@@ -69,6 +69,7 @@ export const api = {
   faultQueue: () => request("/incidents/faults/queue"),
   createFault: (title, description, details = {}) =>
     request("/incidents/faults", { method: "POST", body: { title, description, details } }),
+  urgentFaults: (limit = 2) => request(`/incidents/faults/urgent?limit=${encodeURIComponent(limit)}`),
   claimNextFault: () => request("/incidents/faults/claim-next", { method: "POST" }),
   changeFaultSeverity: (id, severity) =>
     request(`/incidents/faults/${id}/severity`, { method: "PATCH", body: { severity } }),

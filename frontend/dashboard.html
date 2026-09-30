@@ -34,8 +34,27 @@
           </select>
         </label>
       </div>
-      <button class="btn btn-primary" id="new-incident-btn">New incident</button>
+      <div class="actions-row" style="margin-bottom:0">
+        <a class="btn btn-ghost" href="#urgent-section">Urgent faults</a>
+        <button class="btn btn-primary" id="new-incident-btn">New incident</button>
+      </div>
     </div>
+
+    <section class="queue-section" id="urgent-section">
+      <h2>Urgent faults <span class="hint">Open Critical/Major faults — a lazy pipeline that stops after the first few</span></h2>
+      <div class="actions-row" style="margin-bottom:12px">
+        <label class="inline-select">Show first
+          <select id="urgent-limit">
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+            <option value="5">5</option>
+          </select>
+        </label>
+        <span class="hint" id="urgent-stats"></span>
+      </div>
+      <div id="urgent-list"><p class="empty">Loading…</p></div>
+    </section>
 
     <section class="queue-section">
       <h2>Maintenance queue <span class="hint">FIFO — one at a time, in order</span></h2>

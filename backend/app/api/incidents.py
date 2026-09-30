@@ -19,7 +19,7 @@ project's scale, but worth knowing.
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import get_broadcaster, get_client_id, get_current_user, get_state
 from app.api.schemas import (
@@ -32,6 +32,7 @@ from app.api.schemas import (
 )
 from app.api.serializers import incident_to_dict
 from app.events import EventBroadcaster
+from app.iterators import first_urgent_faults
 from app.models import Fault, MaintenanceTask, User
 from app.services import SeverityScorer
 from app.state import AppState
@@ -146,6 +147,26 @@ def get_fault_queue(state: AppState = Depends(get_state), _current_user: User = 
     return [incident_to_dict(f) for f in state.faults]
 
 
+@router.get("/faults/urgent")
+def get_urgent_faults(limit: int = Query(2, ge=1, le=50), state: AppState = Depends(get_state),
+                       _current_user: User = Depends(get_current_user)):
+    """
+    The first `limit` open Critical/Major faults, produced by the lazy
+    pipeline in app/iterators.py. `examined` shows how many incidents the
+    pipeline actually had to look at before stopping; `stopped_early` is
+    True when some incidents were never touched at all.
+    """
+    summaries, examined = first_urgent_faults(state.incidents.list_all(), limit)
+    total = sum(1 for _ in state.incidents.list_all())
+    return {
+        "limit": limit,
+        "results": summaries,
+        "examined": examined,
+        "total_incidents": total,
+        "stopped_early": examined < total,
+    }
+
+
 @router.post("/faults")
 def create_fault(body: CreateFaultRequest, state: AppState = Depends(get_state),
                   current_user: User = Depends(get_current_user),
@@ -210,3 +231,5 @@ def close_fault(incident_id: str, body: CloseFaultRequest, state: AppState = Dep
     state.incidents.save(fault)
     _publish(broadcaster, client_id, fault, "closed", current_user)
     return incident_to_dict(fault)
+
+
