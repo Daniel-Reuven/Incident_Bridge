@@ -29,10 +29,11 @@ from app.api.schemas import (
     CompleteMaintenanceRequest,
     CreateFaultRequest,
     CreateMaintenanceTaskRequest,
+    ImportJsonlRequest,
 )
 from app.api.serializers import incident_to_dict
 from app.events import EventBroadcaster
-from app.models import Fault, MaintenanceTask, User
+from app.models import Fault, MaintenanceTask, Role, User
 from app.services import SeverityScorer
 from app.state import AppState
 
@@ -57,10 +58,10 @@ def _publish(broadcaster: EventBroadcaster, client_id: Optional[str], incident, 
 
 @router.get("")
 def list_incidents(
-    type: Optional[str] = None,
-    status: Optional[str] = None,
-    state: AppState = Depends(get_state),
-    _current_user: User = Depends(get_current_user),
+        type: Optional[str] = None,
+        status: Optional[str] = None,
+        state: AppState = Depends(get_state),
+        _current_user: User = Depends(get_current_user),
 ):
     """List every incident, optionally filtered by type ('maintenance'/'fault') and/or status."""
     items = state.incidents.list_all()
@@ -73,21 +74,69 @@ def list_incidents(
 
 @router.get("/{incident_id}")
 def get_incident(incident_id: str, state: AppState = Depends(get_state),
-                  _current_user: User = Depends(get_current_user)):
+                 _current_user: User = Depends(get_current_user)):
     return incident_to_dict(state.incidents.get(incident_id))
 
 
 @router.post("/{incident_id}/comments")
 def add_comment(incident_id: str, body: AddCommentRequest, state: AppState = Depends(get_state),
-                 current_user: User = Depends(get_current_user),
-                 broadcaster: EventBroadcaster = Depends(get_broadcaster),
-                 client_id: Optional[str] = Depends(get_client_id)):
+                current_user: User = Depends(get_current_user),
+                broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                client_id: Optional[str] = Depends(get_client_id)):
     """Any authenticated user may add a comment/update to any incident - including a closed one."""
     incident = state.incidents.get(incident_id)
     incident.add_comment(current_user, body.text)
     state.incidents.save(incident)
     _publish(broadcaster, client_id, incident, "commented", current_user)
     return incident_to_dict(incident)
+
+
+# --- bulk import (admin only) ---
+
+@router.post("/import-jsonl")
+def import_jsonl(body: ImportJsonlRequest, state: AppState = Depends(get_state),
+                 current_user: User = Depends(get_current_user),
+                 broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                 client_id: Optional[str] = Depends(get_client_id)):
+    """
+    Admin-only bulk import of synthetic seed incidents from JSONL text
+    (see app/repository.py's IncidentRepository.load_from_jsonl_lines,
+    which does the actual parsing/validation/dedup - this endpoint's job
+    is everything load_from_jsonl_lines deliberately does NOT do:
+    enqueueing each new incident into the real, live queue it belongs in,
+    and broadcasting it, exactly like create_maintenance_task/create_fault
+    below do for a single incident created through the normal dashboard
+    dialog. This is what makes an import show up live, with no restart -
+    unlike backend/seed_from_jsonl.py's original approach of writing
+    directly to the database from a separate, short-lived process, which
+    had no way to reach this already-running process's in-memory queues.
+
+    Takes raw JSONL text in the request body rather than a server-side
+    file path - see ImportJsonlRequest's docstring for why - so this same
+    endpoint works whether it's triggered by the seed_from_jsonl.py CLI
+    script (reads a local file, sends its content) or a future
+    browser-side file picker on the dashboard (has no server-side path to
+    give it, only a file's contents).
+    """
+    if current_user.role != Role.ADMIN:
+        raise HTTPException(status_code=403, detail="Only an admin may import seed data.")
+
+    result = state.incidents.load_from_jsonl_lines(body.content.splitlines(), state.users)
+
+    for incident_id in result.created_ids:
+        incident = state.incidents.get(incident_id)
+        if isinstance(incident, Fault):
+            state.faults.push(incident)
+        else:
+            state.maintenance.get_queue().enqueue(incident)
+        _publish(broadcaster, client_id, incident, "created", current_user)
+
+    return {
+        "created": result.created,
+        "created_ids": result.created_ids,
+        "skipped_duplicate_ids": result.skipped_duplicate_ids,
+        "skipped_invalid": result.skipped_invalid,
+    }
 
 
 # --- maintenance: strict, immutable FIFO ---
@@ -103,9 +152,9 @@ def get_maintenance_queue(state: AppState = Depends(get_state), _current_user: U
 
 @router.post("/maintenance")
 def create_maintenance_task(body: CreateMaintenanceTaskRequest, state: AppState = Depends(get_state),
-                             current_user: User = Depends(get_current_user),
-                             broadcaster: EventBroadcaster = Depends(get_broadcaster),
-                             client_id: Optional[str] = Depends(get_client_id)):
+                            current_user: User = Depends(get_current_user),
+                            broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                            client_id: Optional[str] = Depends(get_client_id)):
     task = MaintenanceTask(title=body.title, description=body.description, created_by=current_user)
     state.incidents.add(task)
     state.maintenance.get_queue().enqueue(task)
@@ -116,8 +165,8 @@ def create_maintenance_task(body: CreateMaintenanceTaskRequest, state: AppState 
 
 @router.post("/maintenance/start-next")
 def start_next_maintenance(state: AppState = Depends(get_state), current_user: User = Depends(get_current_user),
-                            broadcaster: EventBroadcaster = Depends(get_broadcaster),
-                            client_id: Optional[str] = Depends(get_client_id)):
+                           broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                           client_id: Optional[str] = Depends(get_client_id)):
     """Raises 409 (via RuntimeError) if a task is already in progress, or 404 (IndexError) if the queue is empty."""
     task = state.maintenance.get_queue().start_next()
     state.incidents.save(task)
@@ -127,9 +176,9 @@ def start_next_maintenance(state: AppState = Depends(get_state), current_user: U
 
 @router.post("/maintenance/complete-current")
 def complete_current_maintenance(body: CompleteMaintenanceRequest, state: AppState = Depends(get_state),
-                                  current_user: User = Depends(get_current_user),
-                                  broadcaster: EventBroadcaster = Depends(get_broadcaster),
-                                  client_id: Optional[str] = Depends(get_client_id)):
+                                 current_user: User = Depends(get_current_user),
+                                 broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                                 client_id: Optional[str] = Depends(get_client_id)):
     task = state.maintenance.get_queue().complete_current(
         actor=current_user, message=body.message, resolution_type=body.resolution_type
     )
@@ -148,9 +197,9 @@ def get_fault_queue(state: AppState = Depends(get_state), _current_user: User = 
 
 @router.post("/faults")
 def create_fault(body: CreateFaultRequest, state: AppState = Depends(get_state),
-                  current_user: User = Depends(get_current_user),
-                  broadcaster: EventBroadcaster = Depends(get_broadcaster),
-                  client_id: Optional[str] = Depends(get_client_id)):
+                 current_user: User = Depends(get_current_user),
+                 broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                 client_id: Optional[str] = Depends(get_client_id)):
     severity = SeverityScorer.score(body.details)
     fault = Fault(
         title=body.title, description=body.description, created_by=current_user,
@@ -165,8 +214,8 @@ def create_fault(body: CreateFaultRequest, state: AppState = Depends(get_state),
 
 @router.post("/faults/claim-next")
 def claim_next_fault(state: AppState = Depends(get_state), current_user: User = Depends(get_current_user),
-                      broadcaster: EventBroadcaster = Depends(get_broadcaster),
-                      client_id: Optional[str] = Depends(get_client_id)):
+                     broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                     client_id: Optional[str] = Depends(get_client_id)):
     """Pop the most severe fault off the queue and mark it in progress, assigned to the caller."""
     fault = state.faults.pop_most_severe()
     fault.start_progress()
@@ -178,9 +227,9 @@ def claim_next_fault(state: AppState = Depends(get_state), current_user: User = 
 
 @router.patch("/faults/{incident_id}/severity")
 def change_fault_severity(incident_id: str, body: ChangeSeverityRequest, state: AppState = Depends(get_state),
-                           current_user: User = Depends(get_current_user),
-                           broadcaster: EventBroadcaster = Depends(get_broadcaster),
-                           client_id: Optional[str] = Depends(get_client_id)):
+                          current_user: User = Depends(get_current_user),
+                          broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                          client_id: Optional[str] = Depends(get_client_id)):
     fault = state.incidents.get(incident_id)
     if not isinstance(fault, Fault):
         raise HTTPException(status_code=400, detail="Only faults have a severity.")
@@ -197,9 +246,9 @@ def change_fault_severity(incident_id: str, body: ChangeSeverityRequest, state: 
 
 @router.post("/faults/{incident_id}/close")
 def close_fault(incident_id: str, body: CloseFaultRequest, state: AppState = Depends(get_state),
-                 current_user: User = Depends(get_current_user),
-                 broadcaster: EventBroadcaster = Depends(get_broadcaster),
-                 client_id: Optional[str] = Depends(get_client_id)):
+                current_user: User = Depends(get_current_user),
+                broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                client_id: Optional[str] = Depends(get_client_id)):
     fault = state.incidents.get(incident_id)
     if not isinstance(fault, Fault):
         raise HTTPException(

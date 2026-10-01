@@ -74,4 +74,7 @@ export const api = {
     request(`/incidents/faults/${id}/severity`, { method: "PATCH", body: { severity } }),
   closeFault: (id, resolution_type, message) =>
     request(`/incidents/faults/${id}/close`, { method: "POST", body: { resolution_type, message } }),
+
+  // --- bulk import (admin only) ---
+  importJsonl: (content) => request("/incidents/import-jsonl", { method: "POST", body: { content } }),
 };

@@ -10,6 +10,16 @@ if (user) {
   wireNewIncidentDialog();
   wireDelegatedNavigation();
 
+  // Bulk seed-data import is an admin-only action (enforced again, for
+  // real, by the server - see POST /incidents/import-jsonl - this is
+  // just about not showing a button a non-admin would only get a 403
+  // from). The button stays in the markup with `hidden` by default (see
+  // dashboard.html) so there's nothing to flash-and-hide after load.
+  if (user.role === "admin") {
+    document.getElementById("import-jsonl-btn").hidden = false;
+    wireImportJsonlDialog();
+  }
+
   document.getElementById("start-next-btn").addEventListener("click", async () => {
     try {
       await api.startNextMaintenance();
@@ -205,4 +215,69 @@ function wireNewIncidentDialog() {
       errorEl.hidden = false;
     }
   });
+}
+
+function wireImportJsonlDialog() {
+  const dialog = document.getElementById("import-jsonl-dialog");
+  const form = document.getElementById("import-jsonl-form");
+  const fileInput = form.querySelector('input[name="file"]');
+  const errorEl = document.getElementById("import-jsonl-error");
+  const summaryEl = document.getElementById("import-jsonl-summary");
+  const submitBtn = document.getElementById("import-jsonl-submit");
+
+  document.getElementById("import-jsonl-btn").addEventListener("click", () => {
+    form.reset();
+    errorEl.hidden = true;
+    summaryEl.hidden = true;
+    dialog.showModal();
+  });
+  dialog.querySelector('[data-action="cancel"]').addEventListener("click", () => dialog.close());
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorEl.hidden = true;
+    summaryEl.hidden = true;
+
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    submitBtn.disabled = true;
+    try {
+      // Read client-side and send the file's own text content, not a
+      // path - the server has no way to open "a path on the admin's
+      // laptop" and shouldn't need to (see backend/app/api/schemas.py's
+      // ImportJsonlRequest for the same reasoning on the backend side).
+      const content = await file.text();
+      const result = await api.importJsonl(content);
+      renderImportSummary(result);
+      // The server excludes THIS tab from its own live-update broadcast
+      // (same X-Client-Id mechanism every other mutating call uses - see
+      // api.js/events.js) - so unlike a response to another tab's action,
+      // our own queues/lists need an explicit refresh here, not just the
+      // toast-triggered one connectLiveUpdates() does for everyone else.
+      await refresh();
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.hidden = false;
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+function renderImportSummary(result) {
+  const summaryEl = document.getElementById("import-jsonl-summary");
+  const duplicateCount = result.skipped_duplicate_ids.length;
+  const invalidCount = result.skipped_invalid.length;
+
+  const invalidListHtml = invalidCount
+    ? `<ul>${result.skipped_invalid.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>`
+    : "";
+
+  summaryEl.innerHTML = `
+    <p><strong>${result.created}</strong> incident${result.created === 1 ? "" : "s"} imported.</p>
+    ${duplicateCount ? `<p>${duplicateCount} skipped (already imported).</p>` : ""}
+    ${invalidCount ? `<p>${invalidCount} skipped (invalid):</p>${invalidListHtml}` : ""}
+  `;
+  summaryEl.hidden = false;
 }

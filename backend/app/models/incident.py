@@ -42,6 +42,39 @@ class Incident(ABC):
         self.updated_at = self.created_at
         self.comments: List[Comment] = []
 
+    @classmethod
+    def from_dict(cls, data: dict, created_by: User, assigned_to: Optional[User] = None) -> "Incident":
+        """
+        Alternate constructor: builds an incident from a plain dict shaped
+        like one line of data/sample_data.jsonl (see
+        IncidentRepository.load_from_jsonl() in app/repository.py, which is
+        the only caller). `created_by`/`assigned_to` are already-resolved
+        User objects, not usernames - resolving a username string to a
+        User is the loader's job (it has the UserStore), not this method's.
+
+        This base implementation only validates the two fields every
+        incident type needs (title, description) and refuses to build
+        anything itself, since Incident can't be instantiated directly
+        (see __init__ above). MaintenanceTask.from_dict and Fault.from_dict
+        each OVERRIDE this method to add their own subclass-specific
+        fields (queue_position has nothing to seed; severity/details do),
+        calling `super().from_dict(data, ...)` first purely for this
+        shared validation - its return value is unused by them.
+
+        Raises:
+            TypeError: if called on Incident itself rather than a concrete subclass.
+            ValueError: if 'title' or 'description' is missing or blank.
+        """
+        if cls is Incident:
+            raise TypeError("Incident.from_dict must be called on a concrete subclass (MaintenanceTask or Fault).")
+        title = data.get("title")
+        description = data.get("description")
+        if not title or not str(title).strip():
+            raise ValueError(f"record {data.get('id', '?')!r} is missing a required 'title'")
+        if not description or not str(description).strip():
+            raise ValueError(f"record {data.get('id', '?')!r} is missing a required 'description'")
+        return None  # subclasses only use this call for its validation side effect, not this return value
+
     def add_comment(self, author: User, text: str) -> Comment:
         """Any authenticated user may add a comment/update."""
         comment = Comment(author=author, text=text)
