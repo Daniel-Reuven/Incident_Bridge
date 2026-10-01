@@ -1,7 +1,11 @@
 # Runs the backend automated test suite (backend/tests/) automatically on
 # every push and every pull request, for any branch. See
-# backend/README.md's "Automated tests" section for how to run the exact
-# same suite locally on your own machine.
+# docs/README_EN.md's testing section for how to run the exact same suite
+# locally on your own machine.
+#
+# Dependencies come from backend/pyproject.toml: the project itself plus
+# its "dev" extra (pytest, pytest-cov). There are no requirements*.txt
+# files any more.
 #
 # GitHub shows the result directly on the commit and on any pull request
 # as a green check-mark (all tests passed) or a red X (something failed)
@@ -27,12 +31,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Editable install (-e) of the backend plus the test-only "dev" extra,
+      # both declared in backend/pyproject.toml. Editable matters because
+      # app/api/app.py locates the frontend/ folder relative to its own file.
       - name: Install dependencies
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          pip install -e ".[dev]"
 
       - name: Run the test suite
         working-directory: backend
