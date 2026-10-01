@@ -39,6 +39,34 @@ def test_incident_cannot_be_instantiated_directly(reporter):
         Incident(title="x", description="y", created_by=reporter)
 
 
+def test_from_dict_on_incident_itself_raises_type_error(reporter):
+    """
+    Incident.from_dict must be called on a concrete subclass
+    (MaintenanceTask.from_dict / Fault.from_dict) - calling it directly on
+    Incident is the same category of error as instantiating Incident
+    itself. See test_maintenance_task.py / test_fault.py for the
+    overridden versions that actually build something.
+    """
+    with pytest.raises(TypeError):
+        Incident.from_dict({"title": "x", "description": "y"}, created_by=reporter)
+
+
+def test_from_dict_rejects_a_record_missing_title(reporter):
+    """
+    This validation lives on the base class precisely so both
+    MaintenanceTask.from_dict and Fault.from_dict get it for free via
+    super().from_dict(...) - see either subclass's from_dict for where
+    that call happens.
+    """
+    with pytest.raises(ValueError, match="title"):
+        MaintenanceTask.from_dict({"id": "seed-1", "description": "y"}, created_by=reporter)
+
+
+def test_from_dict_rejects_a_record_missing_description(reporter):
+    with pytest.raises(ValueError, match="description"):
+        MaintenanceTask.from_dict({"id": "seed-1", "title": "x"}, created_by=reporter)
+
+
 def test_new_incident_starts_open(task):
     assert task.status == IncidentStatus.OPEN
     assert task.resolution_type is None

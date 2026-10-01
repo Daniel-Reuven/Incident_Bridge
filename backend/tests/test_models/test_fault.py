@@ -60,3 +60,30 @@ def test_change_severity_by_a_regular_user_is_rejected(fault, reporter):
 def test_change_severity_by_an_admin_succeeds(fault, admin):
     fault.change_severity(admin, SeverityCategory.MAJOR)
     assert fault.severity == SeverityCategory.MAJOR
+
+
+def test_from_dict_auto_scores_severity_from_details(reporter):
+    """
+    from_dict never accepts severity directly - it's always derived from
+    'details' via SeverityScorer, the same as POST /incidents/faults at
+    the API layer, so a seed record and an API request can never disagree
+    about what a given set of details scores as.
+    """
+    record = {
+        "id": "seed-fault-1", "kind": "fault", "title": "Payment API down",
+        "description": "Checkout is failing", "details": {"system_unavailable": True},
+    }
+
+    fault = Fault.from_dict(record, created_by=reporter)
+
+    assert fault.id == "seed-fault-1"
+    assert fault.severity == SeverityCategory.CRITICAL
+    assert fault.severity_score == 1.0
+    assert fault.details == {"system_unavailable": True}
+
+
+def test_from_dict_defaults_to_minor_when_details_is_missing(reporter):
+    record = {"id": "seed-fault-2", "kind": "fault", "title": "Typo", "description": "Small text issue"}
+    fault = Fault.from_dict(record, created_by=reporter)
+    assert fault.severity == SeverityCategory.MINOR
+    assert fault.details == {}

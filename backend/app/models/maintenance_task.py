@@ -18,3 +18,22 @@ class MaintenanceTask(Incident):
                  assigned_to: Optional[User] = None):
         super().__init__(title, description, created_by, assigned_to)
         self.queue_position: Optional[int] = None
+
+    @classmethod
+    def from_dict(cls, data: dict, created_by: User, assigned_to: Optional[User] = None) -> "MaintenanceTask":
+        """
+        Overrides Incident.from_dict: a maintenance task has no extra
+        fields to seed from the record (queue_position is assigned only
+        once the task is actually enqueued - see MaintenanceQueue), so
+        this just does the shared validation and builds the object. If
+        the record supplies an 'id' (the normal case for seed data, so
+        re-running the loader is idempotent - see
+        IncidentRepository.load_from_jsonl), that id replaces the
+        freshly-generated one.
+        """
+        super().from_dict(data, created_by, assigned_to)
+        task = cls(title=data["title"], description=data["description"],
+                   created_by=created_by, assigned_to=assigned_to)
+        if "id" in data:
+            task.id = data["id"]
+        return task

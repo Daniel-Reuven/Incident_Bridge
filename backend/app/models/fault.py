@@ -28,3 +28,31 @@ class Fault(Incident):
         if actor.role != Role.ADMIN:
             raise PermissionError("Only an admin may change a fault's severity.")
         self.severity = new_severity
+
+    @classmethod
+    def from_dict(cls, data: dict, created_by: User, assigned_to: Optional[User] = None) -> "Fault":
+        """
+        Overrides Incident.from_dict: unlike MaintenanceTask, a Fault has
+        extra fields to seed - 'details' (the raw signal dict, e.g.
+        {"system_unavailable": true}) and its derived severity. Severity
+        is auto-scored from those details via SeverityScorer, exactly like
+        POST /incidents/faults does at the API layer (see
+        app/api/incidents.py's create_fault) - a seed record never
+        specifies severity directly, so the two entry points can't
+        disagree about how a given set of details maps to a category.
+
+        The import is local (not at module top) to avoid a domain model
+        depending on app.services at import time, matching the existing
+        pattern in app/models/user.py's set_password().
+        """
+        from app.services.severity_scoring import SeverityScorer
+
+        super().from_dict(data, created_by, assigned_to)
+        details = data.get("details") or {}
+        severity = SeverityScorer.score(details)
+        fault = cls(title=data["title"], description=data["description"], created_by=created_by,
+                    severity=severity, severity_score=float(severity.value), details=details,
+                    assigned_to=assigned_to)
+        if "id" in data:
+            fault.id = data["id"]
+        return fault
