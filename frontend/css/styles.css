@@ -23,6 +23,13 @@
   --major: #B8790A;
   --minor: #5B6B79;
 
+  /* Admin-only actions (e.g. the "Import seed data" button) get their own
+     darker orange, deliberately a shade deeper than --major, so they read
+     as a distinct, slightly more "careful" action rather than reusing a
+     severity color for something that isn't about severity at all. */
+  --admin-action: #96600A;
+  --admin-action-hover: #7A4E08;
+
   --font-display: 'Space Grotesk', system-ui, sans-serif;
   --font-body: 'IBM Plex Sans', system-ui, sans-serif;
 
@@ -30,6 +37,15 @@
 }
 
 * { box-sizing: border-box; }
+
+/* Without this, the browser's default `[hidden] { display: none }` rule
+   loses to any element that declares its own `display` (e.g. .btn's
+   `display: inline-flex` below) - same specificity, and an explicit
+   author rule always beats a user-agent default regardless of source
+   order. Caught via the admin-only "Import seed data" button (see
+   dashboard.html): without this, `hidden` on a .btn did nothing at all,
+   and the button stayed visible to every role. */
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;
@@ -70,6 +86,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 .btn-primary:hover { background: #095b55; }
 .btn-ghost { border-color: var(--line); color: var(--ink); background: var(--surface); }
 .btn-ghost:hover { border-color: var(--ink-soft); }
+.btn-import { background: var(--admin-action); color: var(--accent-ink); }
+.btn-import:hover { background: var(--admin-action-hover); }
 .btn-sm { padding: 5px 10px; font-size: 13px; }
 .btn-block { width: 100%; justify-content: center; }
 
@@ -144,6 +162,21 @@ textarea { resize: vertical; }
 .fault-fields { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin: 14px 0; }
 .fault-fields legend { font-size: 13px; color: var(--ink-soft); padding: 0 4px; }
 .fault-fields > * + * { margin-top: 10px; }
+
+/* --- seed-data import dialog result summary --- */
+.import-summary {
+  margin: 14px 0;
+  padding: 10px 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 13px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.import-summary p { margin: 0 0 4px; }
+.import-summary ul { margin: 4px 0 0; padding-inline-start: 18px; }
+.import-summary li { margin-bottom: 2px; }
 
 /* --- dashboard layout --- */
 .dashboard { max-width: 960px; margin: 0 auto; padding: 24px; }
