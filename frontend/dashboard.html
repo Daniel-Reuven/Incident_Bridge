@@ -37,7 +37,9 @@
       <div class="actions-row" style="margin-bottom:0">
         <a class="btn btn-ghost" href="/pressing.html" id="pressing-link">Pressing maintenance calls</a>
         <button class="btn btn-primary" id="new-incident-btn">New incident</button>
+          <button class="btn btn-import" id="import-jsonl-btn" hidden>Import seed data</button>
       </div>
+
     </div>
 
     <section class="queue-section">
@@ -84,6 +86,24 @@
       <div class="dialog-actions">
         <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
         <button type="submit" class="btn btn-primary">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="import-jsonl-dialog" class="dialog">
+    <form id="import-jsonl-form" class="dialog-form">
+      <h2>Import seed data</h2>
+      <p class="hint">
+        Choose a .jsonl file - one JSON incident per line. Valid records are
+        added immediately to the live queues; records with an id that
+        already exists are skipped, not duplicated.
+      </p>
+      <label>Seed file<input type="file" name="file" accept=".jsonl,.json,.txt" required></label>
+      <p class="form-error" id="import-jsonl-error" hidden></p>
+      <div class="import-summary" id="import-jsonl-summary" hidden></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Close</button>
+        <button type="submit" class="btn btn-import" id="import-jsonl-submit">Import</button>
       </div>
     </form>
   </dialog>

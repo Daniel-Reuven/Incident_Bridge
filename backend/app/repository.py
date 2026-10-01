@@ -2,9 +2,10 @@
 
 import json
 import os
-from typing import Dict, Iterable, Iterator, Optional
+from dataclasses import dataclass, field
+from typing import Dict, Iterable, Iterator, List, Optional
 
-from app.models import Incident, Role, User
+from app.models import Fault, Incident, MaintenanceTask, Role, User
 from app.persistence import SqliteIncidentStore
 
 
@@ -56,6 +57,27 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS") -> UserStore:
     for entry in json.loads(raw):
         store.add(User(username=entry["username"], role=Role(entry["role"]), password=entry["password"]))
     return store
+
+
+@dataclass
+class SeedLoadResult:
+    """
+    Outcome of one IncidentRepository.load_from_jsonl[_lines]() call.
+    created_ids (not just a count) is what lets a caller that needs to do
+    more than just report a summary - see app/api/incidents.py's
+    import_jsonl(), which enqueues each new incident into the live
+    maintenance/fault queue and broadcasts it - look each one up via
+    IncidentRepository.get() afterwards. `created` stays available as a
+    computed property (not a stored field) purely so existing "how many
+    got created" call sites don't need to change to len(created_ids).
+    """
+    created_ids: List[str] = field(default_factory=list)
+    skipped_duplicate_ids: List[str] = field(default_factory=list)
+    skipped_invalid: List[str] = field(default_factory=list)
+
+    @property
+    def created(self) -> int:
+        return len(self.created_ids)
 
 
 class IncidentRepository:
@@ -112,3 +134,113 @@ class IncidentRepository:
 
     def list_all(self) -> Iterator[Incident]:
         yield from self._incidents.values()
+
+    def load_from_jsonl(self, path: str, users: "UserStore") -> SeedLoadResult:
+        """
+        Reads a seed-data FILE of synthetic incidents - one JSON object per
+        line, e.g. data/sample_data.jsonl - from disk. Thin wrapper around
+        load_from_jsonl_lines() (below), which is where the actual
+        line-by-line parsing/validation/dedup logic lives: this method's
+        only job is opening the file and handing its lines over, one at a
+        time, without ever calling read()/readlines() (so the file is
+        never held in memory all at once, however large it might be).
+
+        Used by backend/seed_from_jsonl.py to read a local file's content
+        before sending it to a running server (see load_from_jsonl_lines'
+        docstring for why that content, not this path, is what actually
+        gets processed). Raises only for problems with the file itself
+        (e.g. it doesn't exist) - see load_from_jsonl_lines for how
+        problems with individual records inside it are handled.
+        """
+        with open(path, encoding="utf-8") as f:
+            return self.load_from_jsonl_lines(f, users)
+
+    def load_from_jsonl_lines(self, lines: Iterable[str], users: "UserStore") -> SeedLoadResult:
+        """
+        The actual seed-loading logic, over any iterable of JSONL text
+        lines - an open file (see load_from_jsonl above), or
+        `some_string.splitlines()` for content that arrived some other
+        way (e.g. app/api/incidents.py's import_jsonl endpoint, which
+        receives raw text in an HTTP request body rather than a path on
+        this process's filesystem - the server may not even be running on
+        the same machine as whoever is importing). Saves each valid,
+        non-duplicate record exactly as if it had been created through the
+        API (same save(), same persistence if a store is configured) -
+        but does NOT enqueue it into a live MaintenanceQueue/
+        FaultPriorityQueue or broadcast a live-update event; that's an
+        application-layer concern for whichever caller has access to
+        those (see import_jsonl for the one that does).
+
+        Never called automatically at normal app startup - this is always
+        an explicit, repeatable seeding action.
+
+        Explicit duplicate-id decision: a record whose 'id' already exists
+        in this repository is SKIPPED, not overwritten and not an error -
+        this is what makes re-running an import against the same data
+        idempotent (running it twice adds nothing the second time).
+
+        Explicit invalid-record decision: a record with an unknown 'kind',
+        a missing/blank required field, an unresolvable created_by /
+        assigned_to username, or invalid JSON on that line is SKIPPED and
+        recorded in the result with a reason - it does not raise and does
+        not stop the rest of the data from loading.
+        """
+        result = SeedLoadResult()
+        for line_number, raw_line in enumerate(lines, start=1):
+            line = raw_line.strip()
+            if not line:
+                continue  # blank lines are not errors, just skipped silently
+            try:
+                incident = self._incident_from_jsonl_line(line, users)
+            except (ValueError, json.JSONDecodeError) as exc:
+                result.skipped_invalid.append(f"line {line_number}: {exc}")
+                continue
+            if incident.id in self._incidents:
+                result.skipped_duplicate_ids.append(incident.id)
+                continue
+            self.save(incident)
+            result.created_ids.append(incident.id)
+        return result
+
+    def _incident_from_jsonl_line(self, line: str, users: "UserStore") -> Incident:
+        """
+        Converts one JSONL line into a ready-to-save Incident: json.loads()
+        for the raw dict, then dispatches to the right concrete subclass's
+        from_dict() based on the record's 'kind' field. This is the one
+        place that needs to know which type to build from untyped file
+        data - once built, the rest of the app (queues, API, persistence)
+        handles Fault and MaintenanceTask polymorphically through the
+        shared Incident type, never branching on 'kind' again.
+        """
+        data = json.loads(line)
+
+        kind = data.get("kind")
+        if kind not in ("maintenance", "fault"):
+            raise ValueError(f"'kind' must be 'maintenance' or 'fault', got {kind!r}")
+
+        created_by = self._resolve_seed_user(data.get("created_by"), users, "created_by")
+        assigned_to_name = data.get("assigned_to")
+        assigned_to = self._resolve_seed_user(assigned_to_name, users, "assigned_to") if assigned_to_name else None
+
+        if kind == "fault":
+            return Fault.from_dict(data, created_by=created_by, assigned_to=assigned_to)
+        return MaintenanceTask.from_dict(data, created_by=created_by, assigned_to=assigned_to)
+
+    @staticmethod
+    def _resolve_seed_user(username: Optional[str], users: "UserStore", field_name: str) -> User:
+        """
+        Looks up a seed record's username against the real UserStore
+        (built from INCIDENT_BRIDGE_USERS - see seed_users_from_env
+        above). Deliberately stricter than app/persistence.py's restore
+        path, which substitutes a "(removed)" placeholder for a username
+        that no longer exists: that path is restoring data that was
+        already valid when first written, while this one is validating
+        brand-new seed data, so an unknown username here is treated as an
+        invalid record instead of silently accepted.
+        """
+        if not username:
+            raise ValueError(f"missing required field '{field_name}'")
+        user = users.get(username)
+        if user is None:
+            raise ValueError(f"{field_name} {username!r} is not a known user (check INCIDENT_BRIDGE_USERS)")
+        return user
