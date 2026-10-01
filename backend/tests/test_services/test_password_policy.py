@@ -56,3 +56,11 @@ def test_unicode_letters_are_rejected():
     """Only A-Z/a-z/0-9 are allowed - accented/non-Latin letters must fail even at 8+ characters."""
     with pytest.raises(ValueError):
         PasswordPolicy.validate("Pässw0rd")
+
+def test_dunder_str():
+    policy = PasswordPolicy()
+    assert str(policy) == "PasswordPolicy(min_length=8, allowed_chars='A-Z, a-z, 0-9')"
+
+def test_dunder_repr():
+    policy = PasswordPolicy()
+    assert repr(policy) == "<PasswordPolicy min_length=8 pattern='^[A-Za-z0-9]+$'>"

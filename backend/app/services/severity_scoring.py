@@ -38,3 +38,7 @@ class SeverityScorer:
             return SeverityCategory.MAJOR
 
         return SeverityCategory.MINOR
+
+    def __str__(self) -> str:
+        """String representation indicating the current scoring mode."""
+        return "SeverityScorer(mode='rule-based')"

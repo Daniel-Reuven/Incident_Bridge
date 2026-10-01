@@ -66,3 +66,8 @@ def test_none_details_is_minor():
     """score() must tolerate details=None (e.g. a fault created with no details dict supplied at all)."""
     result = SeverityScorer.score(None)
     assert result == SeverityCategory.MINOR
+
+def test_dunder_str():
+    """Test the string representation of the scorer."""
+    scorer = SeverityScorer()
+    assert str(scorer) == "SeverityScorer(mode='rule-based')"
