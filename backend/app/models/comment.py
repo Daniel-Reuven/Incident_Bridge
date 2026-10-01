@@ -20,3 +20,7 @@ class Comment:
     def __repr__(self) -> str:
         preview = self.text if len(self.text) <= 30 else self.text[:27] + "..."
         return f"Comment(author={self.author.username!r}, text={preview!r})"
+
+    def __str__(self) -> str:
+        formatted_time = self.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        return f"[{formatted_time}] {self.author.username}: {self.text}"

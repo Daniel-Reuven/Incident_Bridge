@@ -67,3 +67,6 @@ class User:
 
     def __repr__(self) -> str:
         return f"User(username={self.username!r}, role={self.role.name})"
+
+    def __str__(self) -> str:
+        return f"{self.username} ({self.role.name})"
