@@ -113,3 +113,7 @@ class Incident(ABC):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(id={self.id[:8]}, title={self.title!r}, status={self.status.name})"
+
+    def __str__(self) -> str:
+        status_name = self.status.name if hasattr(self.status, "name") else str(self.status)
+        return f"[{self.__class__.__name__} - {status_name}] {self.title}"
