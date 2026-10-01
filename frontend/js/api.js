@@ -61,6 +61,10 @@ export const api = {
   maintenanceQueue: () => request("/incidents/maintenance/queue"),
   createMaintenanceTask: (title, description) =>
     request("/incidents/maintenance", { method: "POST", body: { title, description } }),
+  // Open maintenance calls waiting more than 3 days (lazy pipeline - backend/app/iterators.py).
+  // `limit` is optional: omit it to get every pressing call.
+  pressingMaintenance: (limit) =>
+    request("/incidents/maintenance/pressing" + (limit ? `?limit=${encodeURIComponent(limit)}` : "")),
   startNextMaintenance: () => request("/incidents/maintenance/start-next", { method: "POST" }),
   completeCurrentMaintenance: (message, resolution_type = "resolved") =>
     request("/incidents/maintenance/complete-current", { method: "POST", body: { message, resolution_type } }),
@@ -69,7 +73,6 @@ export const api = {
   faultQueue: () => request("/incidents/faults/queue"),
   createFault: (title, description, details = {}) =>
     request("/incidents/faults", { method: "POST", body: { title, description, details } }),
-  urgentFaults: (limit = 2) => request(`/incidents/faults/urgent?limit=${encodeURIComponent(limit)}`),
   claimNextFault: () => request("/incidents/faults/claim-next", { method: "POST" }),
   changeFaultSeverity: (id, severity) =>
     request(`/incidents/faults/${id}/severity`, { method: "PATCH", body: { severity } }),

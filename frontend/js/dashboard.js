@@ -72,7 +72,7 @@ function escapeHtml(s) {
 // double-bind on a reused row (attaching the same handler twice), neither
 // of which is right. Each row's data-key is its incident id.
 function wireDelegatedNavigation() {
-  ["maintenance-queue", "fault-queue", "incident-list", "urgent-list"].forEach((id) => {
+  ["maintenance-queue", "fault-queue", "incident-list"].forEach((id) => {
     document.getElementById(id).addEventListener("click", (e) => {
       const row = e.target.closest("[data-key]");
       if (row) window.location.href = `/incident.html?id=${row.dataset.key}`;
@@ -103,50 +103,32 @@ async function loadMaintenance() {
 }
 
 async function loadFaultQueue() {
-  const faults = await api.faultQueue();
+  const faults = await api.faultQueue() || [];
+
+  const faultsWithPositions = faults.map((f, index) => ({
+    ...f,
+    position: index + 1
+  }));
+
   renderRowList(
     document.getElementById("fault-queue"),
-    faults,
+    faultsWithPositions,
     (f) => f.id,
-    (f, i) => ({
+    (f) => ({
       className: `row ${severityClass(f.severity)}`,
       html: `
-        <span class="row-position">#${i + 1}</span>
+        <span class="row-position">#${f.position}</span>
         <span class="row-badge">${severityLabel(f.severity)}</span>
         <span class="row-title">${escapeHtml(f.title)}</span>
-        <span class="row-meta">${timeAgo(f.created_at)}</span>`,
-      sig: JSON.stringify([i, f.severity, f.title, f.updated_at]),
+        <span class="row-meta">${timeAgo(f.created_at)}</span>
+      `,
+      sig: JSON.stringify([f.id, f.severity, f.title, f.updated_at]),
     }),
-    "Nothing waiting."
+    "No faults found."
   );
 }
 
-// Urgent faults: the backend runs a lazy three-stage pipeline (see
-// backend/app/iterators.py) and stops after `limit` results. The stats
-// line shows how many incidents it actually had to look at.
-async function loadUrgent() {
-  const limit = document.getElementById("urgent-limit").value;
-  const data = await api.urgentFaults(limit);
 
-  renderRowList(
-    document.getElementById("urgent-list"),
-    data.results,
-    (r) => r.id,
-    (r) => ({
-      className: `row sev-${r.severity.toLowerCase()}`,
-      html: `
-        <span class="row-badge">${r.severity.charAt(0) + r.severity.slice(1).toLowerCase()}</span>
-        <span class="row-title">${escapeHtml(r.title)}</span>
-        <span class="row-meta">${r.id.slice(0, 8)}</span>`,
-      sig: JSON.stringify([r.severity, r.title]),
-    }),
-    "No open Critical or Major faults."
-  );
-
-  document.getElementById("urgent-stats").textContent =
-    `Examined ${data.examined} of ${data.total_incidents} incidents` +
-    (data.stopped_early ? " — stopped early, the rest were never looked at." : ".");
-}
 
 async function loadIncidents() {
   const type = document.getElementById("filter-type").value;
@@ -183,14 +165,13 @@ async function loadIncidents() {
 }
 
 async function refresh() {
-  await Promise.all([loadUrgent(), loadMaintenance(), loadFaultQueue(), loadIncidents()]);
+  await Promise.all([loadMaintenance(), loadFaultQueue(), loadIncidents()]);
 }
 
 function wireFilters() {
   ["filter-type", "filter-status", "sort-by"].forEach((id) =>
     document.getElementById(id).addEventListener("change", loadIncidents)
   );
-  document.getElementById("urgent-limit").addEventListener("change", loadUrgent);
 }
 
 function wireNewIncidentDialog() {

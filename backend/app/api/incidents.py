@@ -32,7 +32,7 @@ from app.api.schemas import (
 )
 from app.api.serializers import incident_to_dict
 from app.events import EventBroadcaster
-from app.iterators import first_urgent_faults
+from app.iterators import first_pressing_calls
 from app.models import Fault, MaintenanceTask, User
 from app.services import SeverityScorer
 from app.state import AppState
@@ -102,6 +102,27 @@ def get_maintenance_queue(state: AppState = Depends(get_state), _current_user: U
     }
 
 
+@router.get("/maintenance/pressing")
+def get_pressing_maintenance(limit: Optional[int] = Query(None, ge=1, le=500), state: AppState = Depends(get_state),
+                              _current_user: User = Depends(get_current_user)):
+    """
+    Open maintenance calls that have waited more than 3 days (in-progress
+    and closed calls are left out), produced by the lazy pipeline in
+    app/iterators.py. With `limit`, the pipeline stops after that many
+    results; `examined` shows how many incidents it actually had to look
+    at, and `stopped_early` is True when some were never touched at all.
+    """
+    calls, examined = first_pressing_calls(state.incidents.list_all(), limit)
+    total = sum(1 for _ in state.incidents.list_all())
+    return {
+        "limit": limit,
+        "results": calls,
+        "examined": examined,
+        "total_incidents": total,
+        "stopped_early": examined < total,
+    }
+
+
 @router.post("/maintenance")
 def create_maintenance_task(body: CreateMaintenanceTaskRequest, state: AppState = Depends(get_state),
                              current_user: User = Depends(get_current_user),
@@ -146,25 +167,6 @@ def get_fault_queue(state: AppState = Depends(get_state), _current_user: User = 
     """Faults still waiting to be claimed, in priority order (Critical first, all severities together)."""
     return [incident_to_dict(f) for f in state.faults]
 
-
-@router.get("/faults/urgent")
-def get_urgent_faults(limit: int = Query(2, ge=1, le=50), state: AppState = Depends(get_state),
-                       _current_user: User = Depends(get_current_user)):
-    """
-    The first `limit` open Critical/Major faults, produced by the lazy
-    pipeline in app/iterators.py. `examined` shows how many incidents the
-    pipeline actually had to look at before stopping; `stopped_early` is
-    True when some incidents were never touched at all.
-    """
-    summaries, examined = first_urgent_faults(state.incidents.list_all(), limit)
-    total = sum(1 for _ in state.incidents.list_all())
-    return {
-        "limit": limit,
-        "results": summaries,
-        "examined": examined,
-        "total_incidents": total,
-        "stopped_early": examined < total,
-    }
 
 
 @router.post("/faults")

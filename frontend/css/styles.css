@@ -265,6 +265,20 @@ textarea { resize: vertical; }
   font-weight: 500;
 }
 
+/* --- pressing maintenance calls table --- */
+.table-wrap { overflow-x: auto; margin-top: 8px; }
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.data-table th, .data-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.data-table th { font-size: 13px; font-weight: 500; color: var(--ink-soft); }
+.data-table .num { width: 48px; color: var(--ink-soft); }
+.data-table tbody tr { cursor: pointer; }
+.data-table tbody tr:hover { background: var(--paper); }
+
 /* --- reduced motion --- */
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
