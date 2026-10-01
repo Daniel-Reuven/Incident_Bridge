@@ -22,5 +22,5 @@ class Comment:
         return f"Comment(author={self.author.username!r}, text={preview!r})"
 
     def __str__(self) -> str:
-        formatted_time = self.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        formatted_time = self.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
         return f"[{formatted_time}] {self.author.username}: {self.text}"

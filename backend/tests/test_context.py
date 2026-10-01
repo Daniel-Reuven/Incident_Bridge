@@ -56,3 +56,15 @@ def test_an_exception_inside_the_block_still_adds_an_interrupted_comment(task, a
     comment_text = task.comments[-1].text.lower()
     assert "interrupted" in comment_text
     assert "valueerror" in comment_text
+
+def test_str_representation_pending(task, actor):
+    session = IncidentWorkSession(task, actor=actor)
+    expected_str = f"IncidentWorkSession(incident={task}, actor={actor}, state=Pending)"
+    assert str(session) == expected_str
+
+
+def test_str_representation_active(task, actor):
+    session = IncidentWorkSession(task, actor=actor)
+    with session:
+        expected_str = f"IncidentWorkSession(incident={task}, actor={actor}, state=Active)"
+        assert str(session) == expected_str
