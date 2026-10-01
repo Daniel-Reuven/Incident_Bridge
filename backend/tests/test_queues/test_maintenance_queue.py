@@ -168,3 +168,35 @@ def test_manager_returns_the_same_queue_instance_on_repeated_calls():
     first_call = manager.get_queue("team-b")
     second_call = manager.get_queue("team-b")
     assert first_call is second_call
+
+
+def test_maintenance_queue_dunder_str(reporter):
+    queue = MaintenanceQueue("test_q")
+
+    # 1. Empty queue
+    assert str(queue) == "MaintenanceQueue('test_q', 0 tasks: current=None, pending=[])"
+
+    # 2. Queue with only pending tasks
+    queue.enqueue(make_task(reporter, "Task 1"))
+    queue.enqueue(make_task(reporter, "Task 2"))
+    assert str(queue) == "MaintenanceQueue('test_q', 2 tasks: current=None, pending=['Task 1', 'Task 2'])"
+
+    # 3. Queue with a current task and pending tasks
+    queue.start_next()
+    assert str(queue) == "MaintenanceQueue('test_q', 2 tasks: current='Task 1', pending=['Task 2'])"
+
+    # 4. Queue with only a current task
+    queue.complete_current(actor=reporter, message="done")
+    queue.start_next()
+    assert str(queue) == "MaintenanceQueue('test_q', 1 tasks: current='Task 2', pending=[])"
+
+
+def test_maintenance_queue_manager_dunder_str():
+    manager = MaintenanceQueueManager()
+
+    # Default queue is created on init
+    assert str(manager) == "MaintenanceQueueManager(1 queues: ['default'])"
+
+    # Fetching a new queue name creates it
+    manager.get_queue("team-alpha")
+    assert str(manager) == "MaintenanceQueueManager(2 queues: ['default', 'team-alpha'])"
