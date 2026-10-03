@@ -1,6 +1,10 @@
 """
-Lazy processing pipeline over incidents (Stage 1, Part D item 3:
-"Expression Generator and lazy processing pipeline").
+Lazy processing over incidents (Stage 1, Part D items 2 and 3).
+
+Item 2 - Generator with yield: `stale_in_progress_work` (bottom of this file).
+Item 3 - Expression generators and a lazy pipeline: `pressing_maintenance_calls`.
+
+--- Item 3: lazy pipeline ---
 
 The pipeline answers a real operational question: "which maintenance calls
 have been waiting too long and are not being worked on?" It is built from
@@ -26,6 +30,9 @@ from app.models import Incident, IncidentStatus, MaintenanceTask
 
 # A maintenance call open for MORE than this long counts as "pressing".
 PRESSING_AFTER = timedelta(days=3)
+
+# In-progress work with no update for MORE than this long counts as "stale".
+STALE_AFTER = timedelta(hours=4)
 
 
 class ExaminedCounter:
@@ -85,3 +92,38 @@ def first_pressing_calls(incidents: Iterable[Incident], limit: Optional[int] = N
     counter = ExaminedCounter()
     calls: List[dict] = list(islice(pressing_maintenance_calls(incidents, counter, now), limit))
     return calls, counter.count
+
+
+# --- Item 2: generator function with yield ---
+
+def stale_in_progress_work(incidents: Iterable[Incident], now: Optional[datetime] = None,
+                           stale_after: timedelta = STALE_AFTER) -> Iterator[Incident]:
+    """
+    Generator function (it contains `yield`) that hands back, one at a time,
+    only the incidents someone has started working on but that have had no
+    update (status change or comment) for more than `stale_after` - i.e.
+    work that may be stuck. Applies to both faults and maintenance tasks.
+
+    Business condition (both must hold):
+      - status is IN_PROGRESS (open and closed incidents are never yielded);
+      - `updated_at` is more than `stale_after` in the past.
+
+    Calling this function does NOT run its body: it only creates a generator
+    object. Nothing is read from `incidents` until a consumer asks for a
+    value (next(), a for loop, ...). After each `yield` the function is
+    frozen exactly where it is, local variables included, and resumes from
+    that same spot on the next request - so a for loop that starts after one
+    next() call carries on with the following incident, not the first one.
+    Once it has finished, the generator is exhausted: iterating it again
+    gives nothing, and the only way to go through the data again is to call
+    this function again to create a new generator.
+
+    `incidents` may be any iterable (e.g. IncidentRepository.list_all()).
+    `now` is injectable so tests don't depend on the real clock.
+    """
+    now = now or datetime.now(timezone.utc)
+    for incident in incidents:
+        if incident.status != IncidentStatus.IN_PROGRESS:
+            continue
+        if now - incident.updated_at > stale_after:
+            yield incident

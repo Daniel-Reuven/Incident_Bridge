@@ -170,3 +170,23 @@ It is exposed at `GET /incidents/maintenance/pressing[?limit=N]` and shown on th
 - **List comprehension vs. expression generator here:** a list comprehension would scan every incident and build a full list at each stage before returning anything. The generator expression produces one result at a time and can stop early, using no extra memory for intermediate results.
 - **Why a new generator is needed to go again:** a generator keeps its position and is exhausted once consumed. Iterating again from the start requires calling `pressing_maintenance_calls(...)` to create a fresh one (shown in `tests/test_iterators.py`).
 
+
+
+
+## Generator with `yield` (`app/iterators.py`)
+
+`stale_in_progress_work(incidents)` is a generator function: it contains `yield`, so calling it returns a generator object instead of running the body. It hands back, one at a time, only the incidents (faults or maintenance tasks) that are **in progress** but have had **no update for more than 4 hours** (`STALE_AFTER`, based on `updated_at`, which every status change and comment refreshes) - work that may be stuck. Open and closed incidents are never yielded.
+
+It uses only the domain layer, so the permission/HTTP rules elsewhere in this README do not apply to it, and it reads from `IncidentRepository.list_all()` like the rest of the app (single process, in-memory state). It is a different tool from the lazy pipeline above: the pipeline chains generator *expressions*, while this is a generator *function*, whose body can hold state and logic between yields.
+
+Run the demonstration (domain layer only, no HTTP or database): `python demo_generator.py`. It shows, in order:
+
+1. **Creating the generator processes nothing yet** - no incident is read until a value is requested.
+2. **One read with `next()`** - the generator runs only as far as the first stale incident, then pauses.
+3. **Continuing with a `for` loop** - the loop pulls the remaining stale incidents.
+4. **It continues from where it stopped** - the loop does not repeat the incident `next()` already returned; local variables and the position in the data are kept between yields.
+5. **A finished generator cannot be iterated again** - a second loop yields nothing and `next()` raises `StopIteration`. To go through the data again, call `stale_in_progress_work(...)` to create a new generator.
+
+Tests: `tests/test_stale_work_generator.py` covers each of these five behaviours plus the business condition (including the exact 4-hour boundary and a custom threshold).
+
+File-map additions for the README: `iterators.py` (lazy pipeline + stale-work generator), `demo_generator.py` (runnable walkthrough of the generator), `tests/test_stale_work_generator.py`.

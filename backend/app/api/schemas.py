@@ -52,13 +52,4 @@ class AddCommentRequest(BaseModel):
 
 
 class ImportJsonlRequest(BaseModel):
-    """
-    Body for POST /incidents/import-jsonl (admin-only). Takes the raw
-    JSONL text itself, not a server-side file path - see
-    IncidentRepository.load_from_jsonl_lines()'s docstring for why: the
-    server may not even be running on the machine whose disk holds the
-    file, and a future browser-side file upload has no "path on the
-    server" to give it anyway. backend/seed_from_jsonl.py reads its local
-    file and sends this field's value as that file's full content.
-    """
     content: str
