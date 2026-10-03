@@ -152,3 +152,21 @@ other within about a second, with no flicker anywhere else on the page.
 ## Next step
 
 Dark/light theme toggle and renaming the account modal to "Settings" with an Interface tab, then Stage 2 external service integration, Stage 3 automated tests, and Stage 4 concurrency/asyncio refinements — see the project's main README for how these are scoped.
+
+
+
+## Lazy pipeline (`app/iterators.py`)
+
+`pressing_maintenance_calls(incidents)` chains three generator expressions over the incident repository, with no intermediate lists:
+
+1. keep only **open maintenance calls** (calls already in progress, and closed ones, are left out);
+2. keep only calls **open for more than 3 days** (time since `created_at`), converting each to a tuple;
+3. return a small record with the **id**, title, reporter, days open and a one-line **summary** such as `Patch server - open for 5 days (a1b2c3d4)`.
+
+It is exposed at `GET /incidents/maintenance/pressing[?limit=N]` and shown on the dashboard's **Pressing Maintenance Calls** page (`/pressing.html`, opened from the "Pressing maintenance calls" button). The page refreshes on every live update, and each row links to its incident.
+
+- **What makes the pipeline start working?** Nothing happens when it is built. Work begins only when a consumer asks for a value (`next()`, a `for` loop, `islice`). Each request pulls one incident through all three stages.
+- **What did not need processing after stopping?** With `limit=2`, once the second pressing call is found the source is never read again. The `examined` field in the API response shows how many incidents were pulled; every incident after that point was never touched.
+- **List comprehension vs. expression generator here:** a list comprehension would scan every incident and build a full list at each stage before returning anything. The generator expression produces one result at a time and can stop early, using no extra memory for intermediate results.
+- **Why a new generator is needed to go again:** a generator keeps its position and is exhausted once consumed. Iterating again from the start requires calling `pressing_maintenance_calls(...)` to create a fresh one (shown in `tests/test_iterators.py`).
+

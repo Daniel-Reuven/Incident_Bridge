@@ -61,6 +61,10 @@ export const api = {
   maintenanceQueue: () => request("/incidents/maintenance/queue"),
   createMaintenanceTask: (title, description) =>
     request("/incidents/maintenance", { method: "POST", body: { title, description } }),
+  // Open maintenance calls waiting more than 3 days (lazy pipeline - backend/app/iterators.py).
+  // `limit` is optional: omit it to get every pressing call.
+  pressingMaintenance: (limit) =>
+    request("/incidents/maintenance/pressing" + (limit ? `?limit=${encodeURIComponent(limit)}` : "")),
   startNextMaintenance: () => request("/incidents/maintenance/start-next", { method: "POST" }),
   completeCurrentMaintenance: (message, resolution_type = "resolved") =>
     request("/incidents/maintenance/complete-current", { method: "POST", body: { message, resolution_type } }),
