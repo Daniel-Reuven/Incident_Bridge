@@ -15,11 +15,37 @@ via seed_users_from_env, exactly as before.
 
 import os
 from dataclasses import dataclass
+from typing import List
 
 from app.models import Fault, IncidentStatus, MaintenanceTask
 from app.persistence import SqliteIncidentStore
 from app.queues import FaultPriorityQueue, MaintenanceQueueManager
 from app.repository import IncidentRepository, UserStore, seed_users_from_env
+
+
+def order_pending_maintenance(tasks: List[MaintenanceTask], has_current: bool) -> List[MaintenanceTask]:
+    """
+    The order in which persisted OPEN maintenance tasks go back into the
+    FIFO queue at startup.
+
+    Normally that is their saved queue_position, which the API layer
+    persists after every queue change (closing a task from the middle
+    shifts the ones behind it, so creation order alone can no longer
+    describe the queue). But those saved positions are only trusted when
+    they form EXACTLY the sequence a live queue would have: 1..N, or
+    2..N+1 when a task is in progress (position 1 belongs to it).
+    Anything else - a gap, a duplicate, a missing value - means the data
+    predates position persistence or is otherwise stale, and the safe
+    fallback is creation order, which is what the app used before. The
+    first queue change after that re-saves correct positions for every
+    task, so the fallback only ever applies once.
+    """
+    start = 2 if has_current else 1
+    expected = list(range(start, start + len(tasks)))
+    saved = sorted(task.queue_position for task in tasks if task.queue_position is not None)
+    if len(saved) == len(tasks) and saved == expected:
+        return sorted(tasks, key=lambda task: task.queue_position)
+    return sorted(tasks, key=lambda task: task.created_at)
 
 
 @dataclass
@@ -54,18 +80,29 @@ class AppState:
         # IN_PROGRESS one is current, OPEN faults sit in the priority
         # queue, and anything else (IN_PROGRESS faults - already claimed -
         # and anything CLOSED) lives in the repository only, same as at
-        # runtime. `persisted` is already ordered by created_at (see
-        # SqliteIncidentStore.load_all), so FIFO order and the fault
-        # queue's tiebreak order both come back exactly as they were.
+        # runtime. `persisted` is ordered by created_at (see
+        # SqliteIncidentStore.load_all), which is the order OPEN faults
+        # are pushed in, so their tiebreak order comes back as it was.
+        #
+        # Pending maintenance tasks are NOT replayed in created_at order:
+        # a task closed from the middle of the queue, or (in a later step)
+        # reopened at a chosen position, means creation order no longer
+        # describes the FIFO - see order_pending_maintenance().
         default_queue = maintenance.get_queue()
+        maintenance_tasks = [i for i in persisted if isinstance(i, MaintenanceTask)]
+
+        has_current = False
+        for task in maintenance_tasks:
+            if task.status == IncidentStatus.IN_PROGRESS:
+                default_queue.restore_current(task)
+                has_current = True
+
+        pending = [task for task in maintenance_tasks if task.status == IncidentStatus.OPEN]
+        for task in order_pending_maintenance(pending, has_current):
+            default_queue.enqueue(task)
+
         for incident in persisted:
-            if isinstance(incident, MaintenanceTask):
-                if incident.status == IncidentStatus.IN_PROGRESS:
-                    default_queue.restore_current(incident)
-                elif incident.status == IncidentStatus.OPEN:
-                    default_queue.enqueue(incident)
-            elif isinstance(incident, Fault):
-                if incident.status == IncidentStatus.OPEN:
-                    faults.push(incident)
+            if isinstance(incident, Fault) and incident.status == IncidentStatus.OPEN:
+                faults.push(incident)
 
         return cls(users=users, incidents=incidents, maintenance=maintenance, faults=faults)

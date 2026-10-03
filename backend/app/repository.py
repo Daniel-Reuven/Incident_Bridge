@@ -127,6 +127,20 @@ class IncidentRepository:
         if self._store:
             self._store.save_incident(incident)
 
+    def save_all(self, incidents: Iterable[Incident]) -> None:
+        """
+        save() every incident in `incidents`, one after another. Used after a
+        queue change (app/api/incidents.py's _persist_maintenance_queue):
+        closing or completing one maintenance task shifts the queue_position
+        of every task behind it, and each of those has to be persisted too -
+        otherwise the stored positions go stale, and the order rebuilt at the
+        next startup (app/state.py) would be wrong. Not a single database
+        transaction (each save commits on its own), which is fine at this
+        project's scale.
+        """
+        for incident in incidents:
+            self.save(incident)
+
     def bulk_load(self, incidents: Iterable[Incident]) -> None:
         """
         Populate the in-memory dict from already-persisted incidents at
