@@ -93,8 +93,12 @@ function wireDelegatedNavigation() {
 async function loadMaintenance() {
   const { current, pending } = await api.maintenanceQueue();
   const items = [];
-  if (current) items.push({ task: current, label: "In progress" });
-  pending.forEach((t, i) => items.push({ task: t, label: `#${i + 1} in queue` }));
+  // Labels use the server's queue_position - the same numbering the
+  // incident page's badge shows, where an in-progress task is position 1
+  // and waiting tasks follow (so with a task in progress, the first waiting
+  // one is #2, not #1). The fallbacks only matter if a position is missing.
+  if (current) items.push({ task: current, label: `#${current.queue_position || 1} In progress` });
+  pending.forEach((t, i) => items.push({ task: t, label: `#${t.queue_position || i + 1} in queue` }));
 
   renderRowList(
     document.getElementById("maintenance-queue"),

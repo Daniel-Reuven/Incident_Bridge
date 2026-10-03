@@ -118,6 +118,25 @@ def test_from_dict_defaults_to_minor_when_details_is_missing(reporter):
     assert fault.details == {}
 
 
+def test_change_severity_keeps_severity_score_in_sync(fault, admin):
+    fault.change_severity(admin, SeverityCategory.MINOR)
+    assert fault.severity == SeverityCategory.MINOR
+    assert fault.severity_score == 3.0
+
+
+def test_change_severity_bumps_updated_at(fault, admin):
+    fault.updated_at = fault.updated_at.replace(year=2000)  # make "newer" unambiguous on any clock
+    old = fault.updated_at
+    fault.change_severity(admin, SeverityCategory.MAJOR)
+    assert fault.updated_at > old
+
+
+def test_rejected_severity_change_leaves_the_score_untouched(fault, reporter):
+    with pytest.raises(PermissionError):
+        fault.change_severity(reporter, SeverityCategory.MINOR)
+    assert fault.severity_score == 1.0
+
+
 def test_from_dict_passes_assigned_to_parameter(reporter, admin):
     record = {"id": "seed-fault-3", "kind": "fault", "title": "Typo", "description": "Small text issue"}
     fault = Fault.from_dict(record, created_by=reporter, assigned_to=admin)

@@ -14,6 +14,25 @@ from app.models.user import User
 # visible in one obvious place.
 _ADMIN_ONLY_RESOLUTIONS = {ResolutionType.NOT_AN_INCIDENT, ResolutionType.BY_DESIGN}
 
+# The only statuses a closed incident may be reopened into. CLOSED is
+# deliberately absent: "reopening" into Closed would be meaningless.
+_REOPEN_TARGETS = {IncidentStatus.OPEN, IncidentStatus.IN_PROGRESS}
+
+
+def _label(member) -> str:
+    """
+    Human-readable label for a status/resolution enum member, derived from
+    its value: 'in_progress' -> 'In progress', 'not_an_incident' -> 'Not an
+    incident'. Used only for the text of automatic log comments.
+    """
+    return member.value.replace("_", " ").capitalize()
+
+
+def _as_sentence(text: str) -> str:
+    """Trim `text` and make sure it ends in terminal punctuation, so log-comment segments read cleanly."""
+    text = text.strip()
+    return text if text.endswith((".", "!", "?")) else text + "."
+
 
 class Incident(ABC):
     """
@@ -24,6 +43,13 @@ class Incident(ABC):
     subclass adds only what's specific to it (see maintenance_task.py and
     fault.py). This keeps the model open for a third incident type later
     without touching this class (Open/Closed principle - README section 4).
+
+    Manual status changes (see log_status_change() and reopen() below) only
+    change the incident's OWN fields and its comment thread. They never
+    touch a queue: placing a reopened incident back into the right queue
+    is the API layer's job (see app/api/incidents.py), the same way
+    start_progress() and close() have always left queue bookkeeping to
+    MaintenanceQueue / FaultPriorityQueue.
     """
 
     def __init__(self, title: str, description: str, created_by: User,
@@ -82,6 +108,35 @@ class Incident(ABC):
         self.updated_at = datetime.now(timezone.utc)
         return comment
 
+    def log_status_change(self, actor: User, old_status: IncidentStatus, new_status: IncidentStatus,
+                          reason: Optional[str] = None, detail: Optional[str] = None) -> Comment:
+        """
+        Record a status change in the comment thread, authored by `actor`
+        (so the thread shows who did it), e.g.:
+
+            "Status changed from Closed to Open. Reason: Regression found.
+             Previous resolution: Resolved - Fixed it."
+
+        This only WRITES the log entry - it does not change self.status
+        itself and does not validate the transition; callers (reopen()
+        below, and later the queue/API operations) decide whether a change
+        is allowed and perform it, then call this to leave the audit trail.
+
+        `reason` and `detail` are both optional here because not every
+        logged change has a user-supplied reason (e.g. logging an
+        automatic Start next later on). Operations that REQUIRE a reason,
+        such as reopen(), enforce that themselves before calling this.
+        `detail` is a free-form extra sentence, e.g. "Queue position: 3."
+
+        Returns the Comment that was added.
+        """
+        text = f"Status changed from {_label(old_status)} to {_label(new_status)}."
+        if reason and reason.strip():
+            text += f" Reason: {_as_sentence(reason)}"
+        if detail and detail.strip():
+            text += f" {_as_sentence(detail)}"
+        return self.add_comment(actor, text)
+
     def start_progress(self) -> None:
         """Move Open -> In Progress. No-op if already in progress or closed."""
         if self.status == IncidentStatus.OPEN:
@@ -96,20 +151,99 @@ class Incident(ABC):
         paths, just this one method with a required ResolutionType and a
         mandatory, non-empty message.
 
+        The message doubles as the required REASON for the status change:
+        on success a log comment authored by `actor` is added, e.g.
+        "Status changed from Open to Closed. Reason: <message>.
+        Resolution: Resolved." (see log_status_change()). Because the
+        logging lives here, every close of every incident type - a fault
+        closed before ever being claimed, a claimed fault, a completed
+        maintenance task - leaves the same audit trail automatically.
+
+        Checks run in this order (nothing is changed or logged if any of
+        them fails): message, then permission, then current state.
+
         Raises:
             ValueError: if message is empty/blank.
             PermissionError: if resolution_type is admin-only
                 (Not an Incident / By Design) and actor is not an admin.
+            RuntimeError: if the incident is already Closed (the API layer
+                maps this to HTTP 409). Re-closing would silently overwrite
+                the earlier resolution and its audit trail.
         """
         if not message or not message.strip():
             raise ValueError("A closing message is required for every resolution type.")
         if resolution_type in _ADMIN_ONLY_RESOLUTIONS and actor.role != Role.ADMIN:
             raise PermissionError(f"Only an admin may close an incident as {resolution_type.name}.")
+        if self.status == IncidentStatus.CLOSED:
+            raise RuntimeError("This incident is already closed.")
 
+        old_status = self.status
         self.status = IncidentStatus.CLOSED
         self.resolution_type = resolution_type
         self.resolution_message = message.strip()
         self.updated_at = datetime.now(timezone.utc)
+        self.log_status_change(
+            actor, old_status, IncidentStatus.CLOSED,
+            reason=self.resolution_message, detail=f"Resolution: {_label(resolution_type)}",
+        )
+
+    def reopen(self, actor: User, new_status: IncidentStatus, reason: str,
+               detail: Optional[str] = None) -> None:
+        """
+        Move a CLOSED incident back to Open or In progress. Admin-only
+        (confirmed design decision), and a non-blank `reason` is mandatory.
+
+        What it does: clears resolution_type and resolution_message (so
+        "closed" always means "has a resolution"), sets the new status, and
+        logs a comment authored by `actor` containing the reason AND the
+        resolution that was just cleared, so nothing about the earlier
+        closure is lost. An optional `detail` sentence (e.g. "Queue
+        position: 3") is appended after the previous-resolution text.
+
+        What it deliberately does NOT do: touch queue_position or any
+        queue. Putting the incident back in the right queue is the API
+        layer's job - same split of responsibility as close() above.
+        assigned_to is also left alone here; subclasses decide what a
+        reopen means for the assignee (Fault.reopen assigns an In-progress
+        reopen to the actor and clears the assignee on an Open one).
+
+        Checks run in this order, mirroring close(): input validation
+        first (so a user always learns about an empty reason or invalid
+        target before being told "permission denied"), then permission,
+        then the incident's current state.
+
+        Raises:
+            ValueError: if reason is empty/blank, or new_status is not
+                Open / In progress.
+            PermissionError: if actor is not an admin.
+            RuntimeError: if the incident is not currently Closed (the
+                API layer maps this to HTTP 409).
+        """
+        if not reason or not reason.strip():
+            raise ValueError("A reason is required to reopen an incident.")
+        if new_status not in _REOPEN_TARGETS:
+            raise ValueError("A reopened incident must become Open or In progress.")
+        if actor.role != Role.ADMIN:
+            raise PermissionError("Only an admin may reopen a closed incident.")
+        if self.status != IncidentStatus.CLOSED:
+            raise RuntimeError("Only a closed incident can be reopened.")
+
+        previous_resolution = None
+        if self.resolution_type is not None:
+            previous_resolution = f"Previous resolution: {_label(self.resolution_type)}"
+            if self.resolution_message:
+                previous_resolution += f" - {self.resolution_message}"
+
+        old_status = self.status
+        self.status = new_status
+        self.resolution_type = None
+        self.resolution_message = None
+        self.updated_at = datetime.now(timezone.utc)
+
+        detail_sentences = [_as_sentence(part) for part in (previous_resolution, detail) if part and part.strip()]
+        self.log_status_change(
+            actor, old_status, new_status, reason=reason, detail=" ".join(detail_sentences) or None
+        )
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(id={self.id[:8]}, title={self.title!r}, status={self.status.name})"
