@@ -109,3 +109,11 @@ def test_complete_current_logs_a_status_change_comment(admin_client):
     assert log["author"] == "admin"
     assert "Status changed from In progress to Closed." in log["text"]
     assert "Reason: All patched." in log["text"]
+
+
+def test_blank_title_or_description_is_rejected_with_400(admin_client):
+    """Incident.title / description validation (app/models/incident.py) reaches the API as HTTP 400."""
+    blank_title = admin_client.post("/incidents/maintenance", json={"title": "   ", "description": "d"})
+    assert blank_title.status_code == 400 and "title" in blank_title.json()["detail"]
+    blank_description = admin_client.post("/incidents/faults", json={"title": "t", "description": ""})
+    assert blank_description.status_code == 400 and "description" in blank_description.json()["detail"]

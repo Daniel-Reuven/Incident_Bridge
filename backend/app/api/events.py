@@ -35,15 +35,19 @@ async def stream_events(
     request: Request,
     client_id: str,
     broadcaster: EventBroadcaster = Depends(get_broadcaster),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """
     client_id is a query parameter rather than a header because
     EventSource cannot set custom request headers - the browser cookie
     still handles authentication as normal (EventSource sends cookies on
     same-origin requests automatically, exactly like fetch does).
+
+    The tab is subscribed with its user's role, so events published only
+    to admins (the site portal's - see app/api/sites.py) never reach a
+    regular user's tab.
     """
-    queue = broadcaster.subscribe(client_id)
+    queue = broadcaster.subscribe(client_id, role=current_user.role.value)
 
     async def event_stream():
         try:

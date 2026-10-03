@@ -1,0 +1,6 @@
+{"list_id": "ops-team", "name": "Operations team", "members": ["ops.lead@example.com", "ops.oncall@example.com", "noc@example.com"], "site_ids": [1001, 1002, 1003, 1004, 1005, 1009]}
+{"list_id": "management", "name": "Management", "members": ["cto@example.com", "it.manager@example.com"], "site_ids": [1001, 1002, 1005]}
+{"list_id": "hr-systems", "name": "HR systems owners", "members": ["hr.it@example.com", "payroll.admin@example.com"], "site_ids": [1006, 1007, 1008]}
+{"list_id": "customer-support", "name": "Customer support", "members": ["support.lead@example.com", "support.team@example.com"], "site_ids": [1002, 1005, 1010]}
+{"list_id": "marketing", "name": "Marketing", "members": ["marketing@example.com"], "site_ids": [1001, 1011]}
+{"list_id": "legacy-owners", "name": "Legacy systems owners", "members": [], "site_ids": [1012]}

@@ -4,8 +4,14 @@
 # Python
 __pycache__/
 *.pyc
+*.py[cod]
 
 # SQLite database (created automatically - see backend/README.md's Persistence section)
 *.db
 
 .idea/
+
+*.egg-info/
+
+.venv/
+.vscode/

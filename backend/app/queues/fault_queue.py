@@ -103,6 +103,11 @@ class FaultPriorityQueue:
         titles = ", ".join(f"'{f.title}'" for f in self)
         return f"FaultPriorityQueue({len(self)} faults: [{titles}])"
 
+    def __repr__(self) -> str:
+        """Developer view: how many faults are queued and the id of the one that would be popped next."""
+        head = self._heap[0][2].id[:8] if self._heap else None
+        return f"FaultPriorityQueue(size={len(self._heap)}, head={head!r})"
+
     def higher_priority_count(self, fault: Fault) -> int:
         """
         How many queued faults are STRICTLY more severe than `fault` (the

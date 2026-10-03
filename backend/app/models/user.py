@@ -22,6 +22,35 @@ class User:
     # dedicated library such as passlib or argon2-cffi.
     _HASH_ITERATIONS = 100_000
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "User":
+        """
+        Alternate constructor: build a user from one entry of the
+        INCIDENT_BRIDGE_USERS JSON array, e.g.
+            {"username": "tech1", "password": "Passw0rd2", "role": "user"}
+        (see seed_users_from_env() in app/repository.py, the only caller).
+
+        Raises ValueError with a clear message if the entry is not an
+        object, a field is missing, the username is blank, the role is not
+        "admin" or "user", or the password fails PasswordPolicy.
+        """
+        if not isinstance(data, dict):
+            raise ValueError(f"must be a JSON object, got {type(data).__name__}")
+        missing = [key for key in ("username", "password", "role") if key not in data]
+        if missing:
+            raise ValueError(f"missing field(s): {', '.join(missing)}")
+        username = data["username"]
+        if not isinstance(username, str) or not username.strip():
+            raise ValueError("'username' must be a non-blank string")
+        try:
+            role = Role(data["role"])
+        except ValueError:
+            allowed = ", ".join(r.value for r in Role)
+            raise ValueError(f"'role' must be one of: {allowed} (got {data['role']!r})") from None
+        if not isinstance(data["password"], str):
+            raise ValueError("'password' must be a string")
+        return cls(username=username.strip(), role=role, password=data["password"])
+
     def __init__(self, username: str, role: Role, password: str):
         self.id = str(uuid.uuid4())
         self.username = username

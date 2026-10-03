@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Site portal — Incident Bridge</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<!--
+  Site portal (admin only). Everything on this page is filled in by
+  js/sites.js from the /sites API (backend/app/api/sites.py), which refuses
+  non-admins with 403; sites.js also sends non-admins back to the dashboard.
+  Layout: attention line + status board + report checks, then four tabs
+  (Sites, Mailing lists, Notifications, Archive), then the dialogs.
+-->
+<body>
+  <header id="topbar"></header>
+  <main class="dashboard" id="portal" hidden>
+    <a href="/dashboard.html" class="back-link">← Back to dashboard</a>
+    <div class="portal-header">
+      <h1>Site portal</h1>
+      <div class="actions-row" style="margin-bottom:0">
+        <button class="btn btn-ghost" id="check-all-btn">Check all sites</button>
+        <button class="btn btn-primary" id="new-site-btn">New site</button>
+      </div>
+    </div>
+
+    <section aria-label="Site health">
+      <p class="attention" id="attention">Loading…</p>
+      <div class="status-board" id="status-board"></div>
+      <ul class="report-checks" id="report-checks"></ul>
+    </section>
+
+    <nav class="tabs" role="tablist" aria-label="Portal sections">
+      <button class="tab" role="tab" id="tab-sites" aria-controls="panel-sites" aria-selected="true">Sites</button>
+      <button class="tab" role="tab" id="tab-lists" aria-controls="panel-lists" aria-selected="false">Mailing lists</button>
+      <button class="tab" role="tab" id="tab-notifications" aria-controls="panel-notifications" aria-selected="false">
+        Notifications <span class="tab-count" id="draft-count"></span>
+      </button>
+      <button class="tab" role="tab" id="tab-archive" aria-controls="panel-archive" aria-selected="false">Archive</button>
+    </nav>
+
+    <section role="tabpanel" id="panel-sites" aria-labelledby="tab-sites">
+      <div id="site-list"><p class="empty">Loading…</p></div>
+    </section>
+
+    <section role="tabpanel" id="panel-lists" aria-labelledby="tab-lists" hidden>
+      <div class="actions-row" style="margin-bottom:12px">
+        <button class="btn btn-primary btn-sm" id="new-list-btn">New mailing list</button>
+      </div>
+      <div id="list-list"><p class="empty">Loading…</p></div>
+    </section>
+
+    <section role="tabpanel" id="panel-notifications" aria-labelledby="tab-notifications" hidden>
+      <div class="actions-row" style="margin-bottom:12px">
+        <label class="inline-select">Show
+          <select id="notification-filter">
+            <option value="draft">Waiting for a decision</option>
+            <option value="">All</option>
+            <option value="sent">Sent</option>
+            <option value="dismissed">Dismissed</option>
+            <option value="skipped">Skipped (no recipients)</option>
+          </select>
+        </label>
+      </div>
+      <div id="notification-list"><p class="empty">Loading…</p></div>
+    </section>
+
+    <section role="tabpanel" id="panel-archive" aria-labelledby="tab-archive" hidden>
+      <h2>Archived sites</h2>
+      <div id="archived-site-list"><p class="empty">Loading…</p></div>
+      <h2 style="margin-top:24px">Archived mailing lists</h2>
+      <div id="archived-list-list"><p class="empty">Loading…</p></div>
+    </section>
+  </main>
+
+  <!-- Create / edit a site -->
+  <dialog id="site-dialog" class="dialog">
+    <form id="site-form" class="dialog-form">
+      <h2 id="site-dialog-title">New site</h2>
+      <label>Name<input type="text" name="site_name" required maxlength="100"></label>
+      <label>Address<input type="url" name="site_url" required placeholder="https://"></label>
+      <label>Published on <span class="hint">optional</span><input type="date" name="site_publish_date"></label>
+      <p class="form-error" id="site-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="site-submit">Create site</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Manual status change -->
+  <dialog id="status-dialog" class="dialog">
+    <form id="status-form" class="dialog-form">
+      <h2 id="status-dialog-title">Change status</h2>
+      <label>New status
+        <select name="status">
+          <option value="operational">Operational</option>
+          <option value="degraded">Degraded</option>
+          <option value="down">Down</option>
+          <option value="maintenance">Maintenance</option>
+        </select>
+      </label>
+      <label>Reason<textarea name="reason" rows="2" required></textarea></label>
+      <p class="hint" style="margin-inline-start:0">Changing the status drafts a notification for the lists that cover this site.</p>
+      <p class="form-error" id="status-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Change status</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Create / edit a mailing list -->
+  <dialog id="list-dialog" class="dialog dialog-wide">
+    <form id="list-form" class="dialog-form">
+      <h2 id="list-dialog-title">New mailing list</h2>
+      <label id="list-id-label">List id <span class="hint">lower-case letters, digits and hyphens, e.g. ops-team</span>
+        <input type="text" name="list_id" required maxlength="50" pattern="[a-z0-9]+(-[a-z0-9]+)*">
+      </label>
+      <label>Name<input type="text" name="name" required maxlength="100"></label>
+      <label>Members <span class="hint">one email address per line</span><textarea name="members" rows="4"></textarea></label>
+      <fieldset class="fault-fields">
+        <legend>Sites this list is notified about</legend>
+        <div class="checkbox-grid" id="list-site-choices"></div>
+      </fieldset>
+      <p class="form-error" id="list-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="list-submit">Create list</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Review a notification: edit the text, send or dismiss -->
+  <dialog id="notification-dialog" class="dialog dialog-wide">
+    <form id="notification-form" class="dialog-form">
+      <h2 id="notification-dialog-title">Notification</h2>
+      <p class="incident-meta" id="notification-meta"></p>
+      <p class="recipients" id="notification-recipients"></p>
+      <label>Message<textarea name="message" rows="4" required maxlength="2000"></textarea></label>
+      <label>Reason for dismissing <span class="hint">optional</span><input type="text" name="reason"></label>
+      <p class="form-error" id="notification-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Close</button>
+        <button type="button" class="btn btn-ghost" id="notification-dismiss">Dismiss</button>
+        <button type="submit" class="btn btn-primary" id="notification-send">Send to lists</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Site details: history, incidents, notifications -->
+  <dialog id="detail-dialog" class="dialog dialog-wide">
+    <div class="dialog-form">
+      <h2 id="detail-title">Site</h2>
+      <p class="incident-meta" id="detail-meta"></p>
+      <div id="detail-body"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="/js/sites.js"></script>
+</body>
+</html>
