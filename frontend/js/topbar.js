@@ -8,6 +8,12 @@ import { api } from "./api.js";
  * Log out lives as its own top-bar button, separate from the Account
  * menu/dialog - it's a frequent, low-risk action that shouldn't require
  * opening a dialog first.
+ *
+ * Admins also get a "Site portal" button right next to their username,
+ * styled with the admin-action color so it reads as an admin-only area.
+ * It is simply not rendered for other roles (the portal's API refuses
+ * them with 403 anyway, and sites.js sends them back to the dashboard).
+ * On the portal page itself it is marked as the current page.
  */
 export async function mountTopbar() {
   let user;
@@ -18,12 +24,18 @@ export async function mountTopbar() {
     return null;
   }
 
+  const onPortal = window.location.pathname === "/sites.html";
+  const portalButton = user.role === "admin"
+    ? `<a class="btn btn-admin btn-sm" href="/sites.html"${onPortal ? ' aria-current="page"' : ""}>Site portal</a>`
+    : "";
+
   const el = document.getElementById("topbar");
   el.innerHTML = `
     <div class="topbar">
       <a class="wordmark" href="/dashboard.html">Incident Bridge</a>
       <div class="topbar-user">
         <span class="topbar-username">${user.username}</span>
+        ${portalButton}
         <span class="topbar-role">${user.role}</span>
         <button class="btn btn-ghost btn-sm" data-action="account">Account</button>
         <button class="btn btn-ghost btn-sm" data-action="logout">Log out</button>

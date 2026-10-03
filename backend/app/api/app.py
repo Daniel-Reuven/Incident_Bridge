@@ -31,7 +31,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import auth, events, incidents
+from app.api import auth, events, incidents, sites
 from app.events import EventBroadcaster
 from app.state import AppState
 
@@ -81,6 +81,7 @@ if _cors_origins:
 app.include_router(auth.router)
 app.include_router(incidents.router)
 app.include_router(events.router)
+app.include_router(sites.router)   # admin-only site portal (Sites & Mailing Lists)
 
 
 # --- centralized exception -> HTTP status mapping ---
@@ -127,7 +128,7 @@ def health_check():
 # --- serve the frontend, same-origin, so no CORS is needed for the normal
 # deployment case (frontend + API as one Render web service). This mount
 # is added last and deliberately: StaticFiles bound to "/" only catches
-# requests that didn't match any route registered above it (auth, incidents,
+# requests that didn't match any route registered above it (auth, incidents, sites,
 # events, /health), so the API keeps working exactly as before - this just
 # adds a fallback that serves frontend/index.html, dashboard.html,
 # incident.html, and their css/js, for everything else. If the frontend/

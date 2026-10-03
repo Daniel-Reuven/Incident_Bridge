@@ -22,6 +22,10 @@ Local dev (values from .env, falls back to the defaults below if unset):
 
 Production / Render (auto-reload off; Render sets PORT itself):
     RELOAD=false python serve_app.py
+
+Before starting the server, INCIDENT_BRIDGE_USERS is validated: if it is
+set but unusable (invalid JSON, an invalid entry, a duplicate username),
+the script prints the problems and exits with code 1 instead of starting.
 """
 
 import os
@@ -34,9 +38,30 @@ from dotenv import load_dotenv
 # over real deployment secrets.
 load_dotenv()
 
+import sys  # noqa: E402
+
 import uvicorn  # noqa: E402 - must come after load_dotenv() so PORT etc. are already set
 
+from app.repository import UserProvisioningError, seed_users_from_env  # noqa: E402
+
+
+def _check_users_or_exit() -> None:
+    """
+    Validate INCIDENT_BRIDGE_USERS BEFORE starting the server, so a bad
+    value (invalid JSON, a duplicate username, a weak password, ...) stops
+    the app with just its clear message and exit code 1 - no traceback, and
+    no auto-reloader left waiting. The app checks the same thing again at
+    startup (AppState.create()), which also covers running uvicorn directly.
+    """
+    try:
+        seed_users_from_env(warn=False)
+    except UserProvisioningError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
+    _check_users_or_exit()
     uvicorn.run(
         "app.api.app:app",
         host=os.environ.get("HOST", "0.0.0.0"),

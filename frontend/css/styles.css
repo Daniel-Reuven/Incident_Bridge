@@ -333,3 +333,112 @@ textarea { resize: vertical; }
 .comments-header select { width: auto; margin-top: 0; }
 /* The "Add an update" box always sits directly under the header, above the list, in either sort order. */
 .comments-section .comment-form { margin-bottom: 18px; }
+/* ======================================================================
+   Site portal (admin only) - sites.html / js/sites.js
+   Site status colors follow the same rule as severity colors above: they
+   are functional, shown only as a left-edge accent and a small text label.
+   Down and Degraded reuse the critical/major colors on purpose - they mean
+   the same thing to the reader ("act now" / "watch this").
+   ====================================================================== */
+:root {
+  --status-down: var(--critical);
+  --status-degraded: var(--major);
+  --status-unknown: #8A97A2;
+  --status-maintenance: #4F6D8A;
+  --status-operational: var(--accent);
+}
+
+/* Top-bar "Site portal" button: the admin-action color marks it as an admin-only area. */
+.btn-admin { border-color: var(--admin-action); color: var(--admin-action); background: var(--surface); text-decoration: none; }
+.btn-admin:hover { background: var(--admin-action); color: var(--accent-ink); }
+.btn-admin[aria-current="page"] { background: var(--admin-action); color: var(--accent-ink); }
+
+.portal-header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.attention { font-size: 15px; margin: 0 0 14px; }
+.attention strong { font-family: var(--font-display); font-weight: 600; }
+
+/* Status board: every active site at a glance, most urgent first. */
+.status-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.site-chip {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--status-unknown);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink);
+}
+.site-chip:hover { border-color: var(--ink-soft); }
+.site-chip-label { display: block; font-size: 12px; color: var(--ink-soft); }
+.site-chip-name { display: block; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.site-chip-status { display: block; font-size: 12px; font-weight: 600; text-transform: capitalize; }
+
+/* One status class, shared by chips, rows and labels. */
+.status-down { border-left-color: var(--status-down); }
+.status-degraded { border-left-color: var(--status-degraded); }
+.status-unknown { border-left-color: var(--status-unknown); }
+.status-maintenance { border-left-color: var(--status-maintenance); }
+.status-operational { border-left-color: var(--status-operational); }
+.status-text.status-down { color: var(--status-down); }
+.status-text.status-degraded { color: var(--status-degraded); }
+.status-text.status-unknown { color: var(--status-unknown); }
+.status-text.status-maintenance { color: var(--status-maintenance); }
+.status-text.status-operational { color: var(--status-operational); }
+
+.report-checks { margin: 0 0 24px; padding: 0; list-style: none; font-size: 14px; }
+.report-checks li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.report-checks li:last-child { border-bottom: none; }
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; flex-wrap: wrap; }
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 14px;
+  margin-bottom: -1px;
+  color: var(--ink-soft);
+  font-weight: 500;
+  cursor: pointer;
+}
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tab-count { font-weight: 400; color: var(--ink-soft); }
+
+/* Rows on the portal: same .row as the dashboard, plus inline actions. */
+.row-main { flex: 1; min-width: 0; }
+.row-main .row-title { display: block; }
+.row-sub { display: block; font-size: 13px; color: var(--ink-soft); overflow-wrap: anywhere; }
+.row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.status-text { font-size: 13px; font-weight: 600; text-transform: capitalize; min-width: 92px; }
+
+/* Wider dialogs for details and notification review. */
+.dialog-wide { max-width: 640px; }
+.detail-list { margin: 0 0 16px; padding: 0; list-style: none; font-size: 14px; }
+.detail-list li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.detail-section + .detail-section { margin-top: 18px; }
+.detail-section h3 { font-family: var(--font-display); font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+.checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 12px; margin: 6px 0 14px; }
+.checkbox-grid label.checkbox { margin: 0; }
+.recipients { font-size: 13px; color: var(--ink-soft); overflow-wrap: anywhere; }
+input[type="date"], input[type="url"] {
+  display: block; width: 100%; margin-top: 6px; padding: 9px 10px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink);
+}
+
+.detail-list .hint, .report-checks .hint { margin-inline-start: 0; }
+.dialog-wide .incident-meta { margin-bottom: 16px; }
+
+@media (max-width: 640px) {
+  /* Stack the row: status, then name and details, then the counts, then the buttons. */
+  .row .status-text, .row .row-main, .row-actions { flex-basis: 100%; }
+  .status-text { min-width: 0; }
+}

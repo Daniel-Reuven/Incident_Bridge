@@ -262,6 +262,11 @@ class MaintenanceQueue:
         pending_titles = ", ".join(f"'{t.title}'" for t in self)
         return f"MaintenanceQueue('{self.name}', {len(self)} tasks: current={current_title}, pending=[{pending_titles}])"
 
+    def __repr__(self) -> str:
+        """Developer view: queue name, the in-progress task's id, and how many tasks are pending."""
+        current = self._current.id[:8] if self._current else None
+        return f"MaintenanceQueue(name={self.name!r}, current={current!r}, pending={len(self._pending)})"
+
 
 class MaintenanceQueueManager:
     """
@@ -301,3 +306,8 @@ class MaintenanceQueueManager:
         """String representation of the manager and its active queue names."""
         queues = ", ".join(f"'{name}'" for name in self.queue_names())
         return f"MaintenanceQueueManager({len(self._queues)} queues: [{queues}])"
+
+    def __repr__(self) -> str:
+        """Developer view: every managed queue name with its task count."""
+        sizes = {name: len(queue) for name, queue in self._queues.items()}
+        return f"MaintenanceQueueManager(queues={sizes!r})"

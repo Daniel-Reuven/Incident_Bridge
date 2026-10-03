@@ -107,6 +107,12 @@ class Fault(Incident):
         specifies severity directly, so the two entry points can't
         disagree about how a given set of details maps to a category.
 
+        'details' is validated by SeverityScorer.validate_details() (via
+        score()): it must be a JSON object with only known keys, true/false
+        flags and a 0-100 affected_users_percent - anything else raises
+        ValueError, so the loader skips the record instead of crashing.
+        The record's required 'id' replaces the freshly-generated one.
+
         The import is local (not at module top) to avoid a domain model
         depending on app.services at import time, matching the existing
         pattern in app/models/user.py's set_password().
@@ -119,6 +125,5 @@ class Fault(Incident):
         fault = cls(title=data["title"], description=data["description"], created_by=created_by,
                     severity=severity, severity_score=float(severity.value), details=details,
                     assigned_to=assigned_to)
-        if "id" in data:
-            fault.id = data["id"]
+        fault.id = cls.incident_id_from(data)
         return fault

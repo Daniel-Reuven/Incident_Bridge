@@ -50,3 +50,37 @@ class SeverityCategory(Enum):
     CRITICAL = 1
     MAJOR = 2
     MINOR = 3
+
+
+class SiteStatus(Enum):
+    """
+    Health of an organization site (the Sites & Mailing Lists subsystem -
+    see app/models/site.py).
+
+    UNKNOWN is the starting status: a freshly imported, created or restored
+    site has not been checked yet. OPERATIONAL / DEGRADED / DOWN are what an
+    availability check (or an admin's manual override) can set.
+    MAINTENANCE is only ever set manually by an admin; automated checks
+    skip sites in maintenance so planned work never raises an alarm.
+    """
+    UNKNOWN = "unknown"
+    OPERATIONAL = "operational"
+    DEGRADED = "degraded"
+    DOWN = "down"
+    MAINTENANCE = "maintenance"
+
+
+class NotificationState(Enum):
+    """
+    Lifecycle of a Notification (see app/models/notification.py).
+
+    Every site status change creates a notification that starts as DRAFT,
+    or SKIPPED straight away when no active mailing list with members covers
+    that site. An admin then either sends a draft (SENT) or discards it
+    (DISMISSED). SENT, DISMISSED and SKIPPED are final - nothing moves a
+    notification out of them.
+    """
+    DRAFT = "draft"
+    SENT = "sent"
+    DISMISSED = "dismissed"
+    SKIPPED = "skipped"

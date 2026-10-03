@@ -1,0 +1,12 @@
+{"site_id": 1001, "site_name": "Corporate website", "site_url": "https://example.com", "site_publish_date": "2019-04-15"}
+{"site_id": 1002, "site_name": "Customer portal", "site_url": "https://www.example.com", "site_publish_date": "2021-09-01"}
+{"site_id": 1003, "site_name": "Partner extranet", "site_url": "https://example.org", "site_publish_date": "2020-02-10"}
+{"site_id": 1004, "site_name": "Developer documentation", "site_url": "https://example.net", "site_publish_date": "2022-06-20"}
+{"site_id": 1005, "site_name": "Online store", "site_url": "https://www.example.org", "site_publish_date": "2023-11-05"}
+{"site_id": 1006, "site_name": "Careers page", "site_url": "https://www.example.net", "site_publish_date": "2018-01-30"}
+{"site_id": 1007, "site_name": "Internal HR portal", "site_url": "https://hr.incident-bridge.invalid", "site_publish_date": "2020-07-14"}
+{"site_id": 1008, "site_name": "Payroll system", "site_url": "https://payroll.incident-bridge.invalid", "site_publish_date": "2017-03-22"}
+{"site_id": 1009, "site_name": "Status page", "site_url": "https://www.iana.org", "site_publish_date": "2024-02-01"}
+{"site_id": 1010, "site_name": "Support knowledge base", "site_url": "https://kb.incident-bridge.invalid", "site_publish_date": "2021-12-12"}
+{"site_id": 1011, "site_name": "Marketing landing page", "site_url": "https://www.iana.org/domains/reserved"}
+{"site_id": 1012, "site_name": "Legacy intranet", "site_url": "http://intranet.incident-bridge.invalid", "site_publish_date": "2015-05-05"}
