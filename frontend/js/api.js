@@ -65,29 +65,20 @@ export const api = {
   // `limit` is optional: omit it to get every pressing call.
   pressingMaintenance: (limit) =>
     request("/incidents/maintenance/pressing" + (limit ? `?limit=${encodeURIComponent(limit)}` : "")),
+  // In-progress incidents with no update for a while (generator - backend/app/iterators.py).
+  staleIncidents: (minutes) =>
+    request("/incidents/work/stale" + (minutes ? `?stale_after_minutes=${encodeURIComponent(minutes)}` : "")),
   startNextMaintenance: () => request("/incidents/maintenance/start-next", { method: "POST" }),
-  startMaintenanceTask: (id) => request(`/incidents/maintenance/${id}/start`, { method: "POST" }),
   completeCurrentMaintenance: (message, resolution_type = "resolved") =>
     request("/incidents/maintenance/complete-current", { method: "POST", body: { message, resolution_type } }),
-  closeMaintenanceTask: (id, message, resolution_type = "resolved") =>
-    request(`/incidents/maintenance/${id}/close`, { method: "POST", body: { message, resolution_type } }),
-  maintenanceReopenOptions: () => request("/incidents/maintenance/reopen-options"),
-  reopenMaintenanceTask: (id, status, reason, position) =>
-    request(`/incidents/maintenance/${id}/reopen`, { method: "POST", body: { status, reason, position } }),
 
   // --- faults (shared priority queue) ---
   faultQueue: () => request("/incidents/faults/queue"),
   createFault: (title, description, details = {}) =>
     request("/incidents/faults", { method: "POST", body: { title, description, details } }),
   claimNextFault: () => request("/incidents/faults/claim-next", { method: "POST" }),
-  faultClaimStatus: (id) => request(`/incidents/faults/${id}/claim-status`),
-  claimFault: (id) => request(`/incidents/faults/${id}/claim`, { method: "POST" }),
   changeFaultSeverity: (id, severity) =>
     request(`/incidents/faults/${id}/severity`, { method: "PATCH", body: { severity } }),
   closeFault: (id, resolution_type, message) =>
     request(`/incidents/faults/${id}/close`, { method: "POST", body: { resolution_type, message } }),
-  reopenFault: (id, status, reason) =>
-    request(`/incidents/faults/${id}/reopen`, { method: "POST", body: { status, reason } }),
-  // --- bulk import (admin only) ---
-  importJsonl: (content) => request("/incidents/import-jsonl", { method: "POST", body: { content } }),
 };

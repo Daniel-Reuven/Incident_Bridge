@@ -46,10 +46,10 @@ from app.api.schemas import (
 from app.api.serializers import incident_to_dict
 from app.events import EventBroadcaster
 from app.models import Fault, IncidentStatus, MaintenanceTask, Role, User
-from app.iterators import first_pressing_calls
 from app.services import SeverityScorer
 from app.state import AppState
-
+from datetime import datetime, timedelta, timezone
+from app.iterators import STALE_AFTER, first_pressing_calls, stale_in_progress_work
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 
 
@@ -196,7 +196,56 @@ def get_maintenance_queue(state: AppState = Depends(get_state), _current_user: U
         "current": incident_to_dict(queue.current_task) if queue.current_task else None,
         "pending": [incident_to_dict(t) for t in queue],
     }
+@router.get("/work/stale")
+def get_stale_work(stale_after_minutes: Optional[int] = Query(None, ge=1, le=10080),
+                    state: AppState = Depends(get_state), _current_user: User = Depends(get_current_user)):
+    """
+    In-progress incidents (faults or maintenance tasks) with no update for
+    longer than `stale_after_minutes` (default: STALE_AFTER, 4 hours),
+    produced by the generator function in app/iterators.py - the logic lives
+    there, this endpoint only calls it and shapes the response.
 
+    Declared with a two-segment path on purpose: a bare "/stale" would be
+    swallowed by the "/{incident_id}" route above.
+    """
+    stale_after = timedelta(minutes=stale_after_minutes) if stale_after_minutes else STALE_AFTER
+    now = datetime.now(timezone.utc)
+    results = [
+        {
+            "id": i.id,
+            "title": i.title,
+            "type": "fault" if isinstance(i, Fault) else "maintenance",
+            "assigned_to": i.assigned_to.username if i.assigned_to else None,
+            "minutes_since_update": int((now - i.updated_at).total_seconds() // 60),
+        }
+        for i in stale_in_progress_work(state.incidents.list_all(), now, stale_after)
+    ]
+    return {
+        "stale_after_minutes": int(stale_after.total_seconds() // 60),
+        "count": len(results),
+        "results": results,
+    }
+
+
+@router.get("/maintenance/pressing")
+def get_pressing_maintenance(limit: Optional[int] = Query(None, ge=1, le=500), state: AppState = Depends(get_state),
+                              _current_user: User = Depends(get_current_user)):
+    """
+    Open maintenance calls that have waited more than 3 days (in-progress
+    and closed calls are left out), produced by the lazy pipeline in
+    app/iterators.py. With `limit`, the pipeline stops after that many
+    results; `examined` shows how many incidents it actually had to look
+    at, and `stopped_early` is True when some were never touched at all.
+    """
+    calls, examined = first_pressing_calls(state.incidents.list_all(), limit)
+    total = sum(1 for _ in state.incidents.list_all())
+    return {
+        "limit": limit,
+        "results": calls,
+        "examined": examined,
+        "total_incidents": total,
+        "stopped_early": examined < total,
+    }
 
 @router.get("/maintenance/pressing")
 def get_pressing_maintenance(limit: Optional[int] = Query(None, ge=1, le=500), state: AppState = Depends(get_state),

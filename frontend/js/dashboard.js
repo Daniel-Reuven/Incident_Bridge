@@ -4,21 +4,17 @@ import { connectLiveUpdates } from "./events.js";
 import { renderRowList } from "./row-list.js";
 import { showToast, describeEvent } from "./toast.js";
 
+// Stale-work highlighting - uses the generator in backend/app/iterators.py via
+// GET /incidents/work/stale. Declared first: refresh() reads these as soon as it runs.
+let staleActive = false;
+let staleInfo = new Map(); // incident id -> { minutes_since_update, ... } for incidents flagged stale
+
 const user = await mountTopbar();
 if (user) {
   wireFilters();
   wireNewIncidentDialog();
   wireDelegatedNavigation();
-
-  // Bulk seed-data import is an admin-only action (enforced again, for
-  // real, by the server - see POST /incidents/import-jsonl - this is
-  // just about not showing a button a non-admin would only get a 403
-  // from). The button stays in the markup with `hidden` by default (see
-  // dashboard.html) so there's nothing to flash-and-hide after load.
-  if (user.role === "admin") {
-    document.getElementById("import-jsonl-btn").hidden = false;
-    wireImportJsonlDialog();
-  }
+  wireStaleCheck();
 
   document.getElementById("start-next-btn").addEventListener("click", async () => {
     try {
@@ -93,56 +89,46 @@ function wireDelegatedNavigation() {
 async function loadMaintenance() {
   const { current, pending } = await api.maintenanceQueue();
   const items = [];
-  // Labels use the server's queue_position - the same numbering the
-  // incident page's badge shows, where an in-progress task is position 1
-  // and waiting tasks follow (so with a task in progress, the first waiting
-  // one is #2, not #1). The fallbacks only matter if a position is missing.
-  if (current) items.push({ task: current, label: `#${current.queue_position || 1} In progress` });
-  pending.forEach((t, i) => items.push({ task: t, label: `#${t.queue_position || i + 1} in queue` }));
+  if (current) items.push({ task: current, label: "In progress" });
+  pending.forEach((t, i) => items.push({ task: t, label: `#${i + 1} in queue` }));
 
   renderRowList(
     document.getElementById("maintenance-queue"),
     items,
     (item) => item.task.id,
-    ({ task, label }) => ({
-      className: "row",
-      html: `
+    ({ task, label }) => {
+      const stale = staleInfo.get(task.id);
+      return {
+        className: `row${stale ? " row-stale" : ""}`,
+        html: `
         <span class="row-position">${label}</span>
-        <span class="row-title">${escapeHtml(task.title)}</span>
+        <span class="row-title">${escapeHtml(task.title)}</span>${staleTag(stale)}
         <span class="row-meta">by ${escapeHtml(task.created_by)} · ${timeAgo(task.created_at)}</span>`,
-      sig: JSON.stringify([label, task.title, task.updated_at]),
-    }),
+        sig: JSON.stringify([label, task.title, task.updated_at, stale ? stale.minutes_since_update : null]),
+      };
+    },
     "Nothing queued."
   );
 }
 
 async function loadFaultQueue() {
-  const faults = await api.faultQueue() || [];
-
-  const faultsWithPositions = faults.map((f, index) => ({
-    ...f,
-    position: index + 1
-  }));
-
+  const faults = await api.faultQueue();
   renderRowList(
     document.getElementById("fault-queue"),
-    faultsWithPositions,
+    faults,
     (f) => f.id,
-    (f) => ({
+    (f, i) => ({
       className: `row ${severityClass(f.severity)}`,
       html: `
-        <span class="row-position">#${f.position}</span>
+        <span class="row-position">#${i + 1}</span>
         <span class="row-badge">${severityLabel(f.severity)}</span>
         <span class="row-title">${escapeHtml(f.title)}</span>
-        <span class="row-meta">${timeAgo(f.created_at)}</span>
-      `,
-      sig: JSON.stringify([f.id, f.severity, f.title, f.updated_at]),
+        <span class="row-meta">${timeAgo(f.created_at)}</span>`,
+      sig: JSON.stringify([i, f.severity, f.title, f.updated_at]),
     }),
-    "No faults found."
+    "Nothing waiting."
   );
 }
-
-
 
 async function loadIncidents() {
   const type = document.getElementById("filter-type").value;
@@ -164,14 +150,16 @@ async function loadIncidents() {
       const isFault = item.type === "fault";
       const sevClass = isFault ? severityClass(item.severity) : "";
       const badge = isFault ? severityLabel(item.severity) : "Maintenance";
+      const stale = staleInfo.get(item.id);
       return {
-        className: `row ${sevClass}`,
+        className: `row ${sevClass}${stale ? " row-stale" : ""}`,
         html: `
           <span class="row-badge">${badge}</span>
-          <span class="row-title">${escapeHtml(item.title)}</span>
+          <span class="row-title">${escapeHtml(item.title)}</span>${staleTag(stale)}
           <span class="row-status">${item.status.replace("_", " ")}</span>
           <span class="row-meta">${timeAgo(item.created_at)}</span>`,
-        sig: JSON.stringify([i, item.status, item.severity, item.title, item.updated_at]),
+        sig: JSON.stringify([i, item.status, item.severity, item.title, item.updated_at,
+                             stale ? stale.minutes_since_update : null]),
       };
     },
     "No incidents match these filters."
@@ -179,7 +167,62 @@ async function loadIncidents() {
 }
 
 async function refresh() {
+  try {
+    await loadStale(); // keeps the highlight correct after live updates (no-op while highlighting is off)
+  } catch {
+    // keep the previous highlights if the check fails - the lists themselves still refresh
+  }
   await Promise.all([loadMaintenance(), loadFaultQueue(), loadIncidents()]);
+}
+
+// --- stale-work check ---
+
+function formatIdle(minutes) {
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h`;
+  return `${Math.floor(minutes / 1440)}d`;
+}
+
+function staleTag(stale) {
+  return stale ? `<span class="row-stale-tag">Stale · ${formatIdle(stale.minutes_since_update)} idle</span>` : "";
+}
+
+async function loadStale() {
+  if (!staleActive) return null;
+  const data = await api.staleIncidents(document.getElementById("stale-threshold").value);
+  staleInfo = new Map(data.results.map((r) => [r.id, r]));
+  return data;
+}
+
+function wireStaleCheck() {
+  const button = document.getElementById("check-stale-btn");
+  const threshold = document.getElementById("stale-threshold");
+
+  button.addEventListener("click", async () => {
+    if (staleActive) { // second press: switch the highlighting off again
+      staleActive = false;
+      staleInfo = new Map();
+      button.textContent = "Check stale incidents";
+      await refresh();
+      return;
+    }
+    showToast("Checking stale incidents…");
+    staleActive = true;
+    try {
+      const data = await loadStale();
+      button.textContent = "Hide stale highlight";
+      await Promise.all([loadMaintenance(), loadFaultQueue(), loadIncidents()]);
+      showToast(data.count
+        ? `${data.count} stale incident${data.count === 1 ? "" : "s"} highlighted (no update for over ${formatIdle(data.stale_after_minutes)})`
+        : "No stale incidents found");
+    } catch (err) {
+      staleActive = false;
+      staleInfo = new Map();
+      alert(err.message);
+    }
+  });
+
+  threshold.addEventListener("change", () => { if (staleActive) refresh(); });
 }
 
 function wireFilters() {
@@ -228,69 +271,4 @@ function wireNewIncidentDialog() {
       errorEl.hidden = false;
     }
   });
-}
-
-function wireImportJsonlDialog() {
-  const dialog = document.getElementById("import-jsonl-dialog");
-  const form = document.getElementById("import-jsonl-form");
-  const fileInput = form.querySelector('input[name="file"]');
-  const errorEl = document.getElementById("import-jsonl-error");
-  const summaryEl = document.getElementById("import-jsonl-summary");
-  const submitBtn = document.getElementById("import-jsonl-submit");
-
-  document.getElementById("import-jsonl-btn").addEventListener("click", () => {
-    form.reset();
-    errorEl.hidden = true;
-    summaryEl.hidden = true;
-    dialog.showModal();
-  });
-  dialog.querySelector('[data-action="cancel"]').addEventListener("click", () => dialog.close());
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    errorEl.hidden = true;
-    summaryEl.hidden = true;
-
-    const file = fileInput.files[0];
-    if (!file) return;
-
-    submitBtn.disabled = true;
-    try {
-      // Read client-side and send the file's own text content, not a
-      // path - the server has no way to open "a path on the admin's
-      // laptop" and shouldn't need to (see backend/app/api/schemas.py's
-      // ImportJsonlRequest for the same reasoning on the backend side).
-      const content = await file.text();
-      const result = await api.importJsonl(content);
-      renderImportSummary(result);
-      // The server excludes THIS tab from its own live-update broadcast
-      // (same X-Client-Id mechanism every other mutating call uses - see
-      // api.js/events.js) - so unlike a response to another tab's action,
-      // our own queues/lists need an explicit refresh here, not just the
-      // toast-triggered one connectLiveUpdates() does for everyone else.
-      await refresh();
-    } catch (err) {
-      errorEl.textContent = err.message;
-      errorEl.hidden = false;
-    } finally {
-      submitBtn.disabled = false;
-    }
-  });
-}
-
-function renderImportSummary(result) {
-  const summaryEl = document.getElementById("import-jsonl-summary");
-  const duplicateCount = result.skipped_duplicate_ids.length;
-  const invalidCount = result.skipped_invalid.length;
-
-  const invalidListHtml = invalidCount
-    ? `<ul>${result.skipped_invalid.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>`
-    : "";
-
-  summaryEl.innerHTML = `
-    <p><strong>${result.created}</strong> incident${result.created === 1 ? "" : "s"} imported.</p>
-    ${duplicateCount ? `<p>${duplicateCount} skipped (already imported).</p>` : ""}
-    ${invalidCount ? `<p>${invalidCount} skipped (invalid):</p>${invalidListHtml}` : ""}
-  `;
-  summaryEl.hidden = false;
 }

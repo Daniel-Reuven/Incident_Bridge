@@ -190,3 +190,16 @@ Run the demonstration (domain layer only, no HTTP or database): `python demo_gen
 Tests: `tests/test_stale_work_generator.py` covers each of these five behaviours plus the business condition (including the exact 4-hour boundary and a custom threshold).
 
 File-map additions for the README: `iterators.py` (lazy pipeline + stale-work generator), `demo_generator.py` (runnable walkthrough of the generator), `tests/test_stale_work_generator.py`.
+
+
+## Stale-work check on the dashboard
+
+The generator function `stale_in_progress_work` lives in `app/iterators.py` (it is the only place the "stale" rule is implemented). The dashboard's **Check stale incidents** button shows its result:
+
+- `GET /incidents/work/stale[?stale_after_minutes=N]` calls the generator over `IncidentRepository.list_all()` and returns the matching in-progress incidents (default threshold: 4 hours without an update; `updated_at` is refreshed by every status change and comment).
+- Pressing the button shows a toast ("Checking stale incidents…"), then highlights the stale rows (amber background and a "Stale · 5h idle" tag) in the Maintenance queue and the All incidents list, and a second toast reports how many were found. Pressing it again switches the highlighting off.
+- While highlighting is on, every live update re-checks, so the highlight never goes out of date.
+- The "Stale after" selector includes a **1 minute (demo)** option, so you can start a task, wait a minute, and see it flagged without waiting 4 hours.
+
+Tests: `tests/test_api/test_stale_endpoint.py` (endpoint) and `tests/test_stale_work_generator.py` (the generator itself).
+
