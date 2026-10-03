@@ -1,6 +1,0 @@
-{"id": "seed-001", "kind": "maintenance", "title": "Patch web server OS", "description": "Apply this month's security patches to the production web server.", "created_by": "admin"}
-{"id": "seed-002", "kind": "maintenance", "title": "Rotate weekly backups", "description": "Move this week's backup set to cold storage.", "created_by": "admin", "assigned_to": "tech1"}
-{"id": "seed-003", "kind": "fault", "title": "Payment API is down", "description": "Checkout is failing for all users, gateway returning 503.", "created_by": "tech1", "details": {"system_unavailable": true}}
-{"id": "seed-004", "kind": "fault", "title": "Checkout slow for some users", "description": "Elevated latency observed on the payment step for a subset of traffic.", "created_by": "tech1", "details": {"performance_degraded": true}}
-{"id": "seed-005", "kind": "fault", "title": "Typo on invoice page", "description": "'Recieved' should be 'Received' on the invoice summary screen.", "created_by": "tech1", "details": {"cosmetic_only": true}}
-{"id": "seed-006", "kind": "maintenance", "title": "Renew TLS certificate", "description": "Certificate expires in 10 days - renew and redeploy before then.", "created_by": "admin"}

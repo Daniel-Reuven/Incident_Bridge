@@ -1,7 +1,7 @@
 """Incident base class: the shared lifecycle for MaintenanceTask and Fault."""
 
 import uuid
-from abc import ABC
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -65,6 +65,17 @@ class Incident(ABC):
     fault.py). This keeps the model open for a third incident type later
     without touching this class (Open/Closed principle - README section 4).
 
+    Polymorphism: Incident is a real abstract class. Every concrete type
+    must implement the two abstract members below, and code that handles
+    incidents of either type uses them instead of checking which class an
+    object is (no `isinstance(x, Fault)` deciding behavior):
+      - `kind`           the type's name, "maintenance" or "fault" - what the
+                         API sends as `type` and the database stores as `kind`;
+      - `extra_fields()` the type-specific fields as a dict (queue position
+                         for a task; severity, score and details for a fault).
+    Because they are @abstractmethod, Python itself refuses to create an
+    Incident, or a subclass that forgets one of them (TypeError).
+
     Validation: `title` and `description` are properties whose setters
     reject blank or over-long text with ValueError, so an incident can never
     hold an empty title or description - not at creation (the constructor
@@ -82,8 +93,8 @@ class Incident(ABC):
 
     def __init__(self, title: str, description: str, created_by: User,
                  assigned_to: Optional[User] = None):
-        if self.__class__ is Incident:
-            raise TypeError("Incident is abstract and cannot be instantiated directly.")
+        # No manual "is this the base class?" check needed: Incident has
+        # abstract members, so Incident(...) already raises TypeError.
         self.id = str(uuid.uuid4())
         self.title = title              # validated by the property setter below
         self.description = description  # validated by the property setter below
@@ -150,6 +161,23 @@ class Incident(ABC):
         if isinstance(raw, bool) or not isinstance(raw, (str, int)) or not str(raw).strip():
             raise ValueError(f"record is missing a valid 'id' (a non-blank string or a whole number), got {raw!r}")
         return str(raw).strip()
+
+    # ------------------------------------------------------------------
+    # Abstract members - implemented by MaintenanceTask and Fault
+    # ------------------------------------------------------------------
+
+    @property
+    @abstractmethod
+    def kind(self) -> str:
+        """This incident's type name: "maintenance" or "fault"."""
+
+    @abstractmethod
+    def extra_fields(self) -> dict:
+        """
+        The fields only this type has, as plain JSON-ready values (enums as
+        their value). Used by the API serializer and by persistence, so
+        neither needs to know which type it is handling.
+        """
 
     # ------------------------------------------------------------------
     # Validated text fields

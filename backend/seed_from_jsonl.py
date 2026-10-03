@@ -69,7 +69,7 @@ def _find_admin_credentials():
 
 
 def main() -> None:
-    default_path = Path(__file__).resolve().parents[1] / "data" / "sample_data_1.jsonl"
+    default_path = Path(__file__).resolve().parents[1] / "data" / "sample_data.jsonl"
     jsonl_path = Path(sys.argv[1]) if len(sys.argv) > 1 else default_path
 
     if not jsonl_path.is_file():

@@ -29,7 +29,7 @@ import json
 import sqlite3
 import threading
 from datetime import datetime
-from typing import TYPE_CHECKING, Iterable, List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from app.models import (
     Comment,
@@ -118,7 +118,10 @@ class SqliteIncidentStore:
         app/repository.py's save(), which every mutating API endpoint
         calls exactly once at the end (app/api/incidents.py).
         """
-        is_fault = isinstance(incident, Fault)
+        # Type-specific columns come from the incident's own extra_fields()
+        # (polymorphism - see app/models/incident.py); a column the type
+        # doesn't have stays NULL.
+        extra = incident.extra_fields()
         with self._lock:
             self._conn.execute(
                 """
@@ -137,7 +140,7 @@ class SqliteIncidentStore:
                 """,
                 {
                     "id": incident.id,
-                    "kind": "fault" if is_fault else "maintenance",
+                    "kind": incident.kind,
                     "title": incident.title,
                     "description": incident.description,
                     "status": incident.status.value,
@@ -147,10 +150,10 @@ class SqliteIncidentStore:
                     "assigned_to": incident.assigned_to.username if incident.assigned_to else None,
                     "created_at": incident.created_at.isoformat(),
                     "updated_at": incident.updated_at.isoformat(),
-                    "severity": incident.severity.value if is_fault else None,
-                    "severity_score": incident.severity_score if is_fault else None,
-                    "details": json.dumps(incident.details) if is_fault else None,
-                    "queue_position": None if is_fault else incident.queue_position,
+                    "severity": extra.get("severity"),
+                    "severity_score": extra.get("severity_score"),
+                    "details": json.dumps(extra["details"]) if "details" in extra else None,
+                    "queue_position": extra.get("queue_position"),
                 },
             )
             for comment in incident.comments:

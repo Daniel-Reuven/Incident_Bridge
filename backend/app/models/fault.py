@@ -24,6 +24,18 @@ class Fault(Incident):
         self.severity_score = severity_score
         self.details = details or {}
 
+    # Type name - see Incident.kind (also a class attribute: Fault.KIND).
+    KIND = "fault"
+
+    @property
+    def kind(self) -> str:
+        """Implements Incident.kind."""
+        return self.KIND
+
+    def extra_fields(self) -> dict:
+        """Implements Incident.extra_fields(): severity (its numeric value), severity score and the scoring details."""
+        return {"severity": self.severity.value, "severity_score": self.severity_score, "details": self.details}
+
     def __str__(self) -> str:
         # Falls back to string conversion if severity isn't a standard Enum
         severity_name = self.severity.name if hasattr(self.severity, "name") else str(self.severity)

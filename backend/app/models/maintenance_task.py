@@ -14,10 +14,23 @@ class MaintenanceTask(Incident):
     It is not used for ordering logic itself.
     """
 
+    # Type name - see Incident.kind. A class attribute too, so code that
+    # filters a mixed list can compare against MaintenanceTask.KIND.
+    KIND = "maintenance"
+
     def __init__(self, title: str, description: str, created_by: User,
                  assigned_to: Optional[User] = None):
         super().__init__(title, description, created_by, assigned_to)
         self.queue_position: Optional[int] = None
+
+    @property
+    def kind(self) -> str:
+        """Implements Incident.kind."""
+        return self.KIND
+
+    def extra_fields(self) -> dict:
+        """Implements Incident.extra_fields(): a task's only own field is its queue position (None until queued)."""
+        return {"queue_position": self.queue_position}
 
     def __str__(self) -> str:
         position = f"Pos {self.queue_position}" if self.queue_position is not None else "Unqueued"

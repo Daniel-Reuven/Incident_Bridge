@@ -4,6 +4,7 @@ import heapq
 import itertools
 from typing import Iterator, List, Tuple
 
+from app.iterators import SeverityOrderIterator
 from app.models.fault import Fault
 
 
@@ -60,8 +61,14 @@ class FaultPriorityQueue:
         for _, _, fault in sorted(self._heap):
             yield fault
 
-    def __iter__(self) -> Iterator[Fault]:
-        return self.iter_by_severity()
+    def __iter__(self) -> SeverityOrderIterator:
+        """
+        Makes the queue an Iterable: every call returns a NEW
+        SeverityOrderIterator (app/iterators.py) over a snapshot of the
+        queued faults, most severe first (ties by arrival), without popping
+        anything. Two iterators over the same queue advance independently.
+        """
+        return SeverityOrderIterator(self._heap)
 
     def __len__(self) -> int:
         return len(self._heap)

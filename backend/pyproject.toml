@@ -15,7 +15,7 @@ build-backend = "setuptools.build_meta"
 name = "incident-bridge"
 # Keep in sync with the root VERSION file when you bump the app version
 # (setuptools cannot read a file outside backend/).
-version = "0.3.2"
+version = "0.3.3"
 description = "Incident Bridge - incident management backend (FastAPI)"
 requires-python = ">=3.9"
 

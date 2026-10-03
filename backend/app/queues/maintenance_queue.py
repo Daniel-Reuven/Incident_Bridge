@@ -3,6 +3,7 @@
 from collections import deque
 from typing import Dict, Iterator, Optional, Tuple
 
+from app.iterators import FifoQueueIterator
 from app.models.enums import IncidentStatus, ResolutionType
 from app.models.maintenance_task import MaintenanceTask
 from app.models.user import User
@@ -238,8 +239,15 @@ class MaintenanceQueue:
             yield self._current
         yield from self._pending
 
-    def __iter__(self) -> Iterator[MaintenanceTask]:
-        return self.pending_tasks()
+    def __iter__(self) -> FifoQueueIterator:
+        """
+        Makes the queue an Iterable: every call returns a NEW
+        FifoQueueIterator (app/iterators.py) over a snapshot of the pending
+        tasks in FIFO order, so `for task in queue` works, two iterators
+        over the same queue advance independently, and changing the queue
+        while iterating is safe. The in-progress task is not included.
+        """
+        return FifoQueueIterator(self._pending)
 
     def __len__(self) -> int:
         return len(self._pending) + (1 if self._current else 0)
