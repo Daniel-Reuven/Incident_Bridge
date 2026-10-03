@@ -9,8 +9,28 @@ from app.models import Fault, Incident, MaintenanceTask, Role, User
 from app.persistence import SqliteIncidentStore
 
 
+class UserProvisioningError(Exception):
+    """
+    INCIDENT_BRIDGE_USERS is unusable (invalid JSON, an invalid entry, or a
+    duplicate username). Raised by seed_users_from_env() so the app refuses
+    to start instead of running with a half-configured user list; the
+    message lists every problem found and says how to fix it.
+    serve_app.py catches it before the server starts and exits with that
+    message alone (no traceback).
+    """
+
+
 class UserStore:
-    """Simple in-memory username -> User lookup. No self-registration - see seed_users_from_env below."""
+    """
+    Simple in-memory username -> User lookup. No self-registration - see
+    seed_users_from_env below.
+
+    Explicit duplicate decision: usernames are unique, compared
+    case-insensitively ("Admin" and "admin" would be two near-identical
+    logins), and add() raises ValueError for a duplicate instead of silently
+    replacing the existing user. Lookups with get() stay exact-case, so the
+    login name is the username exactly as provisioned.
+    """
 
     def __init__(self):
         self._users: Dict[str, User] = {}
@@ -23,7 +43,16 @@ class UserStore:
         return f"UserStore(usernames={sorted(self._users)!r})"
 
     def add(self, user: User) -> None:
+        """Add a user. Raises ValueError if the username is already taken (case-insensitive)."""
+        existing = self.find_case_insensitive(user.username)
+        if existing is not None:
+            raise ValueError(f"username {user.username!r} is already used by {existing.username!r}")
         self._users[user.username] = user
+
+    def find_case_insensitive(self, username: str) -> Optional[User]:
+        """The user whose username equals `username` ignoring letter case, or None."""
+        wanted = username.lower()
+        return next((u for u in self._users.values() if u.username.lower() == wanted), None)
 
     def get(self, username: str) -> Optional[User]:
         return self._users.get(username)
@@ -40,7 +69,7 @@ _DEFAULT_USERS_WARNING = (
 )
 
 
-def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS") -> UserStore:
+def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = True) -> UserStore:
     """
     Build the UserStore from an environment variable holding a JSON array,
     e.g. (see .env.example):
@@ -50,19 +79,62 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS") -> UserStore:
 
     This is the "pre-provisioned via env, no self-registration" mechanism
     from the design doc (README section 6). Falls back to an insecure demo
-    pair (with a loud warning) only so the app can start with zero setup
-    during local development.
+    pair (with a loud warning, unless warn=False) only so the app can start
+    with zero setup during local development.
+
+    Fail-fast: when the variable IS set, every entry is checked and ALL
+    problems are collected - invalid JSON, not a list, an empty list, an
+    entry that User.from_dict() rejects (missing field, bad role, weak
+    password), or a duplicate username (case-insensitive, naming the entry
+    it repeats). If there is any problem, UserProvisioningError is raised
+    with one message listing them all, so the app never starts with a
+    partly-loaded or ambiguous user list.
+
+    `warn` exists so serve_app.py can validate the variable before starting
+    the server without printing the demo-users warning twice.
     """
     store = UserStore()
     raw = os.environ.get(env_var)
-    if not raw:
-        print(f"WARNING: {_DEFAULT_USERS_WARNING}")
+    if not raw or not raw.strip():
+        if warn:
+            print(f"WARNING: {_DEFAULT_USERS_WARNING}")
         store.add(User(username="admin", role=Role.ADMIN, password="Passw0rd1"))
         store.add(User(username="tech1", role=Role.USER, password="Passw0rd2"))
         return store
 
-    for entry in json.loads(raw):
-        store.add(User(username=entry["username"], role=Role(entry["role"]), password=entry["password"]))
+    def fail(problems: List[str]) -> UserProvisioningError:
+        listed = "\n".join(f"  - {p}" for p in problems)
+        return UserProvisioningError(
+            f"{env_var} has {len(problems)} problem(s) - the app will not start until they are fixed:\n"
+            f"{listed}\nFix the value in backend/.env (or your environment) and start again."
+        )
+
+    try:
+        entries = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise fail([f"not valid JSON ({exc.msg} at position {exc.pos})"]) from None
+    if not isinstance(entries, list):
+        raise fail([f"must be a JSON array of users, got {type(entries).__name__}"])
+    if not entries:
+        raise fail(["the array is empty - provision at least one user"])
+
+    problems: List[str] = []
+    first_entry_of: Dict[str, int] = {}          # lower-cased username -> entry number that defined it
+    for number, entry in enumerate(entries, start=1):
+        try:
+            user = User.from_dict(entry)
+        except ValueError as exc:
+            problems.append(f"entry {number}: {exc}")
+            continue
+        key = user.username.lower()
+        if key in first_entry_of:
+            problems.append(f"entry {number}: duplicate username {user.username!r} "
+                            f"(already defined in entry {first_entry_of[key]})")
+            continue
+        first_entry_of[key] = number
+        store.add(user)
+    if problems:
+        raise fail(problems)
     return store
 
 
@@ -213,10 +285,16 @@ class IncidentRepository:
         idempotent (running it twice adds nothing the second time).
 
         Explicit invalid-record decision: a record with an unknown 'kind',
-        a missing/blank required field, an unresolvable created_by /
-        assigned_to username, or invalid JSON on that line is SKIPPED and
-        recorded in the result with a reason - it does not raise and does
-        not stop the rest of the data from loading.
+        a missing/invalid 'id', a missing/blank/over-long title or
+        description, invalid fault 'details' (wrong types, unknown keys -
+        see SeverityScorer.validate_details), an unresolvable created_by /
+        assigned_to username, a line that is not a JSON object, or invalid
+        JSON on that line is SKIPPED and recorded in the result with a
+        reason - it does not raise and does not stop the rest of the data
+        from loading. Every one of those problems surfaces as a ValueError
+        (json.JSONDecodeError is a ValueError subclass), which is the only
+        exception caught below - any other exception would be a real bug
+        and is deliberately not hidden.
         """
         result = SeedLoadResult()
         for line_number, raw_line in enumerate(lines, start=1):
@@ -246,6 +324,8 @@ class IncidentRepository:
         shared Incident type, never branching on 'kind' again.
         """
         data = json.loads(line)
+        if not isinstance(data, dict):
+            raise ValueError(f"each line must be a JSON object, got {type(data).__name__}")
 
         kind = data.get("kind")
         if kind not in ("maintenance", "fault"):

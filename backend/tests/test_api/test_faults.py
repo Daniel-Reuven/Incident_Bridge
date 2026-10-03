@@ -212,3 +212,10 @@ def test_a_rejected_close_leaves_the_fault_in_the_queue(user_client):
     assert response.status_code == 403
     queue = user_client.get("/incidents/faults/queue").json()
     assert [f["title"] for f in queue] == ["Stay queued"]
+
+
+def test_invalid_fault_details_are_rejected_with_400(user_client):
+    """SeverityScorer.validate_details (app/services/severity_scoring.py) reaches the API as HTTP 400, not a 500."""
+    response = user_client.post("/incidents/faults", json={"title": "t", "description": "d",
+                                                           "details": {"affected_users_percent": "lots"}})
+    assert response.status_code == 400 and "0 to 100" in response.json()["detail"]

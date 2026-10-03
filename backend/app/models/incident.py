@@ -116,12 +116,21 @@ class Incident(ABC):
         calling `super().from_dict(data, ...)` first purely for this
         shared validation - its return value is unused by them.
 
+        Explicit decision: every seed record MUST carry an 'id' (a non-blank
+        string, or a whole number, which is stored as its text). The id is
+        what makes re-importing the same file idempotent (an existing id is
+        skipped, not duplicated) and what other data refers to, so a record
+        without one is rejected rather than given a random id. Use
+        incident_id_from() to read it.
+
         Raises:
             TypeError: if called on Incident itself rather than a concrete subclass.
-            ValueError: if 'title' or 'description' is missing or blank.
+            ValueError: if 'id' is missing or invalid, or 'title' or
+                'description' is missing or blank.
         """
         if cls is Incident:
             raise TypeError("Incident.from_dict must be called on a concrete subclass (MaintenanceTask or Fault).")
+        cls.incident_id_from(data)
         title = data.get("title")
         description = data.get("description")
         if not title or not str(title).strip():
@@ -129,6 +138,18 @@ class Incident(ABC):
         if not description or not str(description).strip():
             raise ValueError(f"record {data.get('id', '?')!r} is missing a required 'description'")
         return None  # subclasses only use this call for its validation side effect, not this return value
+
+    @staticmethod
+    def incident_id_from(data: dict) -> str:
+        """
+        The record's 'id' as text. Accepts a non-blank string or a whole
+        number (e.g. 101 -> "101"); raises ValueError for anything else,
+        including a missing id (see from_dict's explicit decision).
+        """
+        raw = data.get("id")
+        if isinstance(raw, bool) or not isinstance(raw, (str, int)) or not str(raw).strip():
+            raise ValueError(f"record is missing a valid 'id' (a non-blank string or a whole number), got {raw!r}")
+        return str(raw).strip()
 
     # ------------------------------------------------------------------
     # Validated text fields
