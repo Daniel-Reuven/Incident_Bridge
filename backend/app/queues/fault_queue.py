@@ -88,3 +88,8 @@ class FaultPriorityQueue:
             self.push(fault)
             return True
         return False
+
+    def __str__(self) -> str:
+        """String representation of the queue showing fault titles in priority order."""
+        titles = ", ".join(f"'{f.title}'" for f in self)
+        return f"FaultPriorityQueue({len(self)} faults: [{titles}])"

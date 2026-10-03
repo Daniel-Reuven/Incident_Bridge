@@ -19,6 +19,10 @@ class MaintenanceTask(Incident):
         super().__init__(title, description, created_by, assigned_to)
         self.queue_position: Optional[int] = None
 
+    def __str__(self) -> str:
+        position = f"Pos {self.queue_position}" if self.queue_position is not None else "Unqueued"
+        return f"[MaintenanceTask - {position}] {self.title}"
+
     @classmethod
     def from_dict(cls, data: dict, created_by: User, assigned_to: Optional[User] = None) -> "MaintenanceTask":
         """

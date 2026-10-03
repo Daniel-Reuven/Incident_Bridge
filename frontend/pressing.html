@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pressing Maintenance Calls — Incident Bridge</title>
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header id="topbar"></header>
+  <main class="dashboard">
+    <a href="/dashboard.html" class="back-link">← Back to dashboard</a>
+    <h1>Pressing Maintenance Calls</h1>
+    <p class="hint" style="margin:6px 0 20px">
+      Open maintenance calls that have waited more than 3 days. Calls already in progress are left out.
+    </p>
+
+    <div class="actions-row" style="margin-bottom:12px">
+      <label class="inline-select">Show first
+        <select id="pressing-limit">
+          <option value="">All</option>
+          <option value="2">2</option>
+          <option value="5">5</option>
+          <option value="10">10</option>
+        </select>
+      </label>
+      <span class="hint" id="pressing-stats"></span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table" id="pressing-table" hidden>
+        <thead>
+          <tr><th class="num">#</th><th>Title</th><th>Reported by</th><th>Opened</th><th>Waiting</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="empty" id="pressing-empty" hidden>No pressing maintenance calls right now.</p>
+  </main>
+  <script type="module" src="/js/pressing.js"></script>
+</body>
+</html>

@@ -113,23 +113,32 @@ async function loadMaintenance() {
 }
 
 async function loadFaultQueue() {
-  const faults = await api.faultQueue();
+  const faults = await api.faultQueue() || [];
+
+  const faultsWithPositions = faults.map((f, index) => ({
+    ...f,
+    position: index + 1
+  }));
+
   renderRowList(
     document.getElementById("fault-queue"),
-    faults,
+    faultsWithPositions,
     (f) => f.id,
-    (f, i) => ({
+    (f) => ({
       className: `row ${severityClass(f.severity)}`,
       html: `
-        <span class="row-position">#${i + 1}</span>
+        <span class="row-position">#${f.position}</span>
         <span class="row-badge">${severityLabel(f.severity)}</span>
         <span class="row-title">${escapeHtml(f.title)}</span>
-        <span class="row-meta">${timeAgo(f.created_at)}</span>`,
-      sig: JSON.stringify([i, f.severity, f.title, f.updated_at]),
+        <span class="row-meta">${timeAgo(f.created_at)}</span>
+      `,
+      sig: JSON.stringify([f.id, f.severity, f.title, f.updated_at]),
     }),
-    "Nothing waiting."
+    "No faults found."
   );
 }
+
+
 
 async function loadIncidents() {
   const type = document.getElementById("filter-type").value;

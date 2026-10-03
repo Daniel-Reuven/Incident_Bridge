@@ -23,6 +23,11 @@ class Fault(Incident):
         self.severity_score = severity_score
         self.details = details or {}
 
+    def __str__(self) -> str:
+        # Falls back to string conversion if severity isn't a standard Enum
+        severity_name = self.severity.name if hasattr(self.severity, "name") else str(self.severity)
+        return f"[Fault - {severity_name}] {self.title}"
+
     def change_severity(self, actor: User, new_severity: SeverityCategory) -> None:
         """Admin-only: reclassifying severity changes this fault's position in the priority queue."""
         if actor.role != Role.ADMIN:
