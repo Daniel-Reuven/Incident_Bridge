@@ -225,3 +225,6 @@ class SqliteIncidentStore:
         comment.id = row["id"]
         comment.created_at = datetime.fromisoformat(row["created_at"])
         return comment
+
+    def __str__(self) -> str:
+        return f"SqliteIncidentStore(db_path={self.db_path!r})"

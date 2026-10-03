@@ -127,6 +127,8 @@ def test_by_design_by_an_admin_succeeds(task, admin):
     task.close(admin, ResolutionType.BY_DESIGN, "Working as intended.")
     assert task.resolution_type == ResolutionType.BY_DESIGN
 
+def test_incident_str_representation(task):
+    assert Incident.__str__(task) == "[MaintenanceTask - OPEN] Patch server"
 
 def test_empty_message_check_happens_before_the_permission_check(task, reporter):
     """
@@ -140,3 +142,4 @@ def test_empty_message_check_happens_before_the_permission_check(task, reporter)
     """
     with pytest.raises(ValueError):
         task.close(reporter, ResolutionType.NOT_AN_INCIDENT, "")
+

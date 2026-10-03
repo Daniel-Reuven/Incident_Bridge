@@ -15,6 +15,9 @@ class UserStore:
     def __init__(self):
         self._users: Dict[str, User] = {}
 
+    def __str__(self) -> str:
+        return f"<UserStore: {len(self._users)} users>"
+
     def add(self, user: User) -> None:
         self._users[user.username] = user
 
@@ -79,6 +82,11 @@ class SeedLoadResult:
     def created(self) -> int:
         return len(self.created_ids)
 
+    def __str__(self) -> str:
+        return (f"SeedLoadResult(created={self.created}, "
+                f"skipped_duplicates={len(self.skipped_duplicate_ids)}, "
+                f"skipped_invalid={len(self.skipped_invalid)})")
+
 
 class IncidentRepository:
     """
@@ -99,6 +107,9 @@ class IncidentRepository:
     def __init__(self, store: Optional[SqliteIncidentStore] = None):
         self._incidents: Dict[str, Incident] = {}
         self._store = store
+
+    def __str__(self) -> str:
+        return f"<IncidentRepository: {len(self._incidents)} incidents loaded>"
 
     def add(self, incident: Incident) -> None:
         """Register a newly-created incident. Equivalent to save() - see below."""

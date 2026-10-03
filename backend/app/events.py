@@ -17,7 +17,6 @@ event loop, in a *different* thread. asyncio.Queue is not safe to write
 to from another thread directly - loop.call_soon_threadsafe() is the
 supported way to hand work to the loop from outside it.
 """
-
 import asyncio
 from typing import Dict, Optional
 
@@ -66,3 +65,6 @@ class EventBroadcaster:
             if client_id == exclude_client_id:
                 continue
             self._loop.call_soon_threadsafe(queue.put_nowait, event)
+
+    def __str__(self) -> str:
+        return f"EventBroadcaster(subscribers={len(self._subscribers)}, loop_bound={self._loop is not None})"

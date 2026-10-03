@@ -135,3 +135,15 @@ def test_reprioritize_on_a_fault_not_in_the_queue_returns_false(reporter):
     queue = FaultPriorityQueue()
     fault = make_fault(reporter, "Not queued", SeverityCategory.CRITICAL)
     assert queue.reprioritize(fault) is False
+
+def test_dunder_str(reporter):
+    queue = FaultPriorityQueue()
+    # Test empty queue string
+    assert str(queue) == "FaultPriorityQueue(0 faults: [])"
+
+    # Push out of order to ensure the string representation applies priority sorting
+    queue.push(make_fault(reporter, "Minor issue", SeverityCategory.MINOR))
+    queue.push(make_fault(reporter, "Critical issue", SeverityCategory.CRITICAL))
+
+    # Should show 2 faults, with Critical sorting before Minor
+    assert str(queue) == "FaultPriorityQueue(2 faults: ['Critical issue', 'Minor issue'])"
