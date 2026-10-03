@@ -22,3 +22,11 @@ class PasswordPolicy:
             raise ValueError(f"Password must be at least {cls.MIN_LENGTH} characters long.")
         if not cls._ALLOWED_PATTERN.match(password):
             raise ValueError("Password may only contain letters (A-Z, a-z) and digits (0-9).")
+
+    def __str__(self) -> str:
+        """Human-readable string representation of the password policy."""
+        return f"PasswordPolicy(min_length={self.MIN_LENGTH}, allowed_chars='A-Z, a-z, 0-9')"
+
+    def __repr__(self) -> str:
+        """Unambiguous string representation for debugging."""
+        return f"<PasswordPolicy min_length={self.MIN_LENGTH} pattern='{self._ALLOWED_PATTERN.pattern}'>"

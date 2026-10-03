@@ -45,3 +45,16 @@ def test_from_dict_without_an_id_keeps_the_freshly_generated_one():
 
     assert task.id  # some uuid was generated
     assert task.id != "seed-task-1"
+
+
+def test_str_representation_when_unqueued():
+    reporter = User(username="reporter", role=Role.USER, password="Passw0rd1")
+    task = MaintenanceTask(title="Patch server", description="Apply patches", created_by=reporter)
+    assert str(task) == "[MaintenanceTask - Unqueued] Patch server"
+
+
+def test_str_representation_when_queued():
+    reporter = User(username="reporter", role=Role.USER, password="Passw0rd1")
+    task = MaintenanceTask(title="Patch server", description="Apply patches", created_by=reporter)
+    task.queue_position = 5
+    assert str(task) == "[MaintenanceTask - Pos 5] Patch server"

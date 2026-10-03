@@ -106,6 +106,12 @@ class MaintenanceQueue:
         if self._current is not None:
             self._current.queue_position = 1
 
+    def __str__(self) -> str:
+        """String representation showing queue name, current task, and pending tasks."""
+        current_title = f"'{self._current.title}'" if self._current else "None"
+        pending_titles = ", ".join(f"'{t.title}'" for t in self)
+        return f"MaintenanceQueue('{self.name}', {len(self)} tasks: current={current_title}, pending=[{pending_titles}])"
+
 
 class MaintenanceQueueManager:
     """
@@ -129,3 +135,8 @@ class MaintenanceQueueManager:
     def queue_names(self) -> Iterator[str]:
         """Generator over the names of all queues currently managed."""
         yield from self._queues.keys()
+
+    def __str__(self) -> str:
+        """String representation of the manager and its active queue names."""
+        queues = ", ".join(f"'{name}'" for name in self.queue_names())
+        return f"MaintenanceQueueManager({len(self._queues)} queues: [{queues}])"
