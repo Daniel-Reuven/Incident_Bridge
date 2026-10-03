@@ -21,6 +21,11 @@ class FaultPriorityQueue:
     arrival order. The counter (not created_at) is what's actually
     compared, specifically so heapq never needs to compare two Fault
     objects directly (which would require Fault to implement ordering).
+
+    Only OPEN (unclaimed) faults live here: claiming, closing, or
+    reopening-as-in-progress takes a fault out. That is what lets the
+    "how many higher-priority faults are still unclaimed" questions below
+    be answered purely from the heap's contents.
     """
 
     def __init__(self):
@@ -61,6 +66,10 @@ class FaultPriorityQueue:
     def __len__(self) -> int:
         return len(self._heap)
 
+    def __contains__(self, fault: Fault) -> bool:
+        """True if this exact fault object is currently queued (identity, not equality)."""
+        return any(existing is fault for _, _, existing in self._heap)
+
     def remove(self, fault: Fault) -> bool:
         """
         Remove a specific fault from the queue - e.g. once it's been
@@ -93,3 +102,37 @@ class FaultPriorityQueue:
         """String representation of the queue showing fault titles in priority order."""
         titles = ", ".join(f"'{f.title}'" for f in self)
         return f"FaultPriorityQueue({len(self)} faults: [{titles}])"
+
+    def higher_priority_count(self, fault: Fault) -> int:
+        """
+        How many queued faults are STRICTLY more severe than `fault` (the
+        fault itself and faults of equal severity never count). Compares
+        against each entry's heap key, which is what the queue actually
+        orders by. A count of 0 means `fault` belongs to the top severity
+        group currently waiting.
+        """
+        return sum(1 for severity_value, _, _ in self._heap if severity_value < fault.severity.value)
+
+    def ensure_claimable(self, fault: Fault) -> None:
+        """
+        Raise RuntimeError (the API layer maps this to HTTP 409) unless
+        `fault` may be claimed right now. Claimable means: it is queued
+        (so unclaimed) AND no strictly more severe fault is still queued.
+        Any fault in the top severity group passes, not only the one that
+        arrived first - claiming a specific fault from its own page is
+        deliberately looser than "Claim next", which takes the head of the
+        queue. Only validates; the caller removes the fault afterwards.
+
+        Raises:
+            RuntimeError: if the fault is not in the queue, or if
+                higher-priority faults are still waiting (the message
+                carries how many).
+        """
+        if fault not in self:
+            raise RuntimeError("This fault is not waiting in the queue, so it cannot be claimed.")
+        higher = self.higher_priority_count(fault)
+        if higher:
+            noun = "fault is" if higher == 1 else "faults are"
+            raise RuntimeError(
+                f"This is not the highest priority at the moment - {higher} higher-priority {noun} still unclaimed."
+            )
