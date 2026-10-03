@@ -68,6 +68,11 @@ class IncidentWorkSession:
         state = "Active" if self._start else "Pending"
         return f"IncidentWorkSession(incident={self.incident}, actor={self.actor}, state={state})"
 
+    def __repr__(self) -> str:
+        """Developer view: the incident's repr, the actor's username, and whether the session has started."""
+        return (f"IncidentWorkSession(incident={self.incident!r}, actor={self.actor.username!r}, "
+                f"started={self._start is not None})")
+
 
 class SiteCheckSession:
     """

@@ -18,6 +18,10 @@ class UserStore:
     def __str__(self) -> str:
         return f"<UserStore: {len(self._users)} users>"
 
+    def __repr__(self) -> str:
+        """Developer view: the provisioned usernames (never passwords or hashes)."""
+        return f"UserStore(usernames={sorted(self._users)!r})"
+
     def add(self, user: User) -> None:
         self._users[user.username] = user
 
@@ -110,6 +114,10 @@ class IncidentRepository:
 
     def __str__(self) -> str:
         return f"<IncidentRepository: {len(self._incidents)} incidents loaded>"
+
+    def __repr__(self) -> str:
+        """Developer view: how many incidents are held and which store (if any) persists them."""
+        return f"IncidentRepository(incidents={len(self._incidents)}, store={self._store!r})"
 
     def add(self, incident: Incident) -> None:
         """Register a newly-created incident. Equivalent to save() - see below."""

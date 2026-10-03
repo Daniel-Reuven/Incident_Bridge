@@ -228,3 +228,7 @@ class SqliteIncidentStore:
 
     def __str__(self) -> str:
         return f"SqliteIncidentStore(db_path={self.db_path!r})"
+
+    def __repr__(self) -> str:
+        """Same as __str__ - the database path is the only state worth showing."""
+        return self.__str__()

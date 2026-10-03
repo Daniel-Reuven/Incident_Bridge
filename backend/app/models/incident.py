@@ -18,6 +18,27 @@ _ADMIN_ONLY_RESOLUTIONS = {ResolutionType.NOT_AN_INCIDENT, ResolutionType.BY_DES
 # deliberately absent: "reopening" into Closed would be meaningless.
 _REOPEN_TARGETS = {IncidentStatus.OPEN, IncidentStatus.IN_PROGRESS}
 
+# Upper bounds for the validated text fields (see the title/description
+# properties). Generous on purpose: they only stop absurd input (e.g. a
+# pasted log file as a title), never a normal incident.
+_MAX_TITLE_LENGTH = 200
+_MAX_DESCRIPTION_LENGTH = 10_000
+
+
+def _validated_text(value, field_name: str, max_length: int) -> str:
+    """
+    Shared rule for the title and description properties: `value` must be a
+    string that is not blank after trimming, and at most `max_length`
+    characters long. Returns the trimmed text; raises ValueError (HTTP 400 at
+    the API layer) naming the field otherwise.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"An incident {field_name} is required and cannot be blank.")
+    value = value.strip()
+    if len(value) > max_length:
+        raise ValueError(f"An incident {field_name} must be at most {max_length} characters (got {len(value)}).")
+    return value
+
 
 def _label(member) -> str:
     """
@@ -44,6 +65,13 @@ class Incident(ABC):
     fault.py). This keeps the model open for a third incident type later
     without touching this class (Open/Closed principle - README section 4).
 
+    Validation: `title` and `description` are properties whose setters
+    reject blank or over-long text with ValueError, so an incident can never
+    hold an empty title or description - not at creation (the constructor
+    assigns through the setters), not when rebuilt from stored data, and not
+    if code edits the field later. An invalid assignment leaves the old value
+    in place.
+
     Manual status changes (see log_status_change() and reopen() below) only
     change the incident's OWN fields and its comment thread. They never
     touch a queue: placing a reopened incident back into the right queue
@@ -57,8 +85,8 @@ class Incident(ABC):
         if self.__class__ is Incident:
             raise TypeError("Incident is abstract and cannot be instantiated directly.")
         self.id = str(uuid.uuid4())
-        self.title = title
-        self.description = description
+        self.title = title              # validated by the property setter below
+        self.description = description  # validated by the property setter below
         self.status = IncidentStatus.OPEN
         self.resolution_type: Optional[ResolutionType] = None
         self.resolution_message: Optional[str] = None
@@ -79,8 +107,9 @@ class Incident(ABC):
         User is the loader's job (it has the UserStore), not this method's.
 
         This base implementation only validates the two fields every
-        incident type needs (title, description) and refuses to build
-        anything itself, since Incident can't be instantiated directly
+        incident type needs (title, description) - an early check whose
+        message names the record id; the properties re-check the same rule
+        when the object is built - and refuses to build anything itself, since Incident can't be instantiated directly
         (see __init__ above). MaintenanceTask.from_dict and Fault.from_dict
         each OVERRIDE this method to add their own subclass-specific
         fields (queue_position has nothing to seed; severity/details do),
@@ -100,6 +129,26 @@ class Incident(ABC):
         if not description or not str(description).strip():
             raise ValueError(f"record {data.get('id', '?')!r} is missing a required 'description'")
         return None  # subclasses only use this call for its validation side effect, not this return value
+
+    # ------------------------------------------------------------------
+    # Validated text fields
+    # ------------------------------------------------------------------
+
+    @property
+    def title(self) -> str:
+        return self._title
+
+    @title.setter
+    def title(self, value) -> None:
+        self._title = _validated_text(value, "title", _MAX_TITLE_LENGTH)
+
+    @property
+    def description(self) -> str:
+        return self._description
+
+    @description.setter
+    def description(self, value) -> None:
+        self._description = _validated_text(value, "description", _MAX_DESCRIPTION_LENGTH)
 
     def add_comment(self, author: User, text: str) -> Comment:
         """Any authenticated user may add a comment/update."""
