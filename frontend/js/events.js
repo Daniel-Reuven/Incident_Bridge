@@ -27,17 +27,28 @@ export function getClientId() {
  * can close() it if needed (not required on page navigation - the
  * browser tears it down on its own).
  *
+ * `scopes` picks which kinds of events reach onEvent. Each event carries a
+ * "scope": "sites" for the admin-only site portal (backend/app/api/sites.py),
+ * none for incident events, which counts as "incidents". The default,
+ * ["incidents"], is what every incident page wants, so the dashboard,
+ * incident and pressing pages need no change and never react to site
+ * events. The site portal passes { scopes: ["sites", "incidents"] }.
+ * (Site events are only ever SENT to admin tabs in the first place - this
+ * filter is about which page reacts, not about who may see them.)
+ *
  * EventSource reconnects automatically on a dropped connection; nothing
  * extra is needed here for that.
  */
-export function connectLiveUpdates(onEvent) {
+export function connectLiveUpdates(onEvent, { scopes = ["incidents"] } = {}) {
   const source = new EventSource(`/events?client_id=${encodeURIComponent(getClientId())}`);
   source.onmessage = (e) => {
+    let payload;
     try {
-      onEvent(JSON.parse(e.data));
+      payload = JSON.parse(e.data);
     } catch {
-      // malformed/keepalive payload - ignore
+      return; // malformed/keepalive payload - ignore
     }
+    if (scopes.includes(payload.scope || "incidents")) onEvent(payload);
   };
   return source;
 }

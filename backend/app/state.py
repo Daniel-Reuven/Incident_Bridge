@@ -11,6 +11,13 @@ FIFO" and "one shared priority queue" guarantees.
 Incidents (and their comments) persist across restarts via SQLite - see
 app/persistence.py. Users do not persist here; they stay env-provisioned
 via seed_users_from_env, exactly as before.
+
+Sites, mailing lists and notifications (the Sites & Mailing Lists
+subsystem) live in a SiteDirectory backed by its own SqliteSiteStore (same
+database file, separate tables - see app/persistence_sites.py). At startup
+the stored data is loaded first and the JSONL seed files are imported after
+it, so seed records whose ids are already stored are skipped: edits made in
+the app survive restarts and archived sites are never brought back.
 """
 
 import os
@@ -19,8 +26,12 @@ from typing import List
 
 from app.models import Fault, IncidentStatus, MaintenanceTask
 from app.persistence import SqliteIncidentStore
+from app.persistence_sites import SqliteSiteStore
 from app.queues import FaultPriorityQueue, MaintenanceQueueManager
 from app.repository import IncidentRepository, UserStore, seed_users_from_env
+from app.services.availability import HttpChecker
+from app.services.notifier import OutboxNotifier
+from app.sites import SiteDirectory, seed_site_directory
 
 
 def order_pending_maintenance(tasks: List[MaintenanceTask], has_current: bool) -> List[MaintenanceTask]:
@@ -54,6 +65,7 @@ class AppState:
     incidents: IncidentRepository
     maintenance: MaintenanceQueueManager
     faults: FaultPriorityQueue
+    sites: SiteDirectory
 
     @classmethod
     def create(cls) -> "AppState":
@@ -61,7 +73,14 @@ class AppState:
         Build state for this process - called once at app startup (see
         app/api/app.py's lifespan). Loads any previously-persisted
         incidents and re-populates the queues so a restart doesn't lose
-        in-flight work, not just closed history.
+        in-flight work, not just closed history. Then builds the
+        SiteDirectory: stored sites/lists/notifications first, then the
+        seed files (paths from SITES_SEED_PATH / MAILING_LISTS_SEED_PATH,
+        defaulting to data/sites.jsonl and data/mailing_lists.jsonl - see
+        app/sites.py), whose already-stored ids are skipped. The directory
+        gets an HttpChecker configured from SITE_CHECK_TIMEOUT_SECONDS /
+        SITE_CHECK_SLOW_MS for availability checks, and an OutboxNotifier
+        that records sent notifications in the app (no real email).
         """
         users = seed_users_from_env()
 
@@ -105,4 +124,12 @@ class AppState:
             if isinstance(incident, Fault) and incident.status == IncidentStatus.OPEN:
                 faults.push(incident)
 
-        return cls(users=users, incidents=incidents, maintenance=maintenance, faults=faults)
+        site_store = SqliteSiteStore(db_path)
+        # HttpChecker.from_env() raises ValueError (stopping startup with a
+        # clear message) if SITE_CHECK_TIMEOUT_SECONDS / SITE_CHECK_SLOW_MS
+        # hold something that is not a positive number.
+        sites = SiteDirectory(site_store, checker=HttpChecker.from_env(), notifier=OutboxNotifier())
+        sites.bulk_load(*site_store.load_all())
+        seed_site_directory(sites)
+
+        return cls(users=users, incidents=incidents, maintenance=maintenance, faults=faults, sites=sites)

@@ -1,11 +1,11 @@
-"""Shared FastAPI dependencies: current app state and current authenticated user."""
+"""Shared FastAPI dependencies: current app state, current authenticated user, and current admin."""
 
 from typing import Optional
 
 from fastapi import HTTPException, Request
 
 from app.events import EventBroadcaster
-from app.models import User
+from app.models import Role, User
 from app.state import AppState
 
 # Key used inside the signed session cookie (see SessionMiddleware in app/api/app.py).
@@ -48,4 +48,18 @@ def get_current_user(request: Request) -> User:
     if user is None:
         request.session.clear()
         raise HTTPException(status_code=401, detail="Not authenticated.")
+    return user
+
+
+def get_current_admin(request: Request) -> User:
+    """
+    Like get_current_user (401 without a valid session), but additionally
+    raises 403 unless that user is an admin. Used by every endpoint of the
+    admin-only site portal (app/api/sites.py), so a non-admin can't reach
+    any of it - not even read-only listings - whatever the frontend shows.
+    The domain layer still checks the admin rule on every change as well.
+    """
+    user = get_current_user(request)
+    if user.role != Role.ADMIN:
+        raise HTTPException(status_code=403, detail="The site portal is available to admins only.")
     return user
