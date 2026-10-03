@@ -15,7 +15,8 @@ via seed_users_from_env, exactly as before.
 Sites, mailing lists and notifications (the Sites & Mailing Lists
 subsystem) live in a SiteDirectory backed by its own SqliteSiteStore (same
 database file, separate tables - see app/persistence_sites.py). At startup
-the stored data is loaded first and the JSONL seed files are imported after
+the stored data is loaded first and the JSONL seed files - only those
+configured in SITES_SEED_PATH / MAILING_LISTS_SEED_PATH - are imported after
 it, so seed records whose ids are already stored are skipped: edits made in
 the app survive restarts and archived sites are never brought back.
 """
@@ -75,8 +76,8 @@ class AppState:
         incidents and re-populates the queues so a restart doesn't lose
         in-flight work, not just closed history. Then builds the
         SiteDirectory: stored sites/lists/notifications first, then the
-        seed files (paths from SITES_SEED_PATH / MAILING_LISTS_SEED_PATH,
-        defaulting to data/sites.jsonl and data/mailing_lists.jsonl - see
+        seed files, but only those configured in SITES_SEED_PATH /
+        MAILING_LISTS_SEED_PATH (unset or empty = no import - see
         app/sites.py), whose already-stored ids are skipped. The directory
         gets an HttpChecker configured from SITE_CHECK_TIMEOUT_SECONDS /
         SITE_CHECK_SLOW_MS for availability checks, and an OutboxNotifier

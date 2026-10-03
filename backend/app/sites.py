@@ -35,8 +35,11 @@ Explicit decisions:
     archived) is still loaded, WITHOUT that reference, and a warning is
     reported. Losing one link is less harmful than losing the whole list
     with all its members.
-  - A missing seed file is not an error: the app starts with whatever loaded
-    (possibly nothing) and prints a warning.
+  - The import is opt-in: a seed file is read only when SITES_SEED_PATH /
+    MAILING_LISTS_SEED_PATH points at it. Unset, commented out or empty means
+    no import and no console output at all. A configured file that does not
+    exist is not fatal: the app starts with whatever loaded and prints a
+    warning.
   - Invariant: no mailing list (active OR archived) ever links to an archived
     site. archive_site() unlinks the site from every list that covers it and
     remembers them; restore_site() re-links it to those lists. Because of
@@ -102,7 +105,13 @@ from app.site_scan import SiteScanResult, scan_incidents as _scan_incidents
 FIRST_SITE_ID = 1001
 
 # backend/app/sites.py -> parents[2] is the repository root, where data/ lives.
+# A RELATIVE seed path in SITES_SEED_PATH / MAILING_LISTS_SEED_PATH is
+# resolved against this folder (see _seed_path_from_env()).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# The seed files shipped with the project. They are NOT imported unless the
+# env vars point at them (e.g. SITES_SEED_PATH=data/sites.jsonl) - these
+# constants only exist so tests and docs can refer to the bundled files.
 DEFAULT_SITES_SEED = _REPO_ROOT / "data" / "sites.jsonl"
 DEFAULT_MAILING_LISTS_SEED = _REPO_ROOT / "data" / "mailing_lists.jsonl"
 
@@ -800,15 +809,19 @@ class SiteDirectory:
                 f"notifications={len(self._notifications)})")
 
 
-def _seed_path_from_env(env_var: str, default: Path) -> Optional[str]:
+def _seed_path_from_env(env_var: str) -> Optional[str]:
     """
-    Resolve a seed file path: the env var if set, else `default`. Setting the
-    env var to an empty string disables that seed file entirely (returns None).
+    The seed file path configured in `env_var`, or None when there is
+    nothing to import: the variable is not set at all (e.g. its line in .env
+    is commented out) or is set to an empty value. A relative path is
+    resolved against the repository root, so "data/sites.jsonl" works no
+    matter which folder the server was started from.
     """
-    value = os.environ.get(env_var)
-    if value is None:
-        return str(default)
-    return value.strip() or None
+    value = (os.environ.get(env_var) or "").strip()
+    if not value:
+        return None
+    path = Path(value)
+    return str(path if path.is_absolute() else _REPO_ROOT / path)
 
 
 def seed_site_directory(directory: SiteDirectory,
@@ -820,25 +833,26 @@ def seed_site_directory(directory: SiteDirectory,
     file, into `directory`, and log a one-line summary per file plus every
     problem found. Called once by AppState.create() (app/state.py).
 
-    When a path argument is None it is taken from the environment:
-    SITES_SEED_PATH / MAILING_LISTS_SEED_PATH, defaulting to
-    data/sites.jsonl and data/mailing_lists.jsonl at the repository root.
-    Setting either env var to an empty string skips that file.
+    Opt-in: a seed file is imported ONLY when a path is configured. When a
+    path argument is None it is taken from SITES_SEED_PATH /
+    MAILING_LISTS_SEED_PATH (relative paths are resolved against the
+    repository root, e.g. data/sites.jsonl). If the variable is not set, is
+    commented out in .env, or is empty, that file is skipped SILENTLY - no
+    import, nothing printed. Each file is handled on its own, so either one
+    can be configured without the other.
 
-    A missing file is logged as a warning and skipped - the app still starts.
-    Returns the ImportReports of the files that were actually read (a file
-    that was disabled or missing has no report).
+    A configured file that does not exist is a configuration mistake, so it
+    IS logged as a warning (and skipped - the app still starts). Returns the
+    ImportReports of the files that were actually read.
     """
-    sites_path = sites_path if sites_path is not None else _seed_path_from_env("SITES_SEED_PATH", DEFAULT_SITES_SEED)
-    lists_path = lists_path if lists_path is not None else _seed_path_from_env(
-        "MAILING_LISTS_SEED_PATH", DEFAULT_MAILING_LISTS_SEED)
+    sites_path = sites_path if sites_path is not None else _seed_path_from_env("SITES_SEED_PATH")
+    lists_path = lists_path if lists_path is not None else _seed_path_from_env("MAILING_LISTS_SEED_PATH")
 
     reports = []
     for path, loader, kind in ((sites_path, directory.load_sites_from_jsonl, "sites"),
                                (lists_path, directory.load_mailing_lists_from_jsonl, "mailing lists")):
         if not path:
-            log(f"Seed import: {kind} seed file disabled - skipped.")
-            continue
+            continue   # not configured: nothing to import, nothing to say
         try:
             report = loader(path)
         except FileNotFoundError:

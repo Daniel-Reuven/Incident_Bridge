@@ -195,7 +195,7 @@ def test_problems_are_logged_one_per_line(tmp_path):
     assert "1 loaded, 0 already stored, 1 duplicates skipped, 1 invalid skipped" in messages[0]
     assert messages[1] == "  - duplicate id in file skipped: 1001"
     assert messages[2].startswith("  - invalid record skipped - line 3")
-    assert messages[3] == "Seed import: mailing lists seed file disabled - skipped."
+    assert len(messages) == 3          # the empty (disabled) lists path printed nothing
 
 
 def test_env_vars_choose_and_disable_seed_files(tmp_path, monkeypatch):
@@ -203,10 +203,36 @@ def test_env_vars_choose_and_disable_seed_files(tmp_path, monkeypatch):
     sites_file.write_text(site_line(1500) + "\n", encoding="utf-8")
     monkeypatch.setenv("SITES_SEED_PATH", str(sites_file))
     monkeypatch.setenv("MAILING_LISTS_SEED_PATH", "")
+    messages = []
     d = SiteDirectory()
-    seed_site_directory(d, log=lambda _msg: None)
+    seed_site_directory(d, log=messages.append)
     assert [s.site_id for s in d.sites()] == [1500]
     assert list(d.mailing_lists()) == []
+    assert len(messages) == 1          # only the sites summary - nothing about the empty lists variable
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_unset_or_empty_env_vars_import_nothing_and_print_nothing(monkeypatch, value):
+    for name in ("SITES_SEED_PATH", "MAILING_LISTS_SEED_PATH"):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    messages = []
+    d = SiteDirectory()
+    assert seed_site_directory(d, log=messages.append) == []
+    assert messages == []
+    assert list(d.sites()) == [] and list(d.mailing_lists()) == []
+
+
+def test_relative_env_paths_are_resolved_against_the_repository_root(monkeypatch):
+    monkeypatch.setenv("SITES_SEED_PATH", "data/sites.jsonl")
+    monkeypatch.setenv("MAILING_LISTS_SEED_PATH", "data/mailing_lists.jsonl")
+    monkeypatch.chdir("/")             # the server's working folder must not matter
+    messages = []
+    reports = seed_site_directory(SiteDirectory(), log=messages.append)
+    assert [r.kind for r in reports] == ["sites", "mailing lists"]
+    assert str(DEFAULT_SITES_SEED) in messages[0]
 
 
 def test_the_real_seed_files_load_without_any_problem():
