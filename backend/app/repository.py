@@ -15,6 +15,9 @@ class UserStore:
     def __init__(self):
         self._users: Dict[str, User] = {}
 
+    def __str__(self) -> str:
+        return f"<UserStore: {len(self._users)} users>"
+
     def add(self, user: User) -> None:
         self._users[user.username] = user
 
@@ -79,6 +82,11 @@ class SeedLoadResult:
     def created(self) -> int:
         return len(self.created_ids)
 
+    def __str__(self) -> str:
+        return (f"SeedLoadResult(created={self.created}, "
+                f"skipped_duplicates={len(self.skipped_duplicate_ids)}, "
+                f"skipped_invalid={len(self.skipped_invalid)})")
+
 
 class IncidentRepository:
     """
@@ -100,6 +108,9 @@ class IncidentRepository:
         self._incidents: Dict[str, Incident] = {}
         self._store = store
 
+    def __str__(self) -> str:
+        return f"<IncidentRepository: {len(self._incidents)} incidents loaded>"
+
     def add(self, incident: Incident) -> None:
         """Register a newly-created incident. Equivalent to save() - see below."""
         self.save(incident)
@@ -115,6 +126,20 @@ class IncidentRepository:
         self._incidents[incident.id] = incident
         if self._store:
             self._store.save_incident(incident)
+
+    def save_all(self, incidents: Iterable[Incident]) -> None:
+        """
+        save() every incident in `incidents`, one after another. Used after a
+        queue change (app/api/incidents.py's _persist_maintenance_queue):
+        closing or completing one maintenance task shifts the queue_position
+        of every task behind it, and each of those has to be persisted too -
+        otherwise the stored positions go stale, and the order rebuilt at the
+        next startup (app/state.py) would be wrong. Not a single database
+        transaction (each save commits on its own), which is fine at this
+        project's scale.
+        """
+        for incident in incidents:
+            self.save(incident)
 
     def bulk_load(self, incidents: Iterable[Incident]) -> None:
         """

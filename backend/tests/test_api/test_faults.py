@@ -138,3 +138,77 @@ def test_closing_with_an_empty_message_is_rejected(admin_client):
         f"/incidents/faults/{fault['id']}/close", json={"resolution_type": "resolved", "message": ""}
     )
     assert response.status_code == 400
+
+
+def _create_fault(client, title, details=None):
+    return client.post(
+        "/incidents/faults", json={"title": title, "description": "d", "details": details or {}}
+    ).json()
+
+
+def test_closing_an_unclaimed_fault_removes_it_from_the_priority_queue(admin_client):
+    critical = _create_fault(admin_client, "Outage", {"system_unavailable": True})
+    _create_fault(admin_client, "Typo", {"cosmetic_only": True})
+
+    response = admin_client.post(
+        f"/incidents/faults/{critical['id']}/close", json={"resolution_type": "resolved", "message": "Fixed."}
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "closed"
+
+    queue = admin_client.get("/incidents/faults/queue").json()
+    assert [f["title"] for f in queue] == ["Typo"]
+
+
+def test_claim_next_never_returns_a_closed_fault(admin_client):
+    fault = _create_fault(admin_client, "Only fault")
+    admin_client.post(
+        f"/incidents/faults/{fault['id']}/close", json={"resolution_type": "resolved", "message": "Duplicate."}
+    )
+    response = admin_client.post("/incidents/faults/claim-next")
+    assert response.status_code == 404
+
+
+def test_closing_an_unclaimed_fault_logs_a_comment_with_the_reason(user_client):
+    fault = _create_fault(user_client, "Dup report")
+    user_client.post(
+        f"/incidents/faults/{fault['id']}/close",
+        json={"resolution_type": "resolved", "message": "Duplicate of ticket 42."},
+    )
+    detail = user_client.get(f"/incidents/{fault['id']}").json()
+    log = detail["comments"][-1]
+    assert log["author"] == "tech1"
+    assert "Status changed from Open to Closed." in log["text"]
+    assert "Reason: Duplicate of ticket 42." in log["text"]
+    assert "Resolution: Resolved." in log["text"]
+
+
+def test_closing_a_claimed_fault_also_logs_a_comment(user_client):
+    _create_fault(user_client, "Claim me")
+    claimed = user_client.post("/incidents/faults/claim-next").json()
+    user_client.post(
+        f"/incidents/faults/{claimed['id']}/close", json={"resolution_type": "resolved", "message": "Patched."}
+    )
+    detail = user_client.get(f"/incidents/{claimed['id']}").json()
+    assert "Status changed from In progress to Closed." in detail["comments"][-1]["text"]
+
+
+def test_closing_an_already_closed_fault_returns_409_and_keeps_the_first_resolution(admin_client):
+    fault = _create_fault(admin_client, "Close twice")
+    url = f"/incidents/faults/{fault['id']}/close"
+    admin_client.post(url, json={"resolution_type": "resolved", "message": "First."})
+
+    second = admin_client.post(url, json={"resolution_type": "resolved", "message": "Second."})
+    assert second.status_code == 409
+    assert admin_client.get(f"/incidents/{fault['id']}").json()["resolution_message"] == "First."
+
+
+def test_a_rejected_close_leaves_the_fault_in_the_queue(user_client):
+    fault = _create_fault(user_client, "Stay queued")
+    response = user_client.post(
+        f"/incidents/faults/{fault['id']}/close",
+        json={"resolution_type": "not_an_incident", "message": "Expected."},
+    )
+    assert response.status_code == 403
+    queue = user_client.get("/incidents/faults/queue").json()
+    assert [f["title"] for f in queue] == ["Stay queued"]

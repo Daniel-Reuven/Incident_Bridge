@@ -70,3 +70,7 @@ def test_two_users_with_the_same_password_have_different_hashes():
     user1 = User(username="alice", role=Role.USER, password="Passw0rd1")
     user2 = User(username="bob", role=Role.USER, password="Passw0rd1")
     assert user1._password_hash != user2._password_hash
+
+def test_user_str_representation():
+    user = User(username="alice", role=Role.USER, password="Passw0rd1")
+    assert str(user) == "alice (USER)"

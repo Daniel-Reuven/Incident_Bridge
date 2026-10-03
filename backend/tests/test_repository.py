@@ -15,7 +15,7 @@ import json
 import pytest
 
 from app.models import Role, User
-from app.repository import IncidentRepository, UserStore
+from app.repository import IncidentRepository, UserStore, SeedLoadResult
 
 
 @pytest.fixture
@@ -153,3 +153,35 @@ def test_valid_assigned_to_is_resolved_to_a_real_user(tmp_path, repo, users):
     ])
     repo.load_from_jsonl(path, users)
     assert repo.get("seed-1").assigned_to.username == "tech1"
+
+
+def test_user_store_str(users):
+    # The 'users' fixture is pre-populated with 2 users (admin, tech1)
+    assert str(users) == "<UserStore: 2 users>"
+
+    empty_store = UserStore()
+    assert str(empty_store) == "<UserStore: 0 users>"
+
+
+def test_seed_load_result_str():
+    result = SeedLoadResult(
+        created_ids=["seed-1", "seed-2"],
+        skipped_duplicate_ids=["seed-3"],
+        skipped_invalid=["line 4: error", "line 5: error"]
+    )
+    assert str(result) == "SeedLoadResult(created=2, skipped_duplicates=1, skipped_invalid=2)"
+
+    empty_result = SeedLoadResult()
+    assert str(empty_result) == "SeedLoadResult(created=0, skipped_duplicates=0, skipped_invalid=0)"
+
+
+def test_incident_repository_str(repo, tmp_path, users):
+    assert str(repo) == "<IncidentRepository: 0 incidents loaded>"
+
+    # Load a record to verify the count updates correctly in the __str__ output
+    path = write_jsonl(tmp_path, [
+        {"id": "seed-1", "kind": "maintenance", "title": "Patch server", "description": "d", "created_by": "admin"}
+    ])
+    repo.load_from_jsonl(path, users)
+
+    assert str(repo) == "<IncidentRepository: 1 incidents loaded>"

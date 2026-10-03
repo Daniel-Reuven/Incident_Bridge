@@ -96,3 +96,16 @@ def test_maintenance_task_cannot_be_closed_via_the_fault_close_endpoint(admin_cl
         f"/incidents/faults/{task_id}/close", json={"resolution_type": "resolved", "message": "n/a"}
     )
     assert response.status_code == 400
+
+
+def test_complete_current_logs_a_status_change_comment(admin_client):
+    admin_client.post("/incidents/maintenance", json={"title": "A", "description": "d"})
+    admin_client.post("/incidents/maintenance/start-next")
+    completed = admin_client.post(
+        "/incidents/maintenance/complete-current",
+        json={"message": "All patched.", "resolution_type": "resolved"},
+    ).json()
+    log = completed["comments"][-1]
+    assert log["author"] == "admin"
+    assert "Status changed from In progress to Closed." in log["text"]
+    assert "Reason: All patched." in log["text"]

@@ -1,5 +1,7 @@
 """Unit tests for app.models.comment.Comment."""
 
+from datetime import datetime, timezone
+
 import pytest
 
 from app.models.comment import Comment
@@ -31,3 +33,10 @@ def test_empty_text_is_rejected(author):
 def test_whitespace_only_text_is_rejected(author):
     with pytest.raises(ValueError):
         Comment(author=author, text="   ")
+
+
+def test_comment_string_representation(author):
+    comment = Comment(author=author, text="Looks great!")
+    comment.created_at = datetime(2026, 10, 1, 12, 30, 45, tzinfo=timezone.utc)
+
+    assert str(comment) == "[2026-10-01 12:30:45 UTC] alice: Looks great!"

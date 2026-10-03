@@ -316,3 +316,20 @@ textarea { resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* --- disabled buttons + the incident page's Claim button tooltip wrapper --- */
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.claim-wrap { display: inline-flex; }
+
+/* --- incident page: Updates header + sort order --- */
+.comments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.comments-header h2 { margin-bottom: 0; }
+.comments-header select { width: auto; margin-top: 0; }
+/* The "Add an update" box always sits directly under the header, above the list, in either sort order. */
+.comments-section .comment-form { margin-bottom: 18px; }

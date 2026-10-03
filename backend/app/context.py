@@ -54,3 +54,7 @@ class IncidentWorkSession:
                 f"Work session interrupted after {duration:.1f}s by {exc_type.__name__}: {exc_val}",
             )
         return False  # never suppress the exception
+
+    def __str__(self) -> str:
+        state = "Active" if self._start else "Pending"
+        return f"IncidentWorkSession(incident={self.incident}, actor={self.actor}, state={state})"
