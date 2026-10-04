@@ -40,6 +40,7 @@ cd .. && python main.py      # offline demo of every Stage 1 requirement
 - [14. Automated testing](#14-automated-testing)
 - [15. How to run everything](#15-how-to-run-everything)
 - [16. Requirements map (where each Stage 1 item lives)](#16-requirements-map-where-each-stage-1-item-lives)
+- [17. Future Development](#17-future-development)
 - [Tech stack](#tech-stack)
 
 ---
@@ -674,6 +675,12 @@ python -m pytest -q
 | JSONL processing with validation | `app/repository.py`, `app/sites.py` | §1 |
 | Custom context manager | `app/context.py` | §8 |
 | Group-of-four subsystem and report | `app/sites.py`, `site_scan.py`, `reports.py`, `api/sites.py`, `frontend/sites.html` | §9 |
+
+## 17. Future Development
+
+We plan to implement more features in the future, such as parallelism, AI Agents integration for incident analysis, performance improvement, users management.
+- **Maintenance = order matters, severity doesn't, order is immutable.** Only the first task in line can start, and only when nothing is in progress.
+- **Faults = severity matters, arrival order is only the tiebreaker, all severities share one queue.**
 
 ---
 
