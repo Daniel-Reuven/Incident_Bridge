@@ -151,10 +151,13 @@ function renderLists() {
 function renderNotifications() {
   const empty = $("notification-filter").value === "draft" ? "No notifications are waiting for a decision." : "No notifications.";
   renderRowList($("notification-list"), notifications, (n) => n.id, (n) => ({
-    className: `row status-${n.new_status}`,
+    // Colored by the NOTIFICATION's state (draft = needs a decision, sent =
+    // done, dismissed/skipped = no action), not by the site's status - the
+    // site's old and new status are in the title text.
+    className: `row notification-${n.state}`,
     sig: JSON.stringify(n),
     html: `
-      <span class="status-text">${label(n.state)}</span>
+      <span class="status-text notification-${n.state}">${label(n.state)}</span>
       <span class="row-main">
         <span class="row-title">Site ${n.site_id} (${escapeHtml(n.site_name)}): ${label(n.old_status)} to ${label(n.new_status)}</span>
         <span class="row-sub">${plural(n.recipient_count, "recipient")}, created ${formatDateTime(n.created_at)} by ${escapeHtml(n.created_by)}</span>

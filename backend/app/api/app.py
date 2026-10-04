@@ -65,9 +65,9 @@ if not _secret_key:
 app.add_middleware(SessionMiddleware, secret_key=_secret_key, same_site="lax")
 
 # --- CORS: only needed if the frontend is served from a different origin ---
-# than this API during development. Same-origin deployment (frontend
-# served by this same app, or reverse-proxied together on Render) needs
-# no CORS at all, so it's off by default rather than wildcarded.
+# than this API during development. The normal setup (frontend served by
+# this same app, or both behind one reverse proxy) needs no CORS at all,
+# so it's off by default rather than wildcarded.
 _cors_origins = os.environ.get("ALLOWED_ORIGINS")
 if _cors_origins:
     app.add_middleware(
@@ -125,8 +125,8 @@ def health_check():
     return {"status": "ok"}
 
 
-# --- serve the frontend, same-origin, so no CORS is needed for the normal
-# deployment case (frontend + API as one Render web service). This mount
+# --- serve the frontend, same-origin, so no CORS is needed in the normal
+# setup (frontend + API served by this one app). This mount
 # is added last and deliberately: StaticFiles bound to "/" only catches
 # requests that didn't match any route registered above it (auth, incidents, sites,
 # events, /health), so the API keeps working exactly as before - this just

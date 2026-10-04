@@ -1,4 +1,4 @@
-"""Strict FIFO maintenance queue and its manager (README sections 3, 7, 8)."""
+"""Strict FIFO maintenance queue and its manager (README.md sections 1, 3, 13)."""
 
 from collections import deque
 from typing import Dict, Iterator, Optional, Tuple
@@ -16,7 +16,7 @@ class MaintenanceQueue:
 
     The FIFO guarantee is about ORDER, and that can still never be
     bypassed from anywhere else in the codebase, not even by an admin
-    (confirmed design decision - README section 8, #3): there is
+    (confirmed design decision - README.md section 13, #3): there is
     deliberately NO method that moves, swaps, or re-sorts a task that is
     already in the queue. Tasks normally join at the back (enqueue) and
     are handed out from the front (start_next / start_task /
@@ -281,7 +281,7 @@ class MaintenanceQueueManager:
     Holds one or more named MaintenanceQueue instances.
 
     Today only a single "default" queue is used (confirmed design
-    decision - README section 8, #5). This manager exists so that a
+    decision - README.md section 13, #5). This manager exists so that a
     future split into per-team or per-system sub-queues needs no
     redesign - just new queue names, requested via get_queue().
     """

@@ -83,9 +83,10 @@ def test_maintenance_task_cannot_be_closed_via_the_fault_close_endpoint(admin_cl
     """
     /incidents/faults/{id}/close only works on Fault objects - a
     maintenance task's id must be rejected with 400, since maintenance
-    tasks are only ever closed via /incidents/maintenance/complete-current
-    (see app/api/incidents.py's close_fault(), and backend/README.md's
-    API surface table).
+    tasks are closed through the maintenance endpoints instead
+    (/incidents/maintenance/complete-current or /incidents/maintenance/{id}/close
+    - see app/api/incidents.py's close_fault(), and README.md's API overview
+    table in section 11).
     """
     admin_client.post("/incidents/maintenance", json={"title": "A", "description": "d"})
     admin_client.post("/incidents/maintenance/start-next")

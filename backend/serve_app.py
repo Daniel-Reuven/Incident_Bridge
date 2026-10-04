@@ -14,14 +14,19 @@ and does it early enough (before app.api.app is imported/run) that the
 values are already in os.environ by the time the app reads them.
 
 Host/port/reload are read from the environment (which now includes your
-.env), so the same script works unchanged locally and on a host like
-Render, which assigns the listening port via its own PORT variable.
+.env), so they can be changed without editing this file. The project runs
+locally for now (see README.md, section 15).
 
-Local dev (values from .env, falls back to the defaults below if unset):
+Usual run (values from .env, falls back to the defaults below if unset):
     python serve_app.py
 
-Production / Render (auto-reload off; Render sets PORT itself):
+Without auto-reload (e.g. for a longer-running session):
     RELOAD=false python serve_app.py
+
+Stopping the server (Ctrl+C) takes at most about 3 seconds even with
+browser tabs open: their live-update streams are closed after that grace
+period (timeout_graceful_shutdown below) and reconnect automatically once
+the server is running again.
 
 Before starting the server, INCIDENT_BRIDGE_USERS is validated: if it is
 set but unusable (invalid JSON, an invalid entry, a duplicate username),
@@ -33,9 +38,9 @@ import os
 from dotenv import load_dotenv
 
 # Loads backend/.env (if present) into os.environ. Does NOT override a
-# variable that's already set in the real environment (e.g. one Render
-# injects directly) - .env is a local-dev convenience, not an authority
-# over real deployment secrets.
+# variable that's already set in the real environment (e.g. one exported
+# in your shell) - .env is a convenience, not an authority over values
+# set explicitly.
 load_dotenv()
 
 import sys  # noqa: E402
@@ -67,4 +72,11 @@ if __name__ == "__main__":
         host=os.environ.get("HOST", "0.0.0.0"),
         port=int(os.environ.get("PORT", 8000)),
         reload=os.environ.get("RELOAD", "true").lower() == "true",
+        # Open browser tabs keep a live-update stream (GET /events) open
+        # forever, and Uvicorn's graceful shutdown waits for every open
+        # connection to finish - so without a limit, stopping the server
+        # (Ctrl+C) or an auto-reload hangs for as long as any tab is open.
+        # After this many seconds the remaining streams are closed; the
+        # browsers reconnect on their own once the server is back.
+        timeout_graceful_shutdown=3,
     )

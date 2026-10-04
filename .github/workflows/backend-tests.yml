@@ -1,6 +1,6 @@
 # Runs the backend automated test suite (backend/tests/) automatically on
 # every push and every pull request, for any branch. See
-# docs/README_EN.md's testing section for how to run the exact same suite
+# README.md's testing section (section 14) for how to run the exact same suite
 # locally on your own machine.
 #
 # Dependencies come from backend/pyproject.toml: the project itself plus

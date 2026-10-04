@@ -25,8 +25,8 @@ router = APIRouter(tags=["events"])
 
 # How long to wait for a new event before sending a keepalive comment.
 # Without this, an idle connection can be silently dropped by an
-# intermediary (a proxy, a load balancer - relevant once this is deployed
-# behind Render) well before either side considers it closed.
+# intermediary (a proxy or a load balancer, if the app is ever hosted
+# behind one) well before either side considers it closed.
 _KEEPALIVE_SECONDS = 20.0
 
 

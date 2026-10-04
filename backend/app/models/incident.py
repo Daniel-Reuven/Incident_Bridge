@@ -63,7 +63,7 @@ class Incident(ABC):
     thread that both concrete incident types inherit unchanged; each
     subclass adds only what's specific to it (see maintenance_task.py and
     fault.py). This keeps the model open for a third incident type later
-    without touching this class (Open/Closed principle - README section 4).
+    without touching this class (Open/Closed principle - README.md section 4).
 
     Polymorphism: Incident is a real abstract class. Every concrete type
     must implement the two abstract members below, and code that handles
@@ -244,7 +244,7 @@ class Incident(ABC):
     def close(self, actor: User, resolution_type: ResolutionType, message: str) -> None:
         """
         Close the incident. This single method covers all three resolution
-        types (confirmed design decision - README sections 4 and 8):
+        types (confirmed design decision - README.md sections 5 and 13):
         Resolved, Not an Incident, and By Design are not separate code
         paths, just this one method with a required ResolutionType and a
         mandatory, non-empty message.

@@ -9,7 +9,7 @@ from app.models.enums import Role
 
 class User:
     """
-    A pre-provisioned user (no self-registration - see README section 6).
+    A pre-provisioned user (no self-registration - see README.md section 11).
 
     Passwords are never stored in plain text. `set_password` always runs
     the new password through PasswordPolicy before accepting it, so the

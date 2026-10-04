@@ -1,8 +1,8 @@
 """
 AppState: the single in-memory state container for one running process.
 
-Confirmed constraint (see backend/README.md and the project's hosting
-notes): this app must run as a single process / single worker, because
+Confirmed constraint (see README.md, section 11 - "Runs locally, as a
+single process"): this app must run as a single process / single worker, because
 this state - the queues especially - is plain in-memory Python and is NOT
 shared across multiple processes. Running multiple Uvicorn workers would
 give each one its own separate queues, silently breaking the "one shared

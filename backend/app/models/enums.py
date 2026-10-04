@@ -9,7 +9,7 @@ from enum import Enum
 
 
 class Role(Enum):
-    """A User's permission level. See README section 5/8 for who can do what."""
+    """A User's permission level. See README.md sections 5 and 13 for who can do what."""
     ADMIN = "admin"
     USER = "user"
 

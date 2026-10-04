@@ -1,4 +1,4 @@
-"""Shared password validation rule (confirmed design decision - README section 8, #4)."""
+"""Shared password validation rule (confirmed design decision - README.md section 13, #4)."""
 
 import re
 

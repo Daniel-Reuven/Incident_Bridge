@@ -1,7 +1,7 @@
 """
 Unit tests for app.queues.fault_queue.FaultPriorityQueue - the single
 shared priority queue for faults of every severity (Critical, Major, and
-Minor all share one heap - see README section 3).
+Minor all share one heap - see README.md section 3).
 """
 
 import pytest

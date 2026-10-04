@@ -2,7 +2,7 @@
  * Thin fetch wrapper around the Incident Bridge API.
  *
  * BASE is empty because the frontend is served by the same FastAPI app
- * as the API (same-origin) - see backend/README.md. If you ever split
+ * as the API (same-origin) - see README.md, section 11. If you ever split
  * them onto different origins, set BASE to the API's origin and add it
  * to ALLOWED_ORIGINS on the backend.
  */

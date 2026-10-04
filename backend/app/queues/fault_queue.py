@@ -1,4 +1,4 @@
-"""Single shared fault priority queue, all severities (README sections 2, 3, 8)."""
+"""Single shared fault priority queue, all severities (README.md sections 2, 3, 13)."""
 
 import heapq
 import itertools
@@ -12,7 +12,7 @@ class FaultPriorityQueue:
     """
     Single shared priority queue for Fault incidents of every severity -
     Critical, Major, and Minor all go into the same queue (confirmed
-    design decision - README section 8, #1). There is no separate lane
+    design decision - README.md section 13, #1). There is no separate lane
     for Minor.
 
     Backed by heapq. The heap key is (severity.value, insertion_order,
