@@ -23,6 +23,7 @@
   --ink: #1A2330;
   --ink-soft: #5B6B79;
   --paper: #F3F6F7;
+  --row-hover: #E8F1F0;   /* background of a list row under the mouse - a light tint of --accent */
   --surface: #FFFFFF;
   --line: #D8E0E3;
   --accent: #0B6E67;
@@ -220,7 +221,16 @@ textarea { resize: vertical; }
   margin-bottom: 8px;
   cursor: pointer;
 }
-.row:hover { border-color: var(--ink-soft); }
+/* Hover highlights the whole row with a background tint. Only the top,
+   right and bottom borders darken - the LEFT border is the row's color code
+   (severity, site status, notification state) and must keep its color, so
+   this rule must not use the border-color shorthand, which would override it. */
+.row:hover {
+  background: var(--row-hover);
+  border-top-color: var(--ink-soft);
+  border-right-color: var(--ink-soft);
+  border-bottom-color: var(--ink-soft);
+}
 .row.sev-critical { border-left-color: var(--critical); }
 .row.sev-major { border-left-color: var(--major); }
 .row.sev-minor { border-left-color: var(--minor); }
@@ -314,6 +324,7 @@ textarea { resize: vertical; }
 
 /* --- stale-work highlight (dashboard "Check stale incidents") --- */
 .row.row-stale { background: #FFF4D6; border-color: var(--major); }
+.row.row-stale:hover { background: #FCEBC0; }   /* a stale row keeps its yellow, just a shade darker */
 .row-stale-tag { font-size: 12px; font-weight: 600; color: var(--major); white-space: nowrap; }
 
 /* --- pressing maintenance calls table --- */
@@ -411,6 +422,16 @@ textarea { resize: vertical; }
 .status-text.status-unknown { color: var(--status-unknown); }
 .status-text.status-maintenance { color: var(--status-maintenance); }
 .status-text.status-operational { color: var(--status-operational); }
+
+/* Notification rows are colored by the notification's own state, not the
+   site's: Draft waits for an admin (attention), Sent is done (accent green),
+   Dismissed and Skipped needed no action (grey). */
+.notification-draft { border-left-color: var(--major); }
+.notification-sent { border-left-color: var(--accent); }
+.notification-dismissed, .notification-skipped { border-left-color: var(--status-unknown); }
+.status-text.notification-draft { color: var(--major); }
+.status-text.notification-sent { color: var(--accent); }
+.status-text.notification-dismissed, .status-text.notification-skipped { color: var(--ink-soft); }
 
 .report-checks { margin: 0 0 24px; padding: 0; list-style: none; font-size: 14px; }
 .report-checks li { padding: 6px 0; border-bottom: 1px solid var(--line); }

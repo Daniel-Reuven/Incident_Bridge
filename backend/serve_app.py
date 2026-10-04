@@ -23,6 +23,11 @@ Local dev (values from .env, falls back to the defaults below if unset):
 Production / Render (auto-reload off; Render sets PORT itself):
     RELOAD=false python serve_app.py
 
+Stopping the server (Ctrl+C) takes at most about 3 seconds even with
+browser tabs open: their live-update streams are closed after that grace
+period (timeout_graceful_shutdown below) and reconnect automatically once
+the server is running again.
+
 Before starting the server, INCIDENT_BRIDGE_USERS is validated: if it is
 set but unusable (invalid JSON, an invalid entry, a duplicate username),
 the script prints the problems and exits with code 1 instead of starting.
@@ -67,4 +72,11 @@ if __name__ == "__main__":
         host=os.environ.get("HOST", "0.0.0.0"),
         port=int(os.environ.get("PORT", 8000)),
         reload=os.environ.get("RELOAD", "true").lower() == "true",
+        # Open browser tabs keep a live-update stream (GET /events) open
+        # forever, and Uvicorn's graceful shutdown waits for every open
+        # connection to finish - so without a limit, stopping the server
+        # (Ctrl+C) or an auto-reload hangs for as long as any tab is open.
+        # After this many seconds the remaining streams are closed; the
+        # browsers reconnect on their own once the server is back.
+        timeout_graceful_shutdown=3,
     )
