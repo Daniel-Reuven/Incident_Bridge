@@ -678,9 +678,9 @@ python -m pytest -q
 
 ## 17. Future Development
 
-We plan to implement more features in the future, such as parallelism, AI Agents integration for incident analysis, performance improvement, users management.
-- **Maintenance = order matters, severity doesn't, order is immutable.** Only the first task in line can start, and only when nothing is in progress.
-- **Faults = severity matters, arrival order is only the tiebreaker, all severities share one queue.**
+We plan to implement more features in the future, such as parallelism(Multi-Threading), AI Agents integration for incident analysis, performance improvement, users management.
+- **AI Agents Integration** - Enable usage of AI agents to analyze incidents and provide feedback on incidents via the incident's comments.
+- **Parallelism(Multi-Threading)** - Requests for analysis of incidents via AI Agents would be run through a FIFO queue on a separate thread, that thread would handle and manage all the API requests to the various agents, there would only be 1 con-current request for analysis in order to  prevent Tokens burnout and in order to comply with AI Agents API limitations.
 
 ---
 
