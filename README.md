@@ -111,7 +111,7 @@ Key rules:
 
 Severity is decided by a dedicated component, `SeverityScorer` (`backend/app/services/severity_scoring.py`), not inside the `Fault` class, so the rules can later be replaced (e.g. by an external rules engine) without touching the domain model or the queue.
 
-- **Input:** a `details` object, every field optional: `system_unavailable`, `security_breach`, `performance_degraded`, `cosmetic_only` (true/false) and `affected_users_percent` (0–100).
+- **Input:** a `details` object, every field optional: `system_unavailable`, `security_breach`, `performance_degraded` (true/false) and `affected_users_percent` (0–100) — the four questions on the *New incident → Fault* form. A fifth flag, `cosmetic_only`, is also accepted (the sample data uses it to describe purely visual faults) but does not change the result, because anything that is not Critical or Major is already Minor; that is why the form does not ask for it.
 - **Rules:** system unavailable or a security breach → **Critical**; performance degraded or at least 25% of users affected → **Major**; anything else → **Minor**.
 - **Validation:** `SeverityScorer.validate_details()` runs first on every path (API and file import): `details` must be an object, only the known fields are allowed (a typo would otherwise silently lower the severity), flags must be true/false and the percentage a number from 0 to 100. Invalid details are an HTTP 400 in the API and a skipped record in an import — never a crash.
 - **Categories are fixed** (no others exist) and all three go into the same priority queue: Critical = 1, Major = 2, Minor = 3 — a lower number means more urgent.
@@ -235,7 +235,7 @@ In the diagram, *italic* members are abstract (`extra_fields()`; `kind` is an ab
 - **Classes with real responsibility:** `User`, `Comment`, `Incident`/`MaintenanceTask`/`Fault`, the two queues and their manager, `PasswordPolicy`, `SeverityScorer`, plus the subsystem's `Site`, `MailingList`, `Notification` and `SiteDirectory`.
 - **Alternative constructors (`@classmethod`):** `MaintenanceTask.from_dict` / `Fault.from_dict` (one JSONL record), `User.from_dict` (one entry of `INCIDENT_BRIDGE_USERS`), `Site.from_dict`, `MailingList.from_dict`, `Notification.draft_for`, `HttpChecker.from_env`, and the `from_persisted` constructors used when reloading from the database.
 - **`__str__` and `__repr__`:** every domain class, queue, store and iterator has both — `__str__` is a readable summary, `__repr__` shows the state useful when debugging (ids, counts), never secrets.
-- **Composition:** an `Incident` holds its `Comment`s; `MaintenanceQueue` holds tasks (enqueue, start, close from any position, reinsert, membership, length); `FaultPriorityQueue` holds faults (push, pop, remove, reprioritize, count of more-severe faults); a `MailingList` holds its members and site ids; a `Site` holds its status history; `SiteDirectory` holds sites, lists and notifications.
+- **Composition:** an `Incident` holds its `Comment`s (both the updates people write and the automatic status-change log entries — see [§5](#5-incident-lifecycle-and-actions)); `MaintenanceQueue` holds tasks (enqueue, start, close from any position, reinsert, membership, length); `FaultPriorityQueue` holds faults (push, pop, remove, reprioritize, count of more-severe faults); a `MailingList` holds its members and site ids; a `Site` holds its status history; `SiteDirectory` holds sites, lists and notifications.
 - **Inheritance and overriding:** `MaintenanceTask` and `Fault` inherit the whole lifecycle from `Incident` and override `__str__`, `from_dict`, `kind` and `extra_fields`; `Fault` also overrides `reopen`. The same pattern is used for `AvailabilityChecker` → `HttpChecker` / `FakeChecker`, `Notifier` → `OutboxNotifier`, and `SnapshotIterator` → `FifoQueueIterator` / `SeverityOrderIterator`.
 - **Polymorphism instead of type checks:** code that handles incidents never asks which class an object is to decide what to do. The serializer, persistence, live-update events, list filtering and queue restoring all use `incident.kind` and `incident.extra_fields()`; even the seed import picks the right queue with a lookup by `kind`. A test adds a made-up third incident type and shows it serializes with no change to the serializer (Open/Closed). The remaining `isinstance` checks in `app/api/incidents.py` only validate input ("this id is not a fault" → 404).
 - **Abstract classes / interfaces:** `Incident` (abstract `kind` and `extra_fields()`), `AvailabilityChecker` (abstract `check()`), `Notifier` (abstract `deliver()`) and `SnapshotIterator` (abstract `_ordered()`). Python itself refuses to create them, or a subclass missing one of the members.
@@ -264,7 +264,13 @@ In the diagram, *italic* members are abstract (`extra_fields()`; `kind` is an ab
 - **Change severity** (faults) — admin only; the fault moves to its new place in the queue.
 - **Reopen** a closed incident — admin only, reason required, previous resolution kept in the log. A maintenance task chooses its new position in the queue (Open), or position 1 if reopened as In progress and nothing else is in progress. A fault reopened as Open re-enters the queue at the back of its severity group; as In progress it is assigned to the admin.
 - **Comments/updates** — any logged-in user, also on closed incidents. The incident page can show them oldest-first or newest-first (remembered per browser).
-- **Every status change is logged** as a comment saying who changed what, and why.
+- **Every status change is logged** in the incident's comment thread, authored by whoever made the change. So the thread holds two kinds of entries: updates people write, and automatic log entries such as:
+  - `Status changed from Open to In progress. Assigned to tech1.` (a fault claimed)
+  - `Status changed from In progress to Closed. Reason: works as intended. Resolution: By design.` (a close — the closing message is the reason)
+  - `Status changed from Closed to Open. Reason: Regression found. Previous resolution: Resolved - Fixed it. Queue position: 3.` (an admin reopen — the earlier resolution is kept)
+  - `Work session completed after 42.0s.` / `Work session interrupted after 3.1s by RuntimeError: disk full` (`IncidentWorkSession`, [§10](#10-context-managers))
+
+  Part A's "a mandatory closure message once resolved" is exactly this: the closing message is stored on the incident and also recorded as the reason in the log entry.
 - **Dashboard helpers:** *Pressing maintenance calls* (open tasks waiting more than 3 days, [§9](#9-iteration-iterableiterator-generator-and-lazy-pipeline)) and *Check stale incidents* (in-progress incidents with no update for a chosen time, default 4 hours, highlighted in the lists).
 
 ## 6. Sites & Mailing Lists subsystem (group-of-four extension)
@@ -475,10 +481,11 @@ Both live in `backend/app/context.py`; neither ever suppresses an exception (`__
 
 ## 11. Architecture — as built
 
-- **Backend:** FastAPI (`backend/app/api/app.py`) served by Uvicorn; request bodies are Pydantic models; domain errors map to HTTP codes in one place (`ValueError` → 400, `PermissionError` → 403, `KeyError`/`IndexError` → 404, `RuntimeError` → 409). Interactive API docs at `/docs`.
+- **Backend:** FastAPI (`backend/app/api/app.py`) served by Uvicorn; request bodies are Pydantic models; domain errors map to HTTP codes in one place (`ValueError` → 400, `PermissionError` → 403, `KeyError`/`IndexError` → 404, `RuntimeError` → 409). Interactive API documentation is served by the app itself at **`/docs`** (generated by FastAPI from the code) — this is the API reference; this README is the project documentation.
 - **Users and auth:** no self-registration. Users come from `INCIDENT_BRIDGE_USERS` in `backend/.env`, read at every startup and **fail-fast**: invalid JSON, an invalid entry or a duplicate username (case-insensitive) stops the app with a message listing every problem. Sessions use a signed cookie; the role is looked up on every request, never trusted from the browser. Password policy: at least 8 characters, letters and digits only, enforced by `PasswordPolicy` at provisioning and at password change.
 - **Persistence:** SQLite. Incidents and comments (`app/persistence.py`) and sites, lists and notifications (`app/persistence_sites.py`) are separate stores in the same file, each with one long-lived connection guarded by a `threading.Lock` (FastAPI runs sync endpoints in a thread pool). At startup `AppState.create()` (`app/state.py`) rebuilds the queues exactly as they were. Users are deliberately not stored in the database; a stored username that no longer exists shows as a labeled placeholder instead of crashing.
 - **Live updates:** Server-Sent Events (`GET /events`). Each browser tab subscribes with its own client id and its user's role; every change is published right after it is saved, never echoed back to the tab that made it, and site-portal events go to admin tabs only. Because endpoints run in worker threads and the event stream on the asyncio loop, events cross over with `loop.call_soon_threadsafe`.
+- **Restarting the server:** open tabs **reconnect on their own** within a few seconds (the browser's `EventSource` retries automatically) and live updates continue; the login session survives too, because it lives in a signed cookie — as long as `SESSION_SECRET_KEY` is unchanged and the user still exists in `INCIDENT_BRIDGE_USERS` (otherwise, log in again). Changes made while the server was down are not replayed, so refresh a page if something happened in the meantime. Stopping the server (Ctrl+C) takes at most about 3 seconds even with tabs open: `serve_app.py` closes the remaining live-update streams after that grace period.
 - **Frontend:** plain HTML/CSS/JavaScript, no build step, served by the same app (same origin). Pages: `index.html` (login), `dashboard.html` (both queues, the full filterable/sortable list, new incident, stale check, admin import), `incident.html` (details, actions, comments), `pressing.html` (pressing maintenance calls) and `sites.html` (the admin site portal). Lists are patched in place, so live updates never flicker.
 - **Runs locally, as a single process:** the queues are in-memory Python objects, so the app must run as one process / one Uvicorn worker; several workers would each have their own queues. The project runs locally for now; hosting will be decided when it expands.
 
@@ -554,8 +561,6 @@ Incident_Bridge/
 │       ├── topbar.js, toast.js, row-list.js, updates-order.js
 │       ├── login.js, dashboard.js, incident.js, pressing.js
 │       └── sites.js, sites-format.js   # site portal
-└── docs/
-    └── README_HE.md              # Hebrew version (older revision, not maintained for now)
 ```
 
 ## 13. Confirmed design decisions

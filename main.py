@@ -33,7 +33,7 @@ build demo input.
 
 Requirements: Python 3.9+ and the backend's dependencies installed
 (cd backend && pip install -e ".[dev]"). The web app itself is started
-separately with backend/serve_app.py - see the README.
+separately with backend/serve_app.py - see README.md, section 15.
 """
 
 import sys

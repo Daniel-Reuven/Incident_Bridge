@@ -78,7 +78,7 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = Tru
                                 {"username":"tech1","password":"Passw0rd2","role":"user"}]
 
     This is the "pre-provisioned via env, no self-registration" mechanism
-    from the design doc (README section 6). Falls back to an insecure demo
+    from the design doc (README.md section 11). Falls back to an insecure demo
     pair (with a loud warning, unless warn=False) only so the app can start
     with zero setup during local development.
 

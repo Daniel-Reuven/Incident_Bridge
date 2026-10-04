@@ -14,13 +14,13 @@ and does it early enough (before app.api.app is imported/run) that the
 values are already in os.environ by the time the app reads them.
 
 Host/port/reload are read from the environment (which now includes your
-.env), so the same script works unchanged locally and on a host like
-Render, which assigns the listening port via its own PORT variable.
+.env), so they can be changed without editing this file. The project runs
+locally for now (see README.md, section 15).
 
-Local dev (values from .env, falls back to the defaults below if unset):
+Usual run (values from .env, falls back to the defaults below if unset):
     python serve_app.py
 
-Production / Render (auto-reload off; Render sets PORT itself):
+Without auto-reload (e.g. for a longer-running session):
     RELOAD=false python serve_app.py
 
 Stopping the server (Ctrl+C) takes at most about 3 seconds even with
@@ -38,9 +38,9 @@ import os
 from dotenv import load_dotenv
 
 # Loads backend/.env (if present) into os.environ. Does NOT override a
-# variable that's already set in the real environment (e.g. one Render
-# injects directly) - .env is a local-dev convenience, not an authority
-# over real deployment secrets.
+# variable that's already set in the real environment (e.g. one exported
+# in your shell) - .env is a convenience, not an authority over values
+# set explicitly.
 load_dotenv()
 
 import sys  # noqa: E402

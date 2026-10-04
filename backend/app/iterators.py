@@ -44,8 +44,8 @@ stages:
     stage 3: turn each tuple into {id, title, created_by, created_at, days_open, summary}
 
 Nothing runs when the pipeline is built. Work only happens when a consumer
-asks for the next value (next(), a for loop, islice, ...). See the README
-section "Lazy pipeline" for the full explanation.
+asks for the next value (next(), a for loop, islice, ...). See README.md
+section 9 for the full explanation.
 """
 
 from abc import ABC, abstractmethod

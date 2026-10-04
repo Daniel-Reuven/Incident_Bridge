@@ -1,4 +1,4 @@
-"""Severity scoring service (README section 2)."""
+"""Severity scoring service (README.md section 2)."""
 
 from app.models.enums import SeverityCategory
 
