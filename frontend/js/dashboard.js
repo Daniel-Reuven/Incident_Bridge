@@ -4,11 +4,17 @@ import { connectLiveUpdates } from "./events.js";
 import { renderRowList } from "./row-list.js";
 import { showToast, describeEvent } from "./toast.js";
 
+// Stale-work highlighting - uses the generator in backend/app/iterators.py via
+// GET /incidents/work/stale. Declared first: refresh() reads these as soon as it runs.
+let staleActive = false;
+let staleInfo = new Map(); // incident id -> { minutes_since_update, ... } for incidents flagged stale
+
 const user = await mountTopbar();
 if (user) {
   wireFilters();
   wireNewIncidentDialog();
   wireDelegatedNavigation();
+  wireStaleCheck();
 
   // Bulk seed-data import is an admin-only action (enforced again, for
   // real, by the server - see POST /incidents/import-jsonl - this is
@@ -104,14 +110,17 @@ async function loadMaintenance() {
     document.getElementById("maintenance-queue"),
     items,
     (item) => item.task.id,
-    ({ task, label }) => ({
-      className: "row",
-      html: `
+    ({ task, label }) => {
+      const stale = staleInfo.get(task.id);
+      return {
+        className: `row${stale ? " row-stale" : ""}`,
+        html: `
         <span class="row-position">${label}</span>
-        <span class="row-title">${escapeHtml(task.title)}</span>
+        <span class="row-title">${escapeHtml(task.title)}</span>${staleTag(stale)}
         <span class="row-meta">by ${escapeHtml(task.created_by)} · ${timeAgo(task.created_at)}</span>`,
-      sig: JSON.stringify([label, task.title, task.updated_at]),
-    }),
+        sig: JSON.stringify([label, task.title, task.updated_at, stale ? stale.minutes_since_update : null]),
+      };
+    },
     "Nothing queued."
   );
 }
@@ -164,14 +173,16 @@ async function loadIncidents() {
       const isFault = item.type === "fault";
       const sevClass = isFault ? severityClass(item.severity) : "";
       const badge = isFault ? severityLabel(item.severity) : "Maintenance";
+      const stale = staleInfo.get(item.id);
       return {
-        className: `row ${sevClass}`,
+        className: `row ${sevClass}${stale ? " row-stale" : ""}`,
         html: `
           <span class="row-badge">${badge}</span>
-          <span class="row-title">${escapeHtml(item.title)}</span>
+          <span class="row-title">${escapeHtml(item.title)}</span>${staleTag(stale)}
           <span class="row-status">${item.status.replace("_", " ")}</span>
           <span class="row-meta">${timeAgo(item.created_at)}</span>`,
-        sig: JSON.stringify([i, item.status, item.severity, item.title, item.updated_at]),
+        sig: JSON.stringify([i, item.status, item.severity, item.title, item.updated_at,
+                             stale ? stale.minutes_since_update : null]),
       };
     },
     "No incidents match these filters."
@@ -179,7 +190,62 @@ async function loadIncidents() {
 }
 
 async function refresh() {
+  try {
+    await loadStale(); // keeps the highlight correct after live updates (no-op while highlighting is off)
+  } catch {
+    // keep the previous highlights if the check fails - the lists themselves still refresh
+  }
   await Promise.all([loadMaintenance(), loadFaultQueue(), loadIncidents()]);
+}
+
+// --- stale-work check ---
+
+function formatIdle(minutes) {
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h`;
+  return `${Math.floor(minutes / 1440)}d`;
+}
+
+function staleTag(stale) {
+  return stale ? `<span class="row-stale-tag">Stale · ${formatIdle(stale.minutes_since_update)} idle</span>` : "";
+}
+
+async function loadStale() {
+  if (!staleActive) return null;
+  const data = await api.staleIncidents(document.getElementById("stale-threshold").value);
+  staleInfo = new Map(data.results.map((r) => [r.id, r]));
+  return data;
+}
+
+function wireStaleCheck() {
+  const button = document.getElementById("check-stale-btn");
+  const threshold = document.getElementById("stale-threshold");
+
+  button.addEventListener("click", async () => {
+    if (staleActive) { // second press: switch the highlighting off again
+      staleActive = false;
+      staleInfo = new Map();
+      button.textContent = "Check stale incidents";
+      await refresh();
+      return;
+    }
+    showToast("Checking stale incidents…");
+    staleActive = true;
+    try {
+      const data = await loadStale();
+      button.textContent = "Hide stale highlight";
+      await Promise.all([loadMaintenance(), loadFaultQueue(), loadIncidents()]);
+      showToast(data.count
+        ? `${data.count} stale incident${data.count === 1 ? "" : "s"} highlighted (no update for over ${formatIdle(data.stale_after_minutes)})`
+        : "No stale incidents found");
+    } catch (err) {
+      staleActive = false;
+      staleInfo = new Map();
+      alert(err.message);
+    }
+  });
+
+  threshold.addEventListener("change", () => { if (staleActive) refresh(); });
 }
 
 function wireFilters() {

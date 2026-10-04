@@ -11,7 +11,7 @@ stable and directly JSON-serializable.
 from typing import Iterable, List, Optional
 
 from app.context import SiteCheckSession
-from app.models import AvailabilityCheck, Fault, Incident, MailingList, Notification, Site, SiteStatusChange
+from app.models import AvailabilityCheck, Incident, MailingList, Notification, Site, SiteStatusChange
 from app.sites import SiteCheckOutcome, SiteDirectory, StatusChangeOutcome
 
 
@@ -62,7 +62,7 @@ def site_to_dict(site: Site, directory: SiteDirectory, incident_ids: Iterable[st
 def incident_summary(incident: Incident) -> dict:
     """The few incident fields the site portal shows - enough to link to the incident page."""
     return {"id": incident.id, "title": incident.title, "status": incident.status.value,
-            "type": "fault" if isinstance(incident, Fault) else "maintenance"}   # same rule as serializers.py
+            "type": incident.kind}
 
 
 def site_detail_to_dict(site: Site, directory: SiteDirectory, incidents: List[Incident]) -> dict:

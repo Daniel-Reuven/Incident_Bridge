@@ -65,6 +65,9 @@ export const api = {
   // `limit` is optional: omit it to get every pressing call.
   pressingMaintenance: (limit) =>
     request("/incidents/maintenance/pressing" + (limit ? `?limit=${encodeURIComponent(limit)}` : "")),
+  // In-progress incidents with no update for a while (generator - backend/app/iterators.py).
+  staleIncidents: (minutes) =>
+    request("/incidents/work/stale" + (minutes ? `?stale_after_minutes=${encodeURIComponent(minutes)}` : "")),
   startNextMaintenance: () => request("/incidents/maintenance/start-next", { method: "POST" }),
   startMaintenanceTask: (id) => request(`/incidents/maintenance/${id}/start`, { method: "POST" }),
   completeCurrentMaintenance: (message, resolution_type = "resolved") =>

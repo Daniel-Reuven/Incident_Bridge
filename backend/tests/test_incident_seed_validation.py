@@ -71,7 +71,7 @@ def test_numeric_ids_are_accepted_as_text(users):
 def test_the_bundled_sample_data_has_valid_details_and_ids():
     """Every record in data/sample_data_1.jsonl passes the stricter field checks (users aside)."""
     from pathlib import Path
-    path = Path(__file__).resolve().parents[2] / "data" / "sample_data_1.jsonl"
+    path = Path(__file__).resolve().parents[2] / "data" / "sample_data.jsonl"
     with open(path, encoding="utf-8") as f:
         for line in f:
             if line.strip():

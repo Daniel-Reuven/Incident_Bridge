@@ -46,10 +46,10 @@ from app.api.schemas import (
 from app.api.serializers import incident_to_dict
 from app.events import EventBroadcaster
 from app.models import Fault, IncidentStatus, MaintenanceTask, Role, User
-from app.iterators import first_pressing_calls
 from app.services import SeverityScorer
 from app.state import AppState
-
+from datetime import datetime, timedelta, timezone
+from app.iterators import STALE_AFTER, first_pressing_calls, stale_in_progress_work
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 
 
@@ -64,7 +64,7 @@ def _publish(broadcaster: EventBroadcaster, client_id: Optional[str], incident, 
     event entirely when empty.
     """
     event = {
-        "type": "fault" if isinstance(incident, Fault) else "maintenance",
+        "type": incident.kind,
         "id": incident.id,
         "action": action,
         "actor": actor.username,
@@ -109,7 +109,7 @@ def list_incidents(
     """List every incident, optionally filtered by type ('maintenance'/'fault') and/or status."""
     items = state.incidents.list_all()
     if type:
-        items = (i for i in items if ("fault" if isinstance(i, Fault) else "maintenance") == type)
+        items = (i for i in items if i.kind == type)
     if status:
         items = (i for i in items if i.status.value == status)
     return [incident_to_dict(i) for i in items]
@@ -168,13 +168,13 @@ def import_jsonl(body: ImportJsonlRequest, state: AppState = Depends(get_state),
         raise HTTPException(status_code=403, detail="Only an admin may import seed data.")
 
     result = state.incidents.load_from_jsonl_lines(body.content.splitlines(), state.users)
+    # Where each kind of new incident goes - looked up by the incident's own
+    # `kind`, so this needs no type check (and a new kind only needs an entry here).
+    add_to_queue = {Fault.KIND: state.faults.push, MaintenanceTask.KIND: state.maintenance.get_queue().enqueue}
 
     for incident_id in result.created_ids:
         incident = state.incidents.get(incident_id)
-        if isinstance(incident, Fault):
-            state.faults.push(incident)
-        else:
-            state.maintenance.get_queue().enqueue(incident)
+        add_to_queue[incident.kind](incident)
         _publish(broadcaster, client_id, incident, "created", current_user)
 
     _persist_maintenance_queue(state, state.maintenance.get_queue())
@@ -196,11 +196,40 @@ def get_maintenance_queue(state: AppState = Depends(get_state), _current_user: U
         "current": incident_to_dict(queue.current_task) if queue.current_task else None,
         "pending": [incident_to_dict(t) for t in queue],
     }
+@router.get("/work/stale")
+def get_stale_work(stale_after_minutes: Optional[int] = Query(None, ge=1, le=10080),
+                    state: AppState = Depends(get_state), _current_user: User = Depends(get_current_user)):
+    """
+    In-progress incidents (faults or maintenance tasks) with no update for
+    longer than `stale_after_minutes` (default: STALE_AFTER, 4 hours),
+    produced by the generator function in app/iterators.py - the logic lives
+    there, this endpoint only calls it and shapes the response.
+
+    Declared with a two-segment path on purpose: a bare "/stale" would be
+    swallowed by the "/{incident_id}" route above.
+    """
+    stale_after = timedelta(minutes=stale_after_minutes) if stale_after_minutes else STALE_AFTER
+    now = datetime.now(timezone.utc)
+    results = [
+        {
+            "id": i.id,
+            "title": i.title,
+            "type": i.kind,
+            "assigned_to": i.assigned_to.username if i.assigned_to else None,
+            "minutes_since_update": int((now - i.updated_at).total_seconds() // 60),
+        }
+        for i in stale_in_progress_work(state.incidents.list_all(), now, stale_after)
+    ]
+    return {
+        "stale_after_minutes": int(stale_after.total_seconds() // 60),
+        "count": len(results),
+        "results": results,
+    }
 
 
 @router.get("/maintenance/pressing")
 def get_pressing_maintenance(limit: Optional[int] = Query(None, ge=1, le=500), state: AppState = Depends(get_state),
-                             _current_user: User = Depends(get_current_user)):
+                              _current_user: User = Depends(get_current_user)):
     """
     Open maintenance calls that have waited more than 3 days (in-progress
     and closed calls are left out), produced by the lazy pipeline in

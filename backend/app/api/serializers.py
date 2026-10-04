@@ -1,6 +1,6 @@
 """Converts domain objects (User, Comment, Incident subclasses) into plain dicts for API responses."""
 
-from app.models import Comment, Fault, Incident, User
+from app.models import Comment, Incident, User
 
 
 def user_to_dict(user: User) -> dict:
@@ -19,14 +19,14 @@ def comment_to_dict(comment: Comment) -> dict:
 def incident_to_dict(incident: Incident) -> dict:
     """
     Shared fields for both incident types, plus type-specific fields
-    (severity/details for Fault, queue_position for MaintenanceTask).
-    `type` distinguishes the two on the frontend without needing a second
-    endpoint shape.
+    (severity/details for Fault, queue_position for MaintenanceTask), which
+    come from the incident itself through the polymorphic kind /
+    extra_fields() members (app/models/incident.py). `type` distinguishes
+    the two on the frontend without needing a second endpoint shape.
     """
-    is_fault = isinstance(incident, Fault)
     data = {
         "id": incident.id,
-        "type": "fault" if is_fault else "maintenance",
+        "type": incident.kind,
         "title": incident.title,
         "description": incident.description,
         "status": incident.status.value,
@@ -38,10 +38,5 @@ def incident_to_dict(incident: Incident) -> dict:
         "updated_at": incident.updated_at.isoformat(),
         "comments": [comment_to_dict(c) for c in incident.comments],
     }
-    if is_fault:
-        data["severity"] = incident.severity.value
-        data["severity_score"] = incident.severity_score
-        data["details"] = incident.details
-    else:
-        data["queue_position"] = incident.queue_position
+    data.update(incident.extra_fields())   # each type adds its own fields - no type check here
     return data

@@ -11,6 +11,15 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
 :root {
+  /* Page widths. --page-width is for list-heavy pages (dashboard, pressing
+     calls, site portal), so their toolbars and rows fit on one line on a
+     normal desktop screen. --page-width-reading is narrower, for the
+     incident page, which is mostly running text (description, comments)
+     where very long lines get hard to read. Both still shrink with the
+     window - they are maximums, not fixed widths. */
+  --page-width: 1600px;
+  --page-width-reading: 1100px;
+
   --ink: #1A2330;
   --ink-soft: #5B6B79;
   --paper: #F3F6F7;
@@ -95,7 +104,12 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 label { display: block; font-size: 13px; color: var(--ink-soft); margin-bottom: 14px; }
 label.checkbox { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink); }
 label.checkbox input { margin: 0; }
-label.inline-select { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+label.inline-select { display: inline-flex; align-items: center; gap: 6px; margin: 0; white-space: nowrap; }
+/* A select placed beside its label text (e.g. "Stale after", the portal's
+   notification filter) sizes to its content. Without this it inherits the
+   generic form rule below (width: 100%), which in a toolbar makes the whole
+   button row claim a full line of its own and wrap onto a second line. */
+label.inline-select select { width: auto; margin-top: 0; }
 input[type="text"], input[type="password"], input[type="number"], select, textarea {
   display: block;
   width: 100%;
@@ -179,7 +193,7 @@ textarea { resize: vertical; }
 .import-summary li { margin-bottom: 2px; }
 
 /* --- dashboard layout --- */
-.dashboard { max-width: 960px; margin: 0 auto; padding: 24px; }
+.dashboard { max-width: var(--page-width); margin: 0 auto; padding: 24px 32px; }
 .dashboard-toolbar {
   display: flex;
   align-items: flex-end;
@@ -218,7 +232,7 @@ textarea { resize: vertical; }
 .empty { color: var(--ink-soft); font-size: 14px; padding: 12px 0; }
 
 /* --- incident detail page --- */
-.incident-page { max-width: 720px; margin: 0 auto; padding: 24px; }
+.incident-page { max-width: var(--page-width-reading); margin: 0 auto; padding: 24px 32px; }
 .back-link { display: inline-block; margin-bottom: 20px; font-size: 14px; }
 .incident-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .incident-meta { color: var(--ink-soft); font-size: 13px; margin: 6px 0 0; }
@@ -297,6 +311,10 @@ textarea { resize: vertical; }
   font-size: 13px;
   font-weight: 500;
 }
+
+/* --- stale-work highlight (dashboard "Check stale incidents") --- */
+.row.row-stale { background: #FFF4D6; border-color: var(--major); }
+.row-stale-tag { font-size: 12px; font-weight: 600; color: var(--major); white-space: nowrap; }
 
 /* --- pressing maintenance calls table --- */
 .table-wrap { overflow-x: auto; margin-top: 8px; }

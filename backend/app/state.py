@@ -109,7 +109,7 @@ class AppState:
         # reopened at a chosen position, means creation order no longer
         # describes the FIFO - see order_pending_maintenance().
         default_queue = maintenance.get_queue()
-        maintenance_tasks = [i for i in persisted if isinstance(i, MaintenanceTask)]
+        maintenance_tasks = [i for i in persisted if i.kind == MaintenanceTask.KIND]
 
         has_current = False
         for task in maintenance_tasks:
@@ -122,7 +122,7 @@ class AppState:
             default_queue.enqueue(task)
 
         for incident in persisted:
-            if isinstance(incident, Fault) and incident.status == IncidentStatus.OPEN:
+            if incident.kind == Fault.KIND and incident.status == IncidentStatus.OPEN:
                 faults.push(incident)
 
         site_store = SqliteSiteStore(db_path)

@@ -35,6 +35,15 @@
         </label>
       </div>
       <div class="actions-row" style="margin-bottom:0">
+        <label class="inline-select">Stale after
+          <select id="stale-threshold">
+            <option value="240" selected>4 hours</option>
+            <option value="60">1 hour</option>
+            <option value="5">5 minutes</option>
+            <option value="1">1 minute (demo)</option>
+          </select>
+        </label>
+        <button class="btn btn-ghost" id="check-stale-btn">Check stale incidents</button>
         <a class="btn btn-ghost" href="/pressing.html" id="pressing-link">Pressing maintenance calls</a>
         <button class="btn btn-primary" id="new-incident-btn">New incident</button>
           <button class="btn btn-import" id="import-jsonl-btn" hidden>Import seed data</button>
