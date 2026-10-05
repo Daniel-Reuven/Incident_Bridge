@@ -25,9 +25,24 @@ data from the admin-only portal at all - not even hidden in the browser.
 Events also carry a "scope" ("sites" for the portal; incident events have
 none, which the frontend treats as "incidents" - see frontend/js/events.js),
 so each page only reacts to the kind of events it shows.
+
+Clean shutdown: a live-update stream never ends on its own, and Uvicorn's
+graceful shutdown waits for every open connection - so without help,
+stopping the server (Ctrl+C) would wait for the timeout and then cancel the
+streams, printing a CancelledError traceback. install_shutdown_hook() makes
+Ctrl+C (and SIGTERM) first call close(), which tells every open stream to
+finish right away (END_OF_STREAM), so the connections close normally and
+the server stops at once, with no error. serve_app.py's short
+timeout_graceful_shutdown stays only as a safety net.
 """
 import asyncio
+import signal
+import threading
 from typing import Dict, Iterable, NamedTuple, Optional
+
+# Put on a subscriber's queue by EventBroadcaster.close(): the stream reading
+# that queue (app/api/events.py) ends as soon as it sees this object.
+END_OF_STREAM = object()
 
 
 class _Subscriber(NamedTuple):
@@ -48,6 +63,7 @@ class EventBroadcaster:
     def __init__(self):
         self._subscribers: Dict[str, _Subscriber] = {}
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._closed = False
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Called once at startup, from inside the running event loop (see app/api/app.py)."""
@@ -65,6 +81,8 @@ class EventBroadcaster:
         browser tears it down, rather than anything crashing.
         """
         queue: "asyncio.Queue[dict]" = asyncio.Queue()
+        if self._closed:                       # the server is shutting down:
+            queue.put_nowait(END_OF_STREAM)    # end this new stream immediately
         self._subscribers[client_id] = _Subscriber(queue, role)
         return queue
 
@@ -93,5 +111,50 @@ class EventBroadcaster:
                 continue
             self._loop.call_soon_threadsafe(subscriber.queue.put_nowait, event)
 
+    def close(self) -> None:
+        """
+        Tell every open stream to finish (the server is shutting down). Safe
+        to call from a signal handler or any thread, and more than once;
+        streams opened afterwards end immediately too (see subscribe()).
+        """
+        if self._closed:
+            return
+        self._closed = True
+        if self._loop is None:
+            return
+        for subscriber in list(self._subscribers.values()):
+            self._loop.call_soon_threadsafe(subscriber.queue.put_nowait, END_OF_STREAM)
+
     def __str__(self) -> str:
         return f"EventBroadcaster(subscribers={len(self._subscribers)}, loop_bound={self._loop is not None})"
+
+
+def install_shutdown_hook(broadcaster: EventBroadcaster) -> bool:
+    """
+    Make Ctrl+C / SIGTERM end every live-update stream first, then do
+    whatever the signal did before (normally: Uvicorn's own graceful
+    shutdown, which then finds no open streams to wait for).
+
+    Called from the app's lifespan startup (app/api/app.py) - by then Uvicorn
+    has installed its signal handlers, so this wraps them instead of
+    replacing them; a second Ctrl+C still force-quits as usual. Only
+    possible from the main thread (a Python rule for signal handlers), so
+    returns False and changes nothing elsewhere - e.g. under the test
+    client, which runs the app in a background thread.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return False
+    signals = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGBREAK"):            # Windows: Ctrl+Break
+        signals.append(signal.SIGBREAK)
+    for sig in signals:
+        previous = signal.getsignal(sig)
+        if not callable(previous):             # default / ignored: leave it alone
+            continue
+
+        def handler(signum, frame, previous=previous):
+            broadcaster.close()
+            previous(signum, frame)
+
+        signal.signal(sig, handler)
+    return True

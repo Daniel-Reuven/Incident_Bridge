@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, Request
 from starlette.responses import StreamingResponse
 
 from app.api.deps import get_broadcaster, get_current_user
-from app.events import EventBroadcaster
+from app.events import END_OF_STREAM, EventBroadcaster
 from app.models import User
 
 router = APIRouter(tags=["events"])
@@ -56,9 +56,12 @@ async def stream_events(
                     break
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_SECONDS)
-                    yield f"data: {json.dumps(event)}\n\n"
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
+                    continue
+                if event is END_OF_STREAM:     # server shutting down - see EventBroadcaster.close()
+                    break
+                yield f"data: {json.dumps(event)}\n\n"
         finally:
             broadcaster.unsubscribe(client_id)
 

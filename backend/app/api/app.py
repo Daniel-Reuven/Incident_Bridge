@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api import auth, events, incidents, sites
-from app.events import EventBroadcaster
+from app.events import EventBroadcaster, install_shutdown_hook
 from app.state import AppState
 
 
@@ -48,8 +48,14 @@ async def lifespan(app: FastAPI):
     # is plain sync code with no loop available yet at that point.
     app.state.broadcaster = EventBroadcaster()
     app.state.broadcaster.bind_loop(asyncio.get_running_loop())
+    # Ctrl+C / SIGTERM first ends every open live-update stream, so the
+    # server stops at once without a CancelledError traceback (see
+    # app/events.py's install_shutdown_hook).
+    install_shutdown_hook(app.state.broadcaster)
 
     yield
+
+    app.state.broadcaster.close()   # any stream still open ends now
 
 
 app = FastAPI(title="Incident Bridge API", version="0.1.0", lifespan=lifespan)

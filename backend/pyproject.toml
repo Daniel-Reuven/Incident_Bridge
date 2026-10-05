@@ -14,7 +14,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "incident-bridge"
 # The project's single version number - bump it here (there is no separate VERSION file).
-version = "0.3.8"
+version = "0.3.9"
 description = "Incident Bridge - incident management backend (FastAPI)"
 requires-python = ">=3.9"
 
