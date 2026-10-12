@@ -1,9 +1,10 @@
 # Incident Bridge
 
-**Status:** v0.4.6 — Stage 1 complete, including the group-of-four extension (Sites & Mailing Lists), plus AI analysis of faults on a dedicated worker thread
+**Status:** v0.4.8 — Stage 1 complete, including the group-of-four extension (Sites & Mailing Lists), plus AI analysis of faults on a dedicated worker thread
 **Course:** Advanced Programming — Project
 **Repository:** https://github.com/Daniel-Reuven/Incident_Bridge
 **Companion document:** [`AI_USAGE.md`](AI_USAGE.md) — how AI tools were used in this project
+**License:** [MIT](LICENSE)
 
 Incident Bridge is an internal web system for logging, prioritizing and tracking an organization's IT incidents: routine **maintenance tasks** run in a strict first-in-first-out queue, **faults** of every severity share one priority queue so the most severe is always handled first, an admin-only **site portal** monitors the organization's websites, notifies the right mailing lists when one has a problem, and shows which open incidents concern which site, and any user can ask an **AI model** (Gemini, Claude or OpenAI) to analyze a fault — the answer is posted back as comments.
 
@@ -23,6 +24,7 @@ cd .. && python main.py      # offline demo of every Stage 1 requirement
 
 ## Contents
 
+- [Screenshots](#screenshots)
 - [Part A – Project Proposal](#part-a--project-proposal)
 - [1. Business process](#1-business-process)
 - [2. Severity scoring](#2-severity-scoring)
@@ -43,6 +45,37 @@ cd .. && python main.py      # offline demo of every Stage 1 requirement
 - [17. AI analysis of faults (worker thread)](#17-ai-analysis-of-faults-worker-thread)
 - [18. Future Development](#18-future-development)
 - [Tech stack](#tech-stack)
+- [License](#license)
+
+---
+
+## Screenshots
+
+The web app as of v0.4.8, with the bundled sample data (`data/sample_data.jsonl`, `sites.jsonl`, `mailing_lists.jsonl`), logged in as an admin. Click an image for full size.
+
+**1. Login** — there is no self-registration: the users come from `INCIDENT_BRIDGE_USERS` in `backend/.env` ([§11](#11-architecture--as-built)).
+
+[![Login page](docs/screenshots/01-login.png)](docs/screenshots/01-login.png)
+
+**2. Dashboard** — the filters, *Check stale incidents*, *Pressing maintenance calls*, *New incident* and the admin-only *Import seed data*, above the **maintenance queue** (FIFO: one at a time, in arrival order). Further down the page are the **fault queue** (priority order: most severe first, every severity together) and the full incident list. Every open tab updates live ([§5](#5-incident-lifecycle-and-actions), [§11](#11-architecture--as-built)).
+
+[![Dashboard](docs/screenshots/02-dashboard.png)](docs/screenshots/02-dashboard.png)
+
+**3. A fault with an AI analysis** — `seed-075`, a fault with an investigation thread by three technicians. The admin pressed *Analyze*: the request comment comes first, then the answer posted by the built-in `ai-assistant` user, with the provider and model in its header. Because nothing has changed since, *Analyze* is greyed out (*No changes since the last analysis*), and the admin's *Re-analyze* counts down the 5-minute cooldown. Captured with the built-in fake provider (`AI_PROVIDER=fake`, no key); with Gemini the header reads *AI analysis by Gemini (model: …)* ([§17](#17-ai-analysis-of-faults-worker-thread)).
+
+[![Fault page with an AI analysis](docs/screenshots/03-fault-ai-analysis.png)](docs/screenshots/03-fault-ai-analysis.png)
+
+**4. Site portal (admin only)** — after *Check all sites*: the four internal sites (`*.invalid` addresses in the sample data) gave no response and are marked *Degraded*, the summary lists sites that look fine but have active incidents mentioning them, a mailing list with no members is flagged, and 3 notifications wait for an admin's decision ([§6](#6-sites--mailing-lists-subsystem-group-of-four-extension)).
+
+[![Site portal](docs/screenshots/04-sites-portal.png)](docs/screenshots/04-sites-portal.png)
+
+**5. Pressing maintenance calls** — open maintenance tasks that have waited more than 3 days, oldest first, produced by a generator in a lazy pipeline (*Examined 82 of 82 incidents*); *Show first* stops the pipeline early ([§9](#9-iteration-iterableiterator-generator-and-lazy-pipeline)).
+
+[![Pressing maintenance calls](docs/screenshots/05-pressing-calls.png)](docs/screenshots/05-pressing-calls.png)
+
+The same images illustrate the app's own **Guide** page (`/guide.html`), which serves them from this folder at `/screenshots/` — one copy for both.
+
+*Updating the screenshots:* run the app with a fresh database, import the sample data, press *Check all sites* and analyze `seed-075`, then capture each page in a 1440×900 browser window — the login page cropped to its card, the pressing page to its table, the fault page as a full-page capture — and save it under the same file name in `docs/screenshots/`.
 
 ---
 
@@ -256,7 +289,7 @@ In the diagram, *italic* members are abstract (`extra_fields()`; `kind` is an ab
 
 | Resolution type | Meaning | Who can set it |
 |---|---|---|
-| Resolved | The incident was fixed | The assigned user, or an admin |
+| Resolved | The incident was fixed | Any logged-in user |
 | Not an Incident | Determined to be a non-issue | Admin only |
 | By Design | The behavior is intentional | Admin only |
 
@@ -418,7 +451,7 @@ All three data files were **generated with AI tools** (see `AI_USAGE.md`), then 
 
 | File | Records | One record looks like |
 |---|---|---|
-| `data/sample_data.jsonl` | 82 incidents (maintenance tasks and faults), several mentioning sites; `seed-075`–`seed-082` are complex faults with an investigation thread, for AI analysis | `{"id": "seed-003", "kind": "fault", "title": "Payment API is down", "description": "...", "created_by": "tech1", "details": {"system_unavailable": true}}` — optional `assigned_to`; `details` for faults only; optional `minutes_ago` and `comments` (below) |
+| `data/sample_data.jsonl` | 82 incidents (maintenance tasks and faults), several mentioning sites; `seed-075`–`seed-082` are complex faults with an investigation thread, for AI analysis; the first ten maintenance tasks are 1–12 days old (`minutes_ago`), so *Pressing maintenance calls* and *Check stale incidents* have something to show | `{"id": "seed-003", "kind": "fault", "title": "Payment API is down", "description": "...", "created_by": "tech1", "details": {"system_unavailable": true}}` — optional `assigned_to`; `details` for faults only; optional `minutes_ago` and `comments` (below) |
 | `data/sites.jsonl` | 12 sites | `{"site_id": 1007, "site_name": "Internal HR portal", "site_url": "https://hr.incident-bridge.invalid", "site_publish_date": "2020-07-14"}` |
 | `data/mailing_lists.jsonl` | 6 mailing lists | `{"list_id": "hr-systems", "name": "HR systems owners", "members": ["hr.it@example.com"], "site_ids": [1006, 1007, 1008]}` |
 
@@ -511,6 +544,7 @@ Both live in `backend/app/context.py`; neither ever suppresses an exception (`__
   WARNING:  2026-10-12 19:16:32 AI   [ai-analysis-worker] gemini-3.8-flash is overloaded (503) after 0.9s - trying gemini-3.6-flash
   ```
 - **Frontend:** plain HTML/CSS/JavaScript, no build step, served by the same app (same origin). Pages: `index.html` (login), `dashboard.html` (both queues, the full filterable/sortable list, new incident, stale check, admin import), `incident.html` (details, actions, comments), `pressing.html` (pressing maintenance calls) and `sites.html` (the admin site portal). Lists are patched in place, so live updates never flicker.
+- **Public pages:** `guide.html` (how to use the app, for users and admins, illustrated with `docs/screenshots/`), `about.html` (what it is, the team, how it is built) and `terms.html` (terms of use: accounts, acceptable use, what the AI providers receive, storage and cookies). They open without logging in; their header (`js/public-page.js`) shows *Log in* or, when logged in, *Back to dashboard*. A footer on **every** page (`js/footer.js`) links them, with the version, the license and the repository. The team, repository and license are kept in one file, `js/site-info.js`; the version comes from `GET /health`, which reads `backend/pyproject.toml` (`app/version.py`), so it is bumped in one place only.
 - **Runs locally, as a single process:** the queues are in-memory Python objects, so the app must run as one process / one Uvicorn worker; several workers would each have their own queues. The project runs locally for now; hosting will be decided when it expands.
 
 **API overview:**
@@ -533,10 +567,12 @@ The structure differs from the brief's suggested layout because the project is a
 Incident_Bridge/
 ├── main.py                       # offline demo of every Stage 1 requirement - `python main.py`
 ├── README.md                     # this file
+├── LICENSE                       # MIT
 ├── AI_USAGE.md                   # how AI tools were used
 ├── .gitignore
 ├── .github/workflows/
 │   └── backend-tests.yml         # CI: runs the test suite on every push and pull request
+├── docs/screenshots/             # the README's screenshots (see Screenshots)
 ├── data/                         # AI-generated sample data (see §7)
 │   ├── sample_data.jsonl         # incidents
 │   ├── sites.jsonl               # sites (subsystem)
@@ -587,13 +623,18 @@ Incident_Bridge/
 │   │   ├── reports.py            # site health report
 │   │   ├── events.py             # EventBroadcaster (live updates)
 │   │   ├── logs.py               # one console log format for every line (Uvicorn, HTTP, AI, app notices)
+│   │   ├── version.py            # the app version, read from pyproject.toml (GET /health, About page, footer)
 │   │   └── state.py              # AppState: builds everything at startup
 │   └── tests/                    # automated tests (see §14)
 ├── frontend/
 │   ├── index.html, dashboard.html, incident.html, pressing.html, sites.html
+│   ├── guide.html, about.html, terms.html   # public pages - no login needed
 │   ├── css/styles.css
 │   └── js/
 │       ├── api.js                # fetch wrapper for every endpoint
+│       ├── site-info.js          # team, repository, license, public page list; the version (from /health)
+│       ├── public-page.js        # header + filled-in facts for the public pages
+│       ├── footer.js             # the footer on every page
 │       ├── events.js             # live-update client (per-tab id, event scopes)
 │       ├── topbar.js, toast.js, row-list.js, updates-order.js
 │       ├── text-limits.js        # text-length limits (mirror the backend) + live character counters
@@ -636,13 +677,14 @@ Incident_Bridge/
 
 ## 14. Automated testing
 
-`backend/tests/` holds **987 tests** (pytest), all passing, with **98% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
+`backend/tests/` holds **1048 tests** (pytest), all passing, with **98% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
 
 - **Unit tests** — the domain classes directly, no HTTP and no database: models (`tests/test_models/`), services (`tests/test_services/`), queues (`tests/test_queues/`), iterators, the generator, context managers, the scan, the report, the site directory, user provisioning and JSONL validation.
 - **Integration tests** (`tests/test_api/`) — the real app over HTTP with FastAPI's `TestClient` and a fresh in-memory database per test: permissions, error codes, every endpoint, live-update audiences. The `admin_client` and `user_client` fixtures are two separately logged-in users sharing the same backend.
 - **Restart tests** — two app instances on the same database file, proving data survives a restart.
 - **AI analysis tests** (`tests/test_ai/`, `tests/test_api/test_analysis_api.py`) — the queue and worker thread (FIFO, one call at a time, the delay, cancelling, dropping closed faults, restarts, the single named thread), the prompt, the splitter and the settings, all with the **fake provider** — no API key or network. `tests/test_ai/test_providers.py` runs each real provider's official SDK against a local stub server (success, API error, timeout, no retries); it is skipped when that SDK is not installed. CI installs them (`".[dev,ai]"`).
 - **`test_main_demo.py`** — runs `main.py` and checks every section prints and it finishes cleanly.
+- **Public pages and files** (`test_public_pages.py`) — the Guide, About and Terms pages open without logging in, the screenshots are served, `/health` reports the version from `pyproject.toml`; and static checks: every local link and image in `frontend/*.html` exists, every `#section` link has its target, every page loads the footer, the README's screenshots exist, and `LICENSE` names the same team as the About page.
 
 ```bash
 cd backend
@@ -813,3 +855,9 @@ We plan to implement more features in the future, such as performance improvemen
 - **Testing:** `pytest`, `pytest-cov`, FastAPI's `TestClient`
 - **CI:** GitHub Actions — the test suite on every push and pull request
 - **Runs:** locally, as a single process
+
+---
+
+## License
+
+Incident Bridge is released under the [MIT License](LICENSE): anyone may use, copy, change and share it, as long as the copyright notice is kept, and it comes with no warranty. The app's [Terms of Use](frontend/terms.html) page explains what this means for the people using an installation of it.
