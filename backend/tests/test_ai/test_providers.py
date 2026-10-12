@@ -44,6 +44,7 @@ class StubApi:
     def __init__(self):
         self.mode = "ok"
         self.modes = {}
+        self.listing = []
         self.requests = []
         self.asked = []
         stub = self
@@ -51,6 +52,15 @@ class StubApi:
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
                 pass
+
+            def do_GET(self):
+                """The model listing (Gemini's GET .../models), answered from stub.listing."""
+                data = json.dumps({"models": stub.listing}).encode()
+                self.send_response(200 if stub.mode != "503" else 503)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
 
             def do_POST(self):
                 request = json.loads(self.rfile.read(int(self.headers["content-length"])))
@@ -88,12 +98,12 @@ def stub():
     api.server.shutdown()
 
 
-def gemini(url, timeout, models=("m",)):
+def gemini(url, timeout, models=("m",), **settings):
     pytest.importorskip("google.genai")
     from google import genai
     from google.genai import types
     from app.ai.providers.gemini_provider import GeminiProvider
-    provider = GeminiProvider(models=models, api_key="k", timeout_seconds=timeout)
+    provider = GeminiProvider(models=models, api_key="k", timeout_seconds=timeout, **settings)
     provider._client = genai.Client(api_key="k", http_options=types.HttpOptions(base_url=url, timeout=int(timeout * 1000)))
     return provider
 
@@ -158,3 +168,33 @@ def test_a_slow_api_times_out_without_retrying(stub, make, _):
         make(stub.url, 0.5, models=("m", "backup")).analyze("i", "{}")
     assert time.monotonic() - started < 1.8
     assert stub.asked == ["m"]                          # a timeout does not fall back
+
+
+# --- Gemini model discovery through the real SDK ---------------------------------
+
+def listed(name, *actions):
+    return {"name": f"models/{name}", "supportedGenerationMethods": list(actions)}
+
+
+def test_gemini_discovery_reads_the_listing_and_updates_the_list(stub):
+    stub.listing = [listed("gemini-3.9-flash", "generateContent"), listed("gemini-3.8-flash", "generateContent"),
+                    listed("gemini-4-pro", "generateContent"), listed("text-embedding-005", "embedContent")]
+    provider = gemini(stub.url, 5, models=("gemini-3.8-flash", "gemini-3.1-flash-lite"),
+                      tier="free", discovery=True, extend=True)
+    assert provider.available_models() == ["gemini-3.9-flash", "gemini-3.8-flash", "gemini-4-pro"]
+    summary = provider.refresh_models()
+    assert provider.models == ["gemini-3.9-flash", "gemini-3.8-flash"]      # pro not added on the free tier
+    assert "added gemini-3.9-flash" in summary and "removed gemini-3.1-flash-lite" in summary
+
+
+def test_gemini_discovery_off_makes_no_call(stub):
+    provider = gemini(stub.url, 5, models=("m",))
+    assert provider.refresh_models() is None and stub.asked == []
+
+
+def test_a_failed_listing_raises_and_leaves_the_list_alone(stub):
+    stub.mode = "503"
+    provider = gemini(stub.url, 5, models=("m",), discovery=True)
+    with pytest.raises(Exception):
+        provider.refresh_models()
+    assert provider.models == ["m"]

@@ -191,6 +191,7 @@ class AnalysisWorker:
     # ------------------------------------------------------------------
 
     def _run(self) -> None:
+        self._refresh_models()                # once, before the first job (Gemini model discovery)
         while True:
             job = self._next_job()
             if job is None:                   # stop() was called
@@ -203,6 +204,23 @@ class AnalysisWorker:
             self._finish(job)
             if called_api and self._stop_event.wait(self.delay_seconds):
                 return                        # stop() was called during the pause
+
+    def _refresh_models(self) -> None:
+        """
+        Let the provider update its model list (provider.refresh_models() -
+        only Gemini with GEMINI_MODEL_DISCOVERY=auto does anything). Runs on
+        this worker thread, so the server starts at once and the listing call
+        never delays a page. A failure (network down, slow API) is logged and
+        the configured list is kept - it never stops the worker.
+        """
+        try:
+            summary = self.provider.refresh_models()
+        except Exception as exc:
+            print(f"AI analysis: could not refresh the model list ({type(exc).__name__}: {exc}) - "
+                  f"keeping {self.provider.label()}.")
+            return
+        if summary:
+            print(f"AI analysis: {summary}")
 
     def _next_job(self) -> Optional[AnalysisJob]:
         """Block until there is a job (or stop() is called), then make it the running job."""

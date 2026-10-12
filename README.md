@@ -1,6 +1,6 @@
 # Incident Bridge
 
-**Status:** v0.4.1 — Stage 1 complete, including the group-of-four extension (Sites & Mailing Lists), plus AI analysis of faults on a dedicated worker thread
+**Status:** v0.4.2 — Stage 1 complete, including the group-of-four extension (Sites & Mailing Lists), plus AI analysis of faults on a dedicated worker thread
 **Course:** Advanced Programming — Project
 **Repository:** https://github.com/Daniel-Reuven/Incident_Bridge
 **Companion document:** [`AI_USAGE.md`](AI_USAGE.md) — how AI tools were used in this project
@@ -612,6 +612,7 @@ Incident_Bridge/
 | 16 | Are site/list seed files imported automatically? | Only when `SITES_SEED_PATH` / `MAILING_LISTS_SEED_PATH` are set; stored ids are always skipped. |
 | 17 | Which AI provider analyzes faults? | One at a time, set in `.env` (`AI_PROVIDER`: `gemini` by default, `claude`, `openai`). Off while that provider has no API key. |
 | 17a | Which model answers? | The first in the provider's list that is not busy or out of quota (busy → next model, until the last fails). Gemini's list comes from `GEMINI_TIER` (free / paid) unless `GEMINI_MODELS` is set. A timeout does not fall back. |
+| 17b | Can the Gemini model list update itself? | Opt-in (`GEMINI_MODEL_DISCOVERY=auto`), at startup: retired models removed, newer stable flash/flash-lite added first; pro only with `GEMINI_TIER=paid`; never previews; a hand-set list is only checked. |
 | 18 | Who may request or cancel an AI analysis, and of what? | Any logged-in user; open and in-progress faults only; one pending analysis per fault. |
 | 19 | How many AI requests run at once? | One. A single named worker thread with a FIFO queue; a 3-minute timeout per call and a 5-second pause after each call (both configurable, shared by every provider). |
 | 20 | When is the prompt built? | When the job starts running, from the fault and **all** its comments (as JSON), so updates added while it waited are included. |
@@ -622,7 +623,7 @@ Incident_Bridge/
 
 ## 14. Automated testing
 
-`backend/tests/` holds **939 tests** (pytest), all passing, with **98% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
+`backend/tests/` holds **953 tests** (pytest), all passing, with **98% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
 
 - **Unit tests** — the domain classes directly, no HTTP and no database: models (`tests/test_models/`), services (`tests/test_services/`), queues (`tests/test_queues/`), iterators, the generator, context managers, the scan, the report, the site directory, user provisioning and JSONL validation.
 - **Integration tests** (`tests/test_api/`) — the real app over HTTP with FastAPI's `TestClient` and a fresh in-memory database per test: permissions, error codes, every endpoint, live-update audiences. The `admin_client` and `user_client` fixtures are two separately logged-in users sharing the same backend.
@@ -665,6 +666,7 @@ The AI provider SDKs need **Python 3.10 or newer**; the rest of the app runs on 
 | `AI_PROVIDER` | No | AI analysis provider: `gemini` (default), `claude`, `openai`, or `fake` (canned answers, no key — for trying the feature) |
 | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`, `OPENAI_API_KEY` + `OPENAI_MODEL` | Only for AI analysis | The selected provider's key and model(s). Without the key the feature is off (no button). A model setting may be a comma-separated fallback list, best first. Claude/OpenAI: a key without a model stops startup with a clear message. |
 | `GEMINI_TIER`, `GEMINI_MODELS` | No | Gemini's models: `GEMINI_TIER=free` (default) or `paid` picks a built-in fallback list; `GEMINI_MODELS` replaces it with your own comma-separated list. |
+| `GEMINI_MODEL_DISCOVERY` | No | `off` (default) or `auto`: at startup, update Gemini's list from Google's live model listing (see [§17](#17-ai-analysis-of-faults-worker-thread)). |
 | `AI_REQUEST_TIMEOUT_SECONDS`, `AI_REQUEST_DELAY_SECONDS` | No | Per-call timeout (default 180 s) and pause after each call (default 5 s), shared by every provider |
 
 **3. Run the web app:**
@@ -742,7 +744,8 @@ flowchart LR
 - **FIFO queue:** a `collections.deque` guarded by a `threading.Condition` — the worker sleeps on it while the queue is empty, and a request wakes it. A deque (not `queue.Queue`) because cancelling removes a job from the middle and the page shows each job's position. At most 50 jobs wait at once; one pending analysis per fault.
 - **One request at a time, with a pause:** each call gives up after `AI_REQUEST_TIMEOUT_SECONDS` (default 180), and the SDK's automatic retries are turned off so a call can never take longer. After each analysis that reached the API (answer or error) the worker waits `AI_REQUEST_DELAY_SECONDS` (default 5) before the next one; jobs that never reached the API don't wait.
 - **Model fallback:** each provider has an ordered list of models, best first (`app/ai/providers/base.py`). When a model is busy or out of quota — HTTP 429, 503, 500, 504 (and 529 for Claude), or 404 for a model that was retired — the next model is tried at once; the analysis fails only when the last one does, with one error comment naming each model and why. A rejected key (401/403), a bad request or a **timeout** stops at once (another model would not help, and the time is already used). The answer's header names the model that actually answered.
-- **Gemini tiers:** Google offers no API that says whether a key is free or paid, so `GEMINI_TIER` says it (`app/ai/providers/gemini_models.py`). `free` (default): `gemini-3.8-flash` → `gemini-3.6-flash` → `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite`. `paid`: `gemini-3.1-pro-preview` first, then the free list. `GEMINI_MODELS` replaces the list — e.g. free models only on a paid key, to save credits. The lists follow Google's model and pricing pages (October 2026) and need updating as models are retired.
+- **Gemini tiers:** Google offers no API that says whether a key is free or paid, so `GEMINI_TIER` says it (`app/ai/providers/gemini_models.py`). `free` (default): `gemini-3.8-flash` → `gemini-3.6-flash` → `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite`. `paid`: `gemini-3.1-pro-preview` first, then the free list. `GEMINI_MODELS` replaces the list — e.g. free models only on a paid key, to save credits. The lists follow Google's model and pricing pages (October 2026).
+- **Gemini model discovery (opt-in, `GEMINI_MODEL_DISCOVERY=auto`):** as its first step, before taking any job, the worker thread asks Google which models the key can use (`models.list()`, 15-second timeout) and updates the list (`gemini_models.refresh_model_list`): configured models no longer offered are **removed**; **newer** stable models are **added to the front**, newest first — `flash` and `flash-lite` on the free tier, plus `pro` only with `GEMINI_TIER=paid`. "Newer" means a higher version than the newest of that family already in the list; preview and experimental models are never added. Google's listing does not say which models are free or how good they are, and no Google API can confirm that a key has credits, so the family in the name and the tier setting decide. A list you set yourself (`GEMINI_MODELS`) is only checked, never extended. If the listing fails, the configured list is kept and the worker carries on; the server log shows what changed.
 - **Persisted queue:** every queued job is a row in SQLite (`app/ai/job_store.py`, same database file); after a restart the jobs come back in order — a job that was running runs again — and go to whichever provider is configured then.
 - **Thread safety:** the queue is only touched while holding the condition's lock; the database stores have their own locks; live updates cross from the worker thread to the asyncio loop through the existing thread-safe `EventBroadcaster.publish()`.
 - **Threads, not asyncio, in the worker:** the worker is plain `threading` — it uses no asyncio itself. Its job is one blocking SDK call at a time, then a pause, which a thread does simply. asyncio appears only at its edge: the live-update streams run on the server's event loop, and the worker hands each event to that loop with `loop.call_soon_threadsafe` (inside `EventBroadcaster.publish()`).

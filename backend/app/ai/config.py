@@ -19,12 +19,13 @@ app/ai/providers/fake_provider.py).
 
 AIConfig.from_env() raises ValueError, with a clear message, for settings
 that are present but wrong (an unknown provider, a key without a model, an
-unknown GEMINI_TIER, a timeout that is not a positive number). serve_app.py checks this before
+unknown GEMINI_TIER or GEMINI_MODEL_DISCOVERY, a timeout that is not a
+positive number). serve_app.py checks this before
 starting the server, and the app checks it again at startup.
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 from app.ai.providers import DEFAULT_PROVIDER, PROVIDERS
@@ -40,6 +41,7 @@ class AIConfig:
     models: Tuple[str, ...]     # best first; empty for the fake provider (it has a fixed model)
     timeout_seconds: float
     delay_seconds: float
+    extra: dict = field(default_factory=dict)   # provider-specific settings (Gemini: tier, discovery)
 
     @classmethod
     def from_env(cls) -> Optional["AIConfig"]:
@@ -56,7 +58,9 @@ class AIConfig:
         if info.key_env and not api_key:
             return None                                   # feature off
         models = _read_models(info)
-        return cls(provider=provider, api_key=api_key, models=models, timeout_seconds=timeout, delay_seconds=delay)
+        extra = info.extra_settings() if info.extra_settings else {}
+        return cls(provider=provider, api_key=api_key, models=models, timeout_seconds=timeout,
+                   delay_seconds=delay, extra=extra)
 
     @staticmethod
     def off_reason() -> str:
