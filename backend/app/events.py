@@ -38,11 +38,35 @@ timeout_graceful_shutdown stays only as a safety net.
 import asyncio
 import signal
 import threading
-from typing import Dict, Iterable, NamedTuple, Optional
+from typing import Dict, Iterable, List, NamedTuple, Optional
 
 # Put on a subscriber's queue by EventBroadcaster.close(): the stream reading
 # that queue (app/api/events.py) ends as soon as it sees this object.
 END_OF_STREAM = object()
+
+
+def incident_event(incident, action: str, actor_username: str, affected_ids: Optional[List[str]] = None) -> dict:
+    """
+    The shared shape of every incident live-update event, e.g.
+        {"type": "fault", "id": "...", "action": "commented", "actor": "tech1", "title": "..."}
+    See frontend/js/toast.js's describeEvent for the consumer. `affected_ids`
+    is optional: the ids of OTHER incidents whose state this action changed
+    (e.g. maintenance tasks whose queue position shifted), left out when empty.
+
+    Used by the incident endpoints (app/api/incidents.py's _publish) and by
+    the AI analysis code (app/ai/), which publishes from its own worker
+    thread - publish() is safe to call from any thread.
+    """
+    event = {
+        "type": incident.kind,
+        "id": incident.id,
+        "action": action,
+        "actor": actor_username,
+        "title": incident.title,
+    }
+    if affected_ids:
+        event["affected_ids"] = affected_ids
+    return event
 
 
 class _Subscriber(NamedTuple):

@@ -1,0 +1,97 @@
+"""
+AI analysis endpoints (one fault at a time). The queue and the worker
+thread live in app/ai/worker.py; this router only handles HTTP, the
+request/cancel comments, and their live-update events.
+
+    GET  /incidents/faults/{id}/analysis          state of this fault's analysis
+    POST /incidents/faults/{id}/analysis          request one     (any logged-in user)
+    POST /incidents/faults/{id}/analysis/cancel   cancel it       (any logged-in user)
+
+Every response has the same shape:
+    {"enabled": true, "provider": "Gemini", "model": "...", "models": ["...", "..."],
+     "state": "idle" | "queued" | "running", "position": 2 | null}
+("model" is the preferred one; "models" the whole fallback list, best first.)
+With the feature off (the selected provider has no API key - see
+app/ai/config.py) GET returns {"enabled": false, ...} and the page hides the
+buttons; the POSTs answer 503.
+
+Requesting and cancelling each add a comment by the user ("tech1 requested
+Gemini analysis." - written by the worker, see AnalysisWorker.request()),
+then this router saves the fault and publishes a normal incident event, so other people
+viewing the fault get the usual "this incident changed" prompt - the same as
+for any comment. The worker separately publishes the queue event that keeps
+every page's buttons up to date.
+"""
+
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.ai.worker import AnalysisWorker
+from app.api.deps import get_analysis_worker, get_broadcaster, get_client_id, get_current_user, get_state
+from app.events import EventBroadcaster, incident_event
+from app.models import Fault, User
+from app.state import AppState
+
+router = APIRouter(prefix="/incidents/faults", tags=["ai-analysis"])
+
+
+def _status(worker: Optional[AnalysisWorker], incident_id: str) -> dict:
+    if worker is None:
+        return {"enabled": False, "provider": None, "model": None, "models": [], "state": "idle", "position": None}
+    return {"enabled": True, "provider": worker.provider.display_name, "model": worker.provider.model,
+            "models": list(worker.provider.models), **worker.status_of(incident_id)}
+
+
+def _fault(state: AppState, incident_id: str) -> Fault:
+    incident = state.incidents.get(incident_id)          # KeyError -> 404
+    if not isinstance(incident, Fault):
+        raise HTTPException(status_code=400, detail="AI analysis is only available for faults.")
+    return incident
+
+
+def _require(worker: Optional[AnalysisWorker]) -> AnalysisWorker:
+    if worker is None:
+        raise HTTPException(status_code=503, detail="AI analysis is not configured on this server "
+                                                    "(see AI_PROVIDER in backend/.env).")
+    return worker
+
+
+@router.get("/{incident_id}/analysis")
+def get_analysis_status(incident_id: str, state: AppState = Depends(get_state),
+                        worker: Optional[AnalysisWorker] = Depends(get_analysis_worker),
+                        _current_user: User = Depends(get_current_user)):
+    _fault(state, incident_id)
+    return _status(worker, incident_id)
+
+
+@router.post("/{incident_id}/analysis")
+def request_analysis(incident_id: str, state: AppState = Depends(get_state),
+                     worker: Optional[AnalysisWorker] = Depends(get_analysis_worker),
+                     current_user: User = Depends(get_current_user),
+                     broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                     client_id: Optional[str] = Depends(get_client_id)):
+    """Queue an analysis (409 if the fault is closed, already pending, or the queue is full)."""
+    worker = _require(worker)
+    fault = _fault(state, incident_id)
+    worker.request(fault, current_user)        # also adds the "requested" comment
+    state.incidents.save(fault)
+    broadcaster.publish(incident_event(fault, "ai_analysis_requested", current_user.username),
+                        exclude_client_id=client_id)
+    return _status(worker, incident_id)
+
+
+@router.post("/{incident_id}/analysis/cancel")
+def cancel_analysis(incident_id: str, state: AppState = Depends(get_state),
+                    worker: Optional[AnalysisWorker] = Depends(get_analysis_worker),
+                    current_user: User = Depends(get_current_user),
+                    broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                    client_id: Optional[str] = Depends(get_client_id)):
+    """Cancel this fault's pending analysis, queued or running (409 if there is none)."""
+    worker = _require(worker)
+    fault = _fault(state, incident_id)
+    worker.cancel(fault, current_user)         # also adds the "requested to cancel" comment
+    state.incidents.save(fault)
+    broadcaster.publish(incident_event(fault, "ai_analysis_cancelled", current_user.username),
+                        exclude_client_id=client_id)
+    return _status(worker, incident_id)

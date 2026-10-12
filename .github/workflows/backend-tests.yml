@@ -4,8 +4,11 @@
 # locally on your own machine.
 #
 # Dependencies come from backend/pyproject.toml: the project itself plus
-# its "dev" extra (pytest, pytest-cov). There are no requirements*.txt
-# files any more.
+# its "dev" extra (pytest, pytest-cov) and its "ai" extra (the Gemini,
+# Claude and OpenAI SDKs - so tests/test_ai/test_providers.py runs each SDK
+# against a local stub server instead of being skipped). No API keys are
+# needed: nothing calls a real AI API. There are no requirements*.txt files
+# any more.
 #
 # GitHub shows the result directly on the commit and on any pull request
 # as a green check-mark (all tests passed) or a red X (something failed)
@@ -31,14 +34,14 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Editable install (-e) of the backend plus the test-only "dev" extra,
-      # both declared in backend/pyproject.toml. Editable matters because
+      # Editable install (-e) of the backend plus the "dev" and "ai" extras,
+      # all declared in backend/pyproject.toml. Editable matters because
       # app/api/app.py locates the frontend/ folder relative to its own file.
       - name: Install dependencies
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,ai]"
 
       - name: Run the test suite
         working-directory: backend

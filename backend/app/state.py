@@ -35,6 +35,14 @@ from app.services.notifier import OutboxNotifier
 from app.sites import SiteDirectory, seed_site_directory
 
 
+DEFAULT_DATABASE_PATH = "incident_bridge.db"
+
+
+def database_path() -> str:
+    """The SQLite file every store uses: DATABASE_PATH, or DEFAULT_DATABASE_PATH when unset."""
+    return os.environ.get("DATABASE_PATH", DEFAULT_DATABASE_PATH)
+
+
 def order_pending_maintenance(tasks: List[MaintenanceTask], has_current: bool) -> List[MaintenanceTask]:
     """
     The order in which persisted OPEN maintenance tasks go back into the
@@ -85,7 +93,7 @@ class AppState:
         """
         users = seed_users_from_env()
 
-        db_path = os.environ.get("DATABASE_PATH", "incident_bridge.db")
+        db_path = database_path()
         store = SqliteIncidentStore(db_path)
         incidents = IncidentRepository(store)
         maintenance = MaintenanceQueueManager()

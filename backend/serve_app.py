@@ -31,6 +31,9 @@ is running again. timeout_graceful_shutdown below is only a safety net.
 Before starting the server, INCIDENT_BRIDGE_USERS is validated: if it is
 set but unusable (invalid JSON, an invalid entry, a duplicate username),
 the script prints the problems and exits with code 1 instead of starting.
+The AI analysis settings (AI_PROVIDER and the selected provider's key and
+model - see app/ai/config.py) are checked the same way, including that the
+provider's SDK package is installed.
 """
 
 import os
@@ -47,6 +50,7 @@ import sys  # noqa: E402
 
 import uvicorn  # noqa: E402 - must come after load_dotenv() so PORT etc. are already set
 
+from app.ai.setup import check_ai_settings  # noqa: E402
 from app.repository import UserProvisioningError, seed_users_from_env  # noqa: E402
 
 
@@ -65,8 +69,23 @@ def _check_users_or_exit() -> None:
         sys.exit(1)
 
 
+def _check_ai_settings_or_exit() -> None:
+    """
+    Validate the AI analysis settings BEFORE starting the server (an unknown
+    AI_PROVIDER, a key without a model, a bad timeout/delay, or a missing SDK
+    package) - same idea as _check_users_or_exit(). The feature simply being
+    off (no API key) is not an error.
+    """
+    try:
+        check_ai_settings()
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     _check_users_or_exit()
+    _check_ai_settings_or_exit()
     uvicorn.run(
         "app.api.app:app",
         host=os.environ.get("HOST", "0.0.0.0"),

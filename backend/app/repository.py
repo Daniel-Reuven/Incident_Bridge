@@ -3,9 +3,11 @@
 import json
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, Iterator, List, Optional
 
 from app.models import Fault, Incident, MaintenanceTask, Role, User
+from app.models.system_users import build_system_users, is_reserved_username
 from app.persistence import SqliteIncidentStore
 
 
@@ -90,6 +92,15 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = Tru
     with one message listing them all, so the app never starts with a
     partly-loaded or ambiguous user list.
 
+    Reserved names: a username matching a built-in system user (today only
+    "ai-assistant" - see app/models/system_users.py), compared case-insensitively,
+    is reported as a problem like any other invalid entry.
+
+    System users: whichever way the store is built (from the variable or
+    the demo fallback), every built-in system user is added at the end, so
+    it is always available as a comment author and restored comments it
+    wrote keep their author after a restart. System users can never log in.
+
     `warn` exists so serve_app.py can validate the variable before starting
     the server without printing the demo-users warning twice.
     """
@@ -100,6 +111,7 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = Tru
             print(f"WARNING: {_DEFAULT_USERS_WARNING}")
         store.add(User(username="admin", role=Role.ADMIN, password="Passw0rd1"))
         store.add(User(username="tech1", role=Role.USER, password="Passw0rd2"))
+        _add_system_users(store)
         return store
 
     def fail(problems: List[str]) -> UserProvisioningError:
@@ -126,6 +138,10 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = Tru
         except ValueError as exc:
             problems.append(f"entry {number}: {exc}")
             continue
+        if is_reserved_username(user.username):
+            problems.append(f"entry {number}: username {user.username!r} is reserved for a built-in "
+                            f"system user - choose another name")
+            continue
         key = user.username.lower()
         if key in first_entry_of:
             problems.append(f"entry {number}: duplicate username {user.username!r} "
@@ -135,7 +151,14 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = Tru
         store.add(user)
     if problems:
         raise fail(problems)
+    _add_system_users(store)
     return store
+
+
+def _add_system_users(store: UserStore) -> None:
+    """Add every built-in system user (see app/models/system_users.py) to `store`."""
+    for system_user in build_system_users():
+        store.add(system_user)
 
 
 @dataclass
@@ -288,8 +311,9 @@ class IncidentRepository:
         a missing/invalid 'id', a missing/blank/over-long title or
         description, invalid fault 'details' (wrong types, unknown keys -
         see SeverityScorer.validate_details), an unresolvable created_by /
-        assigned_to username, a line that is not a JSON object, or invalid
-        JSON on that line is SKIPPED and recorded in the result with a
+        assigned_to username, an invalid 'minutes_ago' or 'comments' entry
+        (see _apply_seed_timeline()), a line that is not a JSON object, or
+        invalid JSON on that line is SKIPPED and recorded in the result with a
         reason - it does not raise and does not stop the rest of the data
         from loading. Every one of those problems surfaces as a ValueError
         (json.JSONDecodeError is a ValueError subclass), which is the only
@@ -336,8 +360,81 @@ class IncidentRepository:
         assigned_to = self._resolve_seed_user(assigned_to_name, users, "assigned_to") if assigned_to_name else None
 
         if kind == "fault":
-            return Fault.from_dict(data, created_by=created_by, assigned_to=assigned_to)
-        return MaintenanceTask.from_dict(data, created_by=created_by, assigned_to=assigned_to)
+            incident = Fault.from_dict(data, created_by=created_by, assigned_to=assigned_to)
+        else:
+            incident = MaintenanceTask.from_dict(data, created_by=created_by, assigned_to=assigned_to)
+        self._apply_seed_timeline(incident, data, users)
+        return incident
+
+    def _apply_seed_timeline(self, incident: Incident, data: dict, users: "UserStore") -> None:
+        """
+        Optional timing and update-thread fields of a seed record, so sample
+        incidents can look like real ones that have been worked on for a
+        while (useful for AI analysis, which reasons about the timeline):
+
+            {"id": "seed-075", ..., "minutes_ago": 240,
+             "comments": [
+                {"author": "tech2", "text": "Restarted the worker.", "minutes_ago": 200},
+                {"author": "tech1", "text": "Latency is back."}
+             ]}
+
+        - Record-level "minutes_ago" (optional): when the incident was
+          reported, counted back from the moment of the import. Without
+          it, the incident is reported at import time - or, if it has
+          older comments, at the time of its oldest comment, so a report
+          is never newer than its own updates.
+        - "comments" (optional): a list of updates, OLDEST FIRST. Each has
+          an "author" (a known username - the same rule as created_by), a
+          non-blank "text" (at most MAX_COMMENT_LENGTH characters - the
+          normal Incident.add_comment() rules apply), and an optional
+          "minutes_ago" (default 0 = the import time).
+
+        Raises ValueError (so the loader skips the whole record with a
+        reason) if any of these is invalid, if the comments are not in
+        oldest-first order, or if a comment is older than the incident.
+        The incident's updated_at becomes its newest comment's time.
+        """
+        now = datetime.now(timezone.utc)
+        explicit_report_time = "minutes_ago" in data
+        reported_at = now - timedelta(minutes=self._seed_minutes_ago(data.get("minutes_ago", 0), "the record's"))
+
+        raw_comments = data.get("comments")
+        if raw_comments is None:
+            raw_comments = []
+        if not isinstance(raw_comments, list):
+            raise ValueError("'comments' must be a list of {author, text, minutes_ago} objects")
+
+        previous_time = None
+        for number, raw in enumerate(raw_comments, start=1):
+            if not isinstance(raw, dict):
+                raise ValueError(f"comment {number} must be a JSON object")
+            author = self._resolve_seed_user(raw.get("author"), users, f"comment {number} 'author'")
+            text = raw.get("text")
+            if not isinstance(text, str):
+                raise ValueError(f"comment {number} needs a 'text' string")
+            posted_at = now - timedelta(minutes=self._seed_minutes_ago(raw.get("minutes_ago", 0), f"comment {number}'s"))
+            if previous_time is not None and posted_at < previous_time:
+                raise ValueError(f"comment {number} is older than the comment before it - list comments oldest first")
+            if explicit_report_time and posted_at < reported_at:
+                raise ValueError(f"comment {number} is older than the incident itself")
+            try:
+                comment = incident.add_comment(author, text)
+            except ValueError as exc:
+                raise ValueError(f"comment {number}: {exc}") from None
+            comment.created_at = posted_at
+            previous_time = posted_at
+
+        if not explicit_report_time and incident.comments:
+            reported_at = min(reported_at, incident.comments[0].created_at)
+        incident.created_at = reported_at
+        incident.updated_at = incident.comments[-1].created_at if incident.comments else reported_at
+
+    @staticmethod
+    def _seed_minutes_ago(value, owner: str) -> float:
+        """Validate a 'minutes_ago' value: a number of minutes, 0 or more. `owner` names it in the error."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            raise ValueError(f"{owner} 'minutes_ago' must be a number of minutes, 0 or more (got {value!r})")
+        return float(value)
 
     @staticmethod
     def _resolve_seed_user(username: Optional[str], users: "UserStore", field_name: str) -> User:

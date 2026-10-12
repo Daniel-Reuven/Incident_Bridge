@@ -62,3 +62,11 @@ def test_list_incidents_can_be_filtered_by_status(admin_client):
     assert all(i["status"] == "open" for i in open_items)
     assert all(i["status"] == "closed" for i in closed_items)
     assert any(i["title"] == "Will close" for i in closed_items)
+
+
+def test_a_comment_over_the_length_limit_is_rejected(admin_client):
+    from app.models.comment import MAX_COMMENT_LENGTH
+    task = admin_client.post("/incidents/maintenance", json={"title": "A", "description": "d"}).json()
+    response = admin_client.post(f"/incidents/{task['id']}/comments", json={"text": "x" * (MAX_COMMENT_LENGTH + 1)})
+    assert response.status_code == 400
+    assert f"at most {MAX_COMMENT_LENGTH} characters" in response.json()["detail"]

@@ -91,6 +91,12 @@ export const api = {
     request(`/incidents/faults/${id}/close`, { method: "POST", body: { resolution_type, message } }),
   reopenFault: (id, status, reason) =>
     request(`/incidents/faults/${id}/reopen`, { method: "POST", body: { status, reason } }),
+
+  // --- AI analysis of a fault (backend/app/api/analysis.py) ---
+  // Each returns { enabled, provider, model, state: "idle"|"queued"|"running", position }.
+  analysisStatus: (id) => request(`/incidents/faults/${id}/analysis`),
+  requestAnalysis: (id) => request(`/incidents/faults/${id}/analysis`, { method: "POST" }),
+  cancelAnalysis: (id) => request(`/incidents/faults/${id}/analysis/cancel`, { method: "POST" }),
   // --- bulk import (admin only) ---
   importJsonl: (content) => request("/incidents/import-jsonl", { method: "POST", body: { content } }),
 

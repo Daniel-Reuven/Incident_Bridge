@@ -5,6 +5,21 @@ from datetime import datetime, timezone
 
 from app.models.user import User
 
+# The longest a NEW comment may be, in characters (after trimming). Applies
+# to everyone: comments typed by users, automatic status-change log
+# comments, and comments posted by the built-in "ai-assistant" system user (which
+# splits longer AI answers into several comments).
+#
+# It is enforced in Incident.add_comment() - the single entry point for new
+# comments - rather than in Comment.__init__ below, on purpose: comments
+# restored from the database (app/persistence.py) are rebuilt with
+# Comment(...) directly, so a comment saved before this limit existed still
+# loads instead of stopping the app from starting.
+#
+# The frontend mirrors this value in frontend/js/text-limits.js - change
+# both together.
+MAX_COMMENT_LENGTH = 5000
+
 
 class Comment:
     """A single comment/update on an Incident, written by any authenticated user."""

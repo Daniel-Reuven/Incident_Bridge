@@ -62,7 +62,8 @@ def test_store_rejects_duplicates_case_insensitively():
 def test_valid_value_loads_every_user(monkeypatch):
     set_users(monkeypatch, [ADMIN, TECH])
     store = seed_users_from_env()
-    assert {u.username for u in store.all_users()} == {"admin", "tech1"}
+    # The built-in "ai-assistant" system user is always added (see app/models/system_users.py).
+    assert {u.username for u in store.all_users()} == {"admin", "tech1", "ai-assistant"}
 
 
 def test_duplicate_username_stops_startup_with_a_clear_message(monkeypatch):
@@ -87,6 +88,14 @@ def test_every_problem_is_reported_at_once(monkeypatch):
     assert "entry 4: 'role' must be one of" in message
 
 
+@pytest.mark.parametrize("name", ["ai-assistant", "AI-Assistant", "AI-ASSISTANT"])
+def test_a_reserved_system_username_stops_startup(monkeypatch, name):
+    set_users(monkeypatch, [ADMIN, {"username": name, "password": "Passw0rd3", "role": "user"}])
+    with pytest.raises(UserProvisioningError) as caught:
+        seed_users_from_env()
+    assert f"entry 2: username {name!r} is reserved for a built-in system user" in str(caught.value)
+
+
 @pytest.mark.parametrize("value, message", [
     ("[{'username': 'admin'}]", "not valid JSON"),
     ('{"username": "admin"}', "must be a JSON array"),
@@ -105,7 +114,8 @@ def test_unset_or_blank_falls_back_to_the_demo_pair(monkeypatch, capsys, value):
     else:
         set_users(monkeypatch, value)
     store = seed_users_from_env()
-    assert {u.username for u in store.all_users()} == {"admin", "tech1"}
+    # The built-in "ai-assistant" system user is always added (see app/models/system_users.py).
+    assert {u.username for u in store.all_users()} == {"admin", "tech1", "ai-assistant"}
     assert "WARNING" in capsys.readouterr().out
 
 

@@ -31,9 +31,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import auth, events, incidents, sites
+from app.ai.setup import create_analysis_worker
+from app.api import analysis, auth, events, incidents, sites
 from app.events import EventBroadcaster, install_shutdown_hook
-from app.state import AppState
+from app.state import AppState, database_path
 
 
 @asynccontextmanager
@@ -53,8 +54,18 @@ async def lifespan(app: FastAPI):
     # app/events.py's install_shutdown_hook).
     install_shutdown_hook(app.state.broadcaster)
 
+    # AI analysis (app/ai/): the one named worker thread and its persisted
+    # queue, or None when the feature is off (no API key for the selected
+    # provider - see app/ai/config.py). Created after the broadcaster, which
+    # it publishes live updates through.
+    app.state.analysis_worker = create_analysis_worker(
+        app.state.incident_bridge, app.state.broadcaster, database_path()
+    )
+
     yield
 
+    if app.state.analysis_worker is not None:
+        app.state.analysis_worker.stop()
     app.state.broadcaster.close()   # any stream still open ends now
 
 
@@ -88,6 +99,7 @@ app.include_router(auth.router)
 app.include_router(incidents.router)
 app.include_router(events.router)
 app.include_router(sites.router)   # admin-only site portal (Sites & Mailing Lists)
+app.include_router(analysis.router)   # AI analysis of faults (app/ai/)
 
 
 # --- centralized exception -> HTTP status mapping ---
