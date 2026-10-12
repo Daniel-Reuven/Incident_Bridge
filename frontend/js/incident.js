@@ -28,6 +28,11 @@ let currentIncident = null;
 // null for maintenance tasks, or if the lookup failed (the buttons are then hidden).
 let currentAnalysis = null;
 
+// The countdown timer of the Re-analyze button (see applyAnalysisState).
+// Declared up here with the other page state: load() below runs at the top
+// level and renders before the rest of this file has been evaluated.
+let reanalyzeTimer = null;
+
 // Username of the built-in AI system user that authors AI analysis comments
 // (backend/app/models/system_users.py) - its comments get their own style.
 const AI_USERNAME = "ai-assistant";
@@ -150,6 +155,14 @@ function applyUpdatesOrder(order) {
 // (position 2)" / "Analyzing…"), and a "Cancel analysis" button appears next
 // to it. The state follows the server's queue live (applyQueueSnapshot), so
 // the label and the position stay right without reloading the page.
+//
+// Re-analysis rule (backend/app/ai/reanalysis.py): after a successful
+// analysis, the same fault can't be analyzed again with the same provider
+// until someone changes it. Then Analyze is greyed out with a short note
+// (the full reason is its tooltip). An admin also sees "Re-analyze", which
+// forces it - after a cooldown since that analysis, counted down live on the
+// button ("Re-analyze in 3:12").
+
 
 /** The Analyze button's label for the current state. */
 function analysisLabel(analysis) {
@@ -158,28 +171,74 @@ function analysisLabel(analysis) {
   return `Analyze using ${analysis.provider}`;
 }
 
-/** The controls' markup, or "" when AI analysis is off or its state is unknown. */
+/** The controls' markup (all of them; applyAnalysisState() decides what shows), or "" when AI analysis is off. */
 function analysisControlsHtml(analysis) {
   if (!analysis || !analysis.enabled) return "";
-  const pending = analysis.state !== "idle";
   return `
-    <span class="ai-controls" data-role="ai-controls" title="${escapeHtml(`${analysis.provider} - models, best first: ${(analysis.models || [analysis.model]).join(" > ")}`)}">
-      <button class="btn btn-ai" data-action="analyze" ${pending || locked ? "disabled" : ""}>${escapeHtml(analysisLabel(analysis))}</button>
-      <button class="btn btn-ghost" data-action="cancel-analysis" ${pending ? "" : "hidden"} ${locked ? "disabled" : ""}>Cancel analysis</button>
+    <span class="ai-controls" data-role="ai-controls">
+      <span class="ai-note" data-role="ai-note" hidden>No changes since the last analysis</span>
+      <button class="btn btn-ai" data-action="analyze"></button>
+      <button class="btn btn-ghost" data-action="reanalyze" hidden>Re-analyze</button>
+      <button class="btn btn-ghost" data-action="cancel-analysis" hidden>Cancel analysis</button>
     </span>`;
+}
+
+/** "m:ss" for a number of seconds, e.g. 192 -> "3:12". */
+function minutesSeconds(seconds) {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 /** Patches the existing controls to match currentAnalysis (no re-render, so nothing typed elsewhere is lost). */
 function applyAnalysisState() {
   const wrap = document.querySelector('[data-role="ai-controls"]');
   if (!wrap || !currentAnalysis) return;
-  const pending = currentAnalysis.state !== "idle";
+  const a = currentAnalysis;
+  const pending = a.state !== "idle";
+  const blocked = !pending && a.blocked;           // analyzed before, nothing changed since
+  const isAdmin = user.role === "admin";
   const analyzeBtn = wrap.querySelector('[data-action="analyze"]');
+  const reanalyzeBtn = wrap.querySelector('[data-action="reanalyze"]');
   const cancelBtn = wrap.querySelector('[data-action="cancel-analysis"]');
-  analyzeBtn.textContent = analysisLabel(currentAnalysis);
-  analyzeBtn.disabled = locked || pending;
+
+  wrap.title = blocked ? a.reason : `${a.provider} - models, best first: ${(a.models || [a.model]).join(" > ")}`;
+  wrap.querySelector('[data-role="ai-note"]').hidden = !blocked;
+  analyzeBtn.textContent = analysisLabel(a);
+  analyzeBtn.disabled = locked || pending || blocked;
   cancelBtn.hidden = !pending;
   cancelBtn.disabled = locked;
+
+  reanalyzeBtn.hidden = !(blocked && isAdmin);
+  clearInterval(reanalyzeTimer);
+  if (blocked && isAdmin && !a.can_force && a.force_wait_seconds > 0) {
+    // Count the cooldown down on the button, then ask the server again.
+    const readyAt = Date.now() + a.force_wait_seconds * 1000;
+    const tick = () => {
+      const left = Math.ceil((readyAt - Date.now()) / 1000);
+      if (left <= 0) {
+        clearInterval(reanalyzeTimer);
+        refreshAnalysisStatus();
+        return;
+      }
+      reanalyzeBtn.textContent = `Re-analyze in ${minutesSeconds(left)}`;
+    };
+    tick();
+    reanalyzeTimer = setInterval(tick, 1000);
+    reanalyzeBtn.disabled = true;
+  } else {
+    reanalyzeBtn.textContent = "Re-analyze";
+    reanalyzeBtn.disabled = locked || !a.can_force;
+  }
+}
+
+/** Re-reads this fault's analysis state from the server and patches the controls in place. */
+async function refreshAnalysisStatus() {
+  if (!currentIncident || !currentAnalysis) return;
+  try {
+    currentAnalysis = await api.analysisStatus(currentIncident.id);
+  } catch {
+    return; // transient failure: keep what is shown; the next event or reload re-checks
+  }
+  applyAnalysisState();
 }
 
 /**
@@ -189,6 +248,7 @@ function applyAnalysisState() {
 function applyQueueSnapshot(snapshot) {
   if (!currentIncident || !currentAnalysis || !currentAnalysis.enabled) return;
   const index = (snapshot.queued || []).indexOf(currentIncident.id);
+  const wasPending = currentAnalysis.state !== "idle";
   if (snapshot.running === currentIncident.id) {
     currentAnalysis = { ...currentAnalysis, state: "running", position: null };
   } else if (index >= 0) {
@@ -197,6 +257,9 @@ function applyQueueSnapshot(snapshot) {
     currentAnalysis = { ...currentAnalysis, state: "idle", position: null };
   }
   applyAnalysisState();
+  // This fault's analysis just ended (answered, failed or cancelled): whether it
+  // may be analyzed again depends on how it ended, so ask the server.
+  if (wasPending && currentAnalysis.state === "idle") refreshAnalysisStatus();
 }
 
 // --- claim control (open faults): tooltip text, markup, and in-place refresh ---
@@ -501,6 +564,7 @@ function render(incident, claimStatus) {
   // Live "used / max" counters under every length-limited textarea (see text-limits.js).
   wireCharCounters(root);
   wireActions(incident, isFault);
+  applyAnalysisState();   // the AI controls' labels, notes and countdown (no-op without them)
 }
 
 function wireActions(incident, isFault) {
@@ -578,6 +642,20 @@ function wireActions(incident, isFault) {
       analyzeBtn.disabled = true; // guard against a double click while the request is in flight
       try {
         await api.requestAnalysis(incident.id);
+      } catch (err) {
+        alert(err.message);
+      }
+      await load();
+    });
+  }
+  // Re-analyze (admins, when nothing changed since the last analysis): forces it.
+  const reanalyzeBtn = document.querySelector('[data-action="reanalyze"]');
+  if (reanalyzeBtn) {
+    reanalyzeBtn.addEventListener("click", async () => {
+      if (locked) return;
+      reanalyzeBtn.disabled = true;
+      try {
+        await api.requestAnalysis(incident.id, { force: true });
       } catch (err) {
         alert(err.message);
       }

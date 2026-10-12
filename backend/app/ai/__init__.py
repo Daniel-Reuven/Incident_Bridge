@@ -18,6 +18,8 @@ Files:
     job_store.py    SqliteAnalysisJobStore: the queue in SQLite
     worker.py       AnalysisWorker: the queue + the one worker thread
     setup.py        check_ai_settings(), create_analysis_worker() - used by serve_app.py / app.py
+    log.py          the console log of the queue and requests (AI_LOG_LEVEL)
+    reanalysis.py   when a fault may be analyzed again (changes / provider / admin + cooldown)
 
 The HTTP endpoints are in app/api/analysis.py; the page side is in
 frontend/js/incident.js.

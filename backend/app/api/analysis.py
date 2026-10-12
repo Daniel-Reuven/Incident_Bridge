@@ -3,14 +3,18 @@ AI analysis endpoints (one fault at a time). The queue and the worker
 thread live in app/ai/worker.py; this router only handles HTTP, the
 request/cancel comments, and their live-update events.
 
-    GET  /incidents/faults/{id}/analysis          state of this fault's analysis
-    POST /incidents/faults/{id}/analysis          request one     (any logged-in user)
-    POST /incidents/faults/{id}/analysis/cancel   cancel it       (any logged-in user)
+    GET  /incidents/faults/{id}/analysis              state of this fault's analysis
+    POST /incidents/faults/{id}/analysis              request one     (any logged-in user)
+    POST /incidents/faults/{id}/analysis?force=true   Re-analyze with no changes (admin, after the cooldown)
+    POST /incidents/faults/{id}/analysis/cancel       cancel it       (any logged-in user)
 
 Every response has the same shape:
     {"enabled": true, "provider": "Gemini", "model": "...", "models": ["...", "..."],
      "state": "idle" | "queued" | "running", "position": 2 | null}
 ("model" is the preferred one; "models" the whole fallback list, best first.)
+plus the re-analysis rule for the user asking (app/ai/reanalysis.py):
+    "last_analysis": {"provider", "model", "at"} | null, "blocked": bool,
+    "reason": str | null, "can_force": bool, "force_wait_seconds": int
 With the feature off (the selected provider has no API key - see
 app/ai/config.py) GET returns {"enabled": false, ...} and the page hides the
 buttons; the POSTs answer 503.
@@ -25,7 +29,7 @@ every page's buttons up to date.
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.ai.worker import AnalysisWorker
 from app.api.deps import get_analysis_worker, get_broadcaster, get_client_id, get_current_user, get_state
@@ -36,11 +40,13 @@ from app.state import AppState
 router = APIRouter(prefix="/incidents/faults", tags=["ai-analysis"])
 
 
-def _status(worker: Optional[AnalysisWorker], incident_id: str) -> dict:
+def _status(worker: Optional[AnalysisWorker], fault: Fault, user: User) -> dict:
     if worker is None:
-        return {"enabled": False, "provider": None, "model": None, "models": [], "state": "idle", "position": None}
+        return {"enabled": False, "provider": None, "model": None, "models": [], "state": "idle", "position": None,
+                "last_analysis": None, "blocked": False, "reason": None, "can_force": False, "force_wait_seconds": 0}
     return {"enabled": True, "provider": worker.provider.display_name, "model": worker.provider.model,
-            "models": list(worker.provider.models), **worker.status_of(incident_id)}
+            "models": list(worker.provider.models), **worker.status_of(fault.id),
+            **worker.reanalysis_status(fault, user)}
 
 
 def _fault(state: AppState, incident_id: str) -> Fault:
@@ -60,25 +66,29 @@ def _require(worker: Optional[AnalysisWorker]) -> AnalysisWorker:
 @router.get("/{incident_id}/analysis")
 def get_analysis_status(incident_id: str, state: AppState = Depends(get_state),
                         worker: Optional[AnalysisWorker] = Depends(get_analysis_worker),
-                        _current_user: User = Depends(get_current_user)):
-    _fault(state, incident_id)
-    return _status(worker, incident_id)
+                        current_user: User = Depends(get_current_user)):
+    return _status(worker, _fault(state, incident_id), current_user)
 
 
 @router.post("/{incident_id}/analysis")
-def request_analysis(incident_id: str, state: AppState = Depends(get_state),
+def request_analysis(incident_id: str, force: bool = Query(False), state: AppState = Depends(get_state),
                      worker: Optional[AnalysisWorker] = Depends(get_analysis_worker),
                      current_user: User = Depends(get_current_user),
                      broadcaster: EventBroadcaster = Depends(get_broadcaster),
                      client_id: Optional[str] = Depends(get_client_id)):
-    """Queue an analysis (409 if the fault is closed, already pending, or the queue is full)."""
+    """
+    Queue an analysis. 409 if the fault is closed, already pending, already
+    analyzed with no changes since (see app/ai/reanalysis.py), or the queue is
+    full. `force=true` (admins, after the cooldown) runs it again anyway; 403
+    for a non-admin.
+    """
     worker = _require(worker)
     fault = _fault(state, incident_id)
-    worker.request(fault, current_user)        # also adds the "requested" comment
+    worker.request(fault, current_user, force)  # also adds the "requested" comment
     state.incidents.save(fault)
     broadcaster.publish(incident_event(fault, "ai_analysis_requested", current_user.username),
                         exclude_client_id=client_id)
-    return _status(worker, incident_id)
+    return _status(worker, fault, current_user)
 
 
 @router.post("/{incident_id}/analysis/cancel")
@@ -94,4 +104,4 @@ def cancel_analysis(incident_id: str, state: AppState = Depends(get_state),
     state.incidents.save(fault)
     broadcaster.publish(incident_event(fault, "ai_analysis_cancelled", current_user.username),
                         exclude_client_id=client_id)
-    return _status(worker, incident_id)
+    return _status(worker, fault, current_user)

@@ -41,6 +41,20 @@ def wait_until(condition, timeout=5.0):
 
 
 @pytest.fixture
+def ai_log(caplog):
+    """
+    The AI console log lines (app/ai/log.py) written during the test, as text.
+    The AI logger does not propagate to the root logger, so caplog's handler
+    is attached to it directly.
+    """
+    from app.ai.log import log
+    log.addHandler(caplog.handler)
+    caplog.set_level("DEBUG", logger=log.name)
+    yield caplog
+    log.removeHandler(caplog.handler)
+
+
+@pytest.fixture
 def db_path(tmp_path, monkeypatch):
     path = str(tmp_path / "ai.db")
     monkeypatch.setenv("DATABASE_PATH", path)
@@ -75,9 +89,9 @@ def make_worker(state, db_path, broadcaster):
     """Build a worker (not started unless start=True); every worker built here is stopped after the test."""
     workers = []
 
-    def make(provider=None, delay_seconds=0.0, start=True):
+    def make(provider=None, delay_seconds=0.0, start=True, cooldown_seconds=300.0):
         worker = AnalysisWorker(state, provider or FakeProvider(), SqliteAnalysisJobStore(db_path),
-                                broadcaster, delay_seconds)
+                                broadcaster, delay_seconds, cooldown_seconds)
         workers.append(worker)
         if start:
             worker.start()

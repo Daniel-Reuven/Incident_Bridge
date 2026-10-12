@@ -66,7 +66,8 @@ def test_requesting_an_analysis_end_to_end(ai_client):
     fault = create_fault(ai_client)
     status = ai_client.get(f"/incidents/faults/{fault['id']}/analysis").json()
     assert status == {"enabled": True, "provider": "Fake AI", "model": "fake-model", "models": ["fake-model"],
-                      "state": "idle", "position": None}
+                      "state": "idle", "position": None, "last_analysis": None, "blocked": False,
+                      "reason": None, "can_force": False, "force_wait_seconds": 0}
 
     assert ai_client.post(f"/incidents/faults/{fault['id']}/analysis").status_code == 200
     wait_until(lambda: len(comments(ai_client, fault["id"])) == 2)
@@ -116,3 +117,35 @@ def test_login_is_required(ai_client):
     ai_client.post("/auth/logout")
     assert ai_client.get(f"/incidents/faults/{fault['id']}/analysis").status_code == 401
     assert ai_client.post(f"/incidents/faults/{fault['id']}/analysis").status_code == 401
+
+
+def test_the_reanalysis_rule_over_http(ai_client, monkeypatch):
+    fault = create_fault(ai_client)
+    ai_client.post(f"/incidents/faults/{fault['id']}/analysis")
+    wait_until(lambda: len(comments(ai_client, fault["id"])) == 2)
+    wait_until(lambda: ai_client.get(f"/incidents/faults/{fault['id']}/analysis").json()["state"] == "idle")
+
+    status = ai_client.get(f"/incidents/faults/{fault['id']}/analysis").json()
+    assert status["blocked"] and status["last_analysis"]["provider"] == "Fake AI"
+    assert status["can_force"] is False and status["force_wait_seconds"] > 0     # admin, within the cooldown
+
+    again = ai_client.post(f"/incidents/faults/{fault['id']}/analysis")
+    assert again.status_code == 409 and "nothing has changed since" in again.json()["detail"]
+    forced = ai_client.post(f"/incidents/faults/{fault['id']}/analysis?force=true")
+    assert forced.status_code == 409 and "5-minute cooldown" in forced.json()["detail"]
+
+    ai_client.app.state.analysis_worker.cooldown_seconds = 0                     # the cooldown has passed
+    assert ai_client.post(f"/incidents/faults/{fault['id']}/analysis?force=true").status_code == 200
+
+
+def test_a_user_cannot_force_and_a_comment_unblocks_it(ai_client):
+    fault = create_fault(ai_client)
+    ai_client.post(f"/incidents/faults/{fault['id']}/analysis")
+    wait_until(lambda: len(comments(ai_client, fault["id"])) == 2)
+    wait_until(lambda: ai_client.get(f"/incidents/faults/{fault['id']}/analysis").json()["state"] == "idle")
+    ai_client.post("/auth/logout")
+    login(ai_client, "tech1", "Passw0rd2")
+    assert ai_client.post(f"/incidents/faults/{fault['id']}/analysis?force=true").status_code == 403
+    ai_client.post(f"/incidents/{fault['id']}/comments", json={"text": "Still failing after the restart."})
+    assert ai_client.get(f"/incidents/faults/{fault['id']}/analysis").json()["blocked"] is False
+    assert ai_client.post(f"/incidents/faults/{fault['id']}/analysis").status_code == 200

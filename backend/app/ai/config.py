@@ -7,6 +7,7 @@ AI analysis settings, read from the environment (backend/.env).
     OPENAI_API_KEY=...    OPENAI_MODEL=...
     AI_REQUEST_TIMEOUT_SECONDS=180     # per API call, every provider
     AI_REQUEST_DELAY_SECONDS=5         # pause after each API call, every provider
+    AI_REANALYSIS_COOLDOWN_SECONDS=300 # before an admin may force a re-analysis (app/ai/reanalysis.py)
 
 Only ONE provider is active at a time. Only the selected provider's key and
 model(s) are read. A model setting holds one model or a comma-separated list,
@@ -32,6 +33,7 @@ from app.ai.providers import DEFAULT_PROVIDER, PROVIDERS
 
 DEFAULT_TIMEOUT_SECONDS = 180.0
 DEFAULT_DELAY_SECONDS = 5.0
+DEFAULT_COOLDOWN_SECONDS = 300.0
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,7 @@ class AIConfig:
     models: Tuple[str, ...]     # best first; empty for the fake provider (it has a fixed model)
     timeout_seconds: float
     delay_seconds: float
+    cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS   # re-analysis cooldown for admins
     extra: dict = field(default_factory=dict)   # provider-specific settings (Gemini: tier, discovery)
 
     @classmethod
@@ -53,6 +56,7 @@ class AIConfig:
 
         timeout = _read_number("AI_REQUEST_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS, allow_zero=False)
         delay = _read_number("AI_REQUEST_DELAY_SECONDS", DEFAULT_DELAY_SECONDS, allow_zero=True)
+        cooldown = _read_number("AI_REANALYSIS_COOLDOWN_SECONDS", DEFAULT_COOLDOWN_SECONDS, allow_zero=True)
 
         api_key = _read_text(info.key_env) if info.key_env else None
         if info.key_env and not api_key:
@@ -60,7 +64,7 @@ class AIConfig:
         models = _read_models(info)
         extra = info.extra_settings() if info.extra_settings else {}
         return cls(provider=provider, api_key=api_key, models=models, timeout_seconds=timeout,
-                   delay_seconds=delay, extra=extra)
+                   delay_seconds=delay, cooldown_seconds=cooldown, extra=extra)
 
     @staticmethod
     def off_reason() -> str:

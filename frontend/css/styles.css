@@ -497,3 +497,5 @@ input[type="date"], input[type="url"] {
 .comment-ai { background: var(--row-hover); border-left: 3px solid var(--accent); padding-inline: 12px; }
 .comment-ai .comment-author { color: var(--accent); }
 .comment-ai p { white-space: pre-wrap; }
+/* "No changes since the last analysis" beside a greyed-out Analyze button (re-analysis rule). */
+.ai-note { align-self: center; font-size: 13px; color: var(--ink-soft); }

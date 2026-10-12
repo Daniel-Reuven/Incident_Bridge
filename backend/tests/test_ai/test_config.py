@@ -17,7 +17,7 @@ from app.ai.setup import check_ai_settings
 
 AI_VARIABLES = ["AI_PROVIDER", "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_MODELS", "GEMINI_TIER",
                 "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "OPENAI_API_KEY", "OPENAI_MODEL",
-                "AI_REQUEST_TIMEOUT_SECONDS", "AI_REQUEST_DELAY_SECONDS"]
+                "AI_REQUEST_TIMEOUT_SECONDS", "AI_REQUEST_DELAY_SECONDS", "AI_REANALYSIS_COOLDOWN_SECONDS"]
 
 
 @pytest.fixture(autouse=True)
@@ -92,6 +92,7 @@ def test_timeout_and_delay_are_shared_settings(monkeypatch):
     ({"AI_PROVIDER": "fake", "AI_REQUEST_TIMEOUT_SECONDS": "0"}, "positive number"),
     ({"AI_PROVIDER": "fake", "AI_REQUEST_TIMEOUT_SECONDS": "soon"}, "positive number"),
     ({"AI_PROVIDER": "fake", "AI_REQUEST_DELAY_SECONDS": "-1"}, "0 or more"),
+    ({"AI_PROVIDER": "fake", "AI_REANALYSIS_COOLDOWN_SECONDS": "soon"}, "AI_REANALYSIS_COOLDOWN_SECONDS must be"),
 ])
 def test_invalid_settings_raise_a_clear_error(monkeypatch, env, message):
     for name, value in env.items():
@@ -125,3 +126,10 @@ def test_every_real_provider_has_its_own_pip_extra():
     for name, info in PROVIDERS.items():
         if name != "fake":
             assert info.pip_extra == name and info.key_env and info.models_env
+
+
+def test_the_reanalysis_cooldown_defaults_to_five_minutes(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "fake")
+    assert AIConfig.from_env().cooldown_seconds == 300.0
+    monkeypatch.setenv("AI_REANALYSIS_COOLDOWN_SECONDS", "60")
+    assert AIConfig.from_env().cooldown_seconds == 60.0
