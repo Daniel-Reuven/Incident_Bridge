@@ -9,7 +9,7 @@ without the package when another provider is used.
 Which models: an ordered list, best first - by default the list for the
 key's tier (GEMINI_TIER=free or paid, see gemini_models.py), or your own
 GEMINI_MODELS. With GEMINI_MODEL_DISCOVERY=auto, refresh_models() asks Google
-at startup which models the key can use, removes retired ones and adds newer
+when the worker thread starts (first analysis request) which models the key can use, removes retired ones and adds newer
 ones to the front (the rules are in gemini_models.refresh_model_list). When a model is overloaded (503), rate limited or out of
 quota (429), not available to the key (404) or has a server error (500/504),
 the next model is tried (the fallback loop is in base.py).

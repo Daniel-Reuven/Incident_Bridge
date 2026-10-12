@@ -6,6 +6,7 @@ Run from backend/:  python -m pytest tests/test_ai/test_config.py -v
 """
 
 import importlib
+import importlib.util
 
 import pytest
 
@@ -109,6 +110,35 @@ def test_the_fake_provider_needs_no_key(monkeypatch):
 
 
 def test_a_missing_sdk_gives_the_pip_command(monkeypatch):
+    """Startup finds a missing SDK with find_spec - without importing anything."""
+    monkeypatch.setenv("GEMINI_API_KEY", "secret")
+    real_find_spec = importlib.util.find_spec
+
+    def missing_google(name, *args):
+        if name.startswith("google"):
+            raise ModuleNotFoundError("No module named 'google'", name="google")   # the parent package is missing
+        return real_find_spec(name, *args)
+
+    monkeypatch.setattr(importlib.util, "find_spec", missing_google)
+    with pytest.raises(ValueError, match=r'pip install -e "\.\[gemini\]"'):
+        check_ai_settings()
+
+
+def test_the_startup_check_never_imports_the_sdk(monkeypatch):
+    """check_ai_settings() must not import a provider module (that is what loads the SDK's memory)."""
+    monkeypatch.setenv("AI_PROVIDER", "claude")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-x")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *args: object())   # "installed"
+    imported = []
+    real_import = importlib.import_module
+    monkeypatch.setattr(importlib, "import_module", lambda name, *a: imported.append(name) or real_import(name, *a))
+    assert check_ai_settings().provider == "claude"
+    assert not any(name.endswith("_provider") for name in imported)
+
+
+def test_build_provider_still_reports_a_missing_sdk(monkeypatch):
+    """The first analysis (build_provider) gives the same pip hint if the package vanished after startup."""
     monkeypatch.setenv("GEMINI_API_KEY", "secret")
     real_import = importlib.import_module
 
@@ -119,7 +149,22 @@ def test_a_missing_sdk_gives_the_pip_command(monkeypatch):
 
     monkeypatch.setattr(importlib, "import_module", failing_import)
     with pytest.raises(ValueError, match=r'pip install -e "\.\[gemini\]"'):
-        check_ai_settings()
+        build_provider(AIConfig.from_env())
+
+
+@pytest.mark.parametrize("name", list(PROVIDERS))
+def test_the_registry_display_name_matches_the_provider_class(name):
+    """The page shows the registry's name before the provider exists, so it must match the class."""
+    info = PROVIDERS[name]
+    if info.sdk_module is not None:
+        pytest.importorskip(info.sdk_module)
+    module = importlib.import_module(f"app.ai.providers.{info.module}")
+    assert getattr(module, info.class_name).display_name == info.display_name
+
+
+def test_the_fake_provider_has_its_model_in_the_settings(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "fake")
+    assert AIConfig.from_env().models == ("fake-model",)
 
 
 def test_every_real_provider_has_its_own_pip_extra():

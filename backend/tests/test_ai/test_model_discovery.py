@@ -13,9 +13,8 @@ import pytest
 from app.ai.config import AIConfig
 from app.ai.providers.fake_provider import FakeProvider
 from app.ai.providers.gemini_models import FREE_TIER_MODELS, PAID_TIER_MODELS, refresh_model_list
-from app.models.system_users import AI_USERNAME
 
-from tests.test_ai.conftest import wait_until
+from tests.test_ai.conftest import wait_for_analysis
 
 # What Google might list one day: a newer flash and flash-lite, a newer pro,
 # a preview, an older model, a non-text model - and gemini-3.1-flash-lite retired.
@@ -109,21 +108,21 @@ class RefreshingProvider(FakeProvider):
         return "list refreshed"
 
 
-def test_the_worker_refreshes_the_list_before_its_first_job(state, make_fault, make_worker, capsys):
+def test_the_worker_refreshes_the_list_before_its_first_job(state, make_fault, make_worker, ai_log):
     provider = RefreshingProvider()
     fault = make_fault()
     worker = make_worker(provider)
     worker.request(fault, state.users.get("tech1"))
-    wait_until(lambda: any(c.author.username == AI_USERNAME for c in fault.comments))
+    wait_for_analysis(worker, fault)
     assert provider.refreshed == 1 and provider.asked == ["new-model"]
-    assert "AI analysis: list refreshed" in capsys.readouterr().out
+    assert "list refreshed" in ai_log.messages
 
 
-def test_a_failed_refresh_keeps_the_list_and_the_worker_running(state, make_fault, make_worker, capsys):
+def test_a_failed_refresh_keeps_the_list_and_the_worker_running(state, make_fault, make_worker, ai_log):
     provider = RefreshingProvider(fail=True)
     fault = make_fault()
     worker = make_worker(provider)
     worker.request(fault, state.users.get("tech1"))
-    wait_until(lambda: any(c.author.username == AI_USERNAME for c in fault.comments))
+    wait_for_analysis(worker, fault)
     assert provider.asked == ["old-model"] and worker.is_alive()
-    assert "could not refresh the model list (ConnectionError: network down)" in capsys.readouterr().out
+    assert any("Could not refresh the model list (ConnectionError: network down)" in m for m in ai_log.messages)

@@ -11,7 +11,9 @@ request/cancel comments, and their live-update events.
 Every response has the same shape:
     {"enabled": true, "provider": "Gemini", "model": "...", "models": ["...", "..."],
      "state": "idle" | "queued" | "running", "position": 2 | null}
-("model" is the preferred one; "models" the whole fallback list, best first.)
+("model" is the preferred one; "models" the whole fallback list, best first.
+Both come from the settings until the first analysis creates the provider -
+see app/ai/worker.py - so this works before the worker thread starts.)
 plus the re-analysis rule for the user asking (app/ai/reanalysis.py):
     "last_analysis": {"provider", "model", "at"} | null, "blocked": bool,
     "reason": str | null, "can_force": bool, "force_wait_seconds": int
@@ -44,8 +46,11 @@ def _status(worker: Optional[AnalysisWorker], fault: Fault, user: User) -> dict:
     if worker is None:
         return {"enabled": False, "provider": None, "model": None, "models": [], "state": "idle", "position": None,
                 "last_analysis": None, "blocked": False, "reason": None, "can_force": False, "force_wait_seconds": 0}
-    return {"enabled": True, "provider": worker.provider.display_name, "model": worker.provider.model,
-            "models": list(worker.provider.models), **worker.status_of(fault.id),
+    # Name and models come from the settings until the worker thread has created the provider
+    # (v0.4.5 - nothing here imports an SDK); after that, the live (possibly refreshed) list.
+    models = worker.models
+    return {"enabled": True, "provider": worker.provider_name, "model": models[0],
+            "models": models, **worker.status_of(fault.id),
             **worker.reanalysis_status(fault, user)}
 
 

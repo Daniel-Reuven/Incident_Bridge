@@ -1,6 +1,6 @@
 # Incident Bridge
 
-**Status:** v0.4.4 — Stage 1 complete, including the group-of-four extension (Sites & Mailing Lists), plus AI analysis of faults on a dedicated worker thread
+**Status:** v0.4.5 — Stage 1 complete, including the group-of-four extension (Sites & Mailing Lists), plus AI analysis of faults on a dedicated worker thread
 **Course:** Advanced Programming — Project
 **Repository:** https://github.com/Daniel-Reuven/Incident_Bridge
 **Companion document:** [`AI_USAGE.md`](AI_USAGE.md) — how AI tools were used in this project
@@ -555,12 +555,14 @@ Incident_Bridge/
 │   │   │   └── notifier.py            # Notifier, OutboxNotifier
 │   │   ├── ai/                   # AI analysis of faults (see §17)
 │   │   │   ├── config.py         #   AIConfig: AI_PROVIDER, keys, models, timeout, delay
-│   │   │   ├── providers/        #   AnalysisProvider interface + registry; gemini_, claude_, openai_, fake_provider.py
+│   │   │   ├── providers/        #   AnalysisProvider interface + registry + loader.py (creates the provider on first use); gemini_, claude_, openai_, fake_provider.py
 │   │   │   ├── prompt.py         #   instructions + incident JSON sent to the model
 │   │   │   ├── splitter.py       #   answer -> comment texts (header, parts, truncation, errors)
 │   │   │   ├── jobs.py, job_store.py   # AnalysisJob + the queue in SQLite
 │   │   │   ├── worker.py         #   AnalysisWorker: the queue + the one named worker thread
-│   │   │   └── setup.py          #   check_ai_settings(), create_analysis_worker()
+│   │   │   ├── setup.py          #   check_ai_settings(), create_analysis_worker()
+│   │   │   ├── log.py            #   console log of the queue and requests (AI_LOG_LEVEL)
+│   │   │   └── reanalysis.py     #   when a fault may be analyzed again
 │   │   ├── api/
 │   │   │   ├── app.py            # FastAPI app: middleware, routers, error mapping, frontend files
 │   │   │   ├── auth.py, incidents.py, events.py, sites.py, analysis.py   # routers
@@ -612,8 +614,9 @@ Incident_Bridge/
 | 16 | Are site/list seed files imported automatically? | Only when `SITES_SEED_PATH` / `MAILING_LISTS_SEED_PATH` are set; stored ids are always skipped. |
 | 17 | Which AI provider analyzes faults? | One at a time, set in `.env` (`AI_PROVIDER`: `gemini` by default, `claude`, `openai`). Off while that provider has no API key. |
 | 17a | Which model answers? | The first in the provider's list that is not busy or out of quota (busy → next model, until the last fails). Gemini's list comes from `GEMINI_TIER` (free / paid) unless `GEMINI_MODELS` is set. A timeout does not fall back. |
-| 17b | Can the Gemini model list update itself? | Opt-in (`GEMINI_MODEL_DISCOVERY=auto`), at startup: retired models removed, newer stable flash/flash-lite added first; pro only with `GEMINI_TIER=paid`; never previews; a hand-set list is only checked. |
+| 17b | Can the Gemini model list update itself? | Opt-in (`GEMINI_MODEL_DISCOVERY=auto`), when the worker thread starts: retired models removed, newer stable flash/flash-lite added first; pro only with `GEMINI_TIER=paid`; never previews; a hand-set list is only checked. |
 | 17c | Can a fault be analyzed again? | Only after someone changes it, or with a different provider. An admin can force it with the same provider after a 5-minute cooldown (configurable). Failed or cancelled analyses don't count. |
+| 17d | When does the AI side start? | On the first Analyze request: the worker thread starts and the provider's SDK is imported then (restored jobs start it at startup). It then stays until shutdown — a process never gives an SDK's memory back, so stopping it would save nothing. |
 | 18 | Who may request or cancel an AI analysis, and of what? | Any logged-in user; open and in-progress faults only; one pending analysis per fault. |
 | 19 | How many AI requests run at once? | One. A single named worker thread with a FIFO queue; a 3-minute timeout per call and a 5-second pause after each call (both configurable, shared by every provider). |
 | 20 | When is the prompt built? | When the job starts running, from the fault and **all** its comments (as JSON), so updates added while it waited are included. |
@@ -669,7 +672,7 @@ The AI provider SDKs need **Python 3.10 or newer**; the rest of the app runs on 
 | `GEMINI_TIER`, `GEMINI_MODELS` | No | Gemini's models: `GEMINI_TIER=free` (default) or `paid` picks a built-in fallback list; `GEMINI_MODELS` replaces it with your own comma-separated list. |
 | `AI_REANALYSIS_COOLDOWN_SECONDS` | No | How long after a successful analysis an admin must wait before forcing the same analysis again (default 300 = 5 minutes) |
 | `AI_LOG_LEVEL` | No | Console log of the AI queue: `INFO` (default), `WARNING` (problems only), `DEBUG` (adds the pause between jobs) or `OFF` |
-| `GEMINI_MODEL_DISCOVERY` | No | `off` (default) or `auto`: at startup, update Gemini's list from Google's live model listing (see [§17](#17-ai-analysis-of-faults-worker-thread)). |
+| `GEMINI_MODEL_DISCOVERY` | No | `off` (default) or `auto`: when the worker thread starts (first analysis request), update Gemini's list from Google's live model listing (see [§17](#17-ai-analysis-of-faults-worker-thread)). |
 | `AI_REQUEST_TIMEOUT_SECONDS`, `AI_REQUEST_DELAY_SECONDS` | No | Per-call timeout (default 180 s) and pause after each call (default 5 s), shared by every provider |
 
 **3. Run the web app:**
@@ -744,12 +747,13 @@ flowchart LR
 ```
 
 - **Exactly one thread:** it is named `ai-analysis-worker`, and `AnalysisWorker.start()` refuses to start if a live thread with that name already exists. One `AnalysisWorker` is created per process at startup (`app/api/app.py`'s lifespan) and stopped at shutdown.
+- **Started on the first request:** startup creates the worker but starts **no thread and imports no SDK** — it only checks the settings and that the provider's SDK is *installed* (`importlib.util.find_spec`, which does not import it), so a missing package still stops the app with the `pip` command. The **first** Analyze request starts the thread (inside the queue lock, so two simultaneous first requests still start exactly one), and the thread's first steps are to import the SDK and build the client (`ProviderLoader`, `app/ai/providers/loader.py`), then Gemini model discovery. Jobs restored from SQLite start the thread at startup instead. Until then the page shows the provider and models from the settings. Once started, the thread runs until shutdown — sleeping, with no CPU use, while the queue is empty. Why not stop it again when idle: a Python process never returns an imported SDK's memory (measured: google-genai ≈ +21 MB, anthropic ≈ +32 MB, openai ≈ +12 MB, on an app of ≈ 48 MB), so stopping the thread or "unloading" the SDK would free nothing — only ending a process does (see [§18](#18-future-development)).
 - **FIFO queue:** a `collections.deque` guarded by a `threading.Condition` — the worker sleeps on it while the queue is empty, and a request wakes it. A deque (not `queue.Queue`) because cancelling removes a job from the middle and the page shows each job's position. At most 50 jobs wait at once; one pending analysis per fault.
 - **One request at a time, with a pause:** each call gives up after `AI_REQUEST_TIMEOUT_SECONDS` (default 180), and the SDK's automatic retries are turned off so a call can never take longer. After each analysis that reached the API (answer or error) the worker waits `AI_REQUEST_DELAY_SECONDS` (default 5) before the next one; jobs that never reached the API don't wait.
 - **Model fallback:** each provider has an ordered list of models, best first (`app/ai/providers/base.py`). When a model is busy or out of quota — HTTP 429, 503, 500, 504 (and 529 for Claude), or 404 for a model that was retired — the next model is tried at once; the analysis fails only when the last one does, with one error comment naming each model and why. A rejected key (401/403), a bad request or a **timeout** stops at once (another model would not help, and the time is already used). The answer's header names the model that actually answered.
 - **Gemini tiers:** Google offers no API that says whether a key is free or paid, so `GEMINI_TIER` says it (`app/ai/providers/gemini_models.py`). `free` (default): `gemini-3.8-flash` → `gemini-3.6-flash` → `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite`. `paid`: `gemini-3.1-pro-preview` first, then the free list. `GEMINI_MODELS` replaces the list — e.g. free models only on a paid key, to save credits. The lists follow Google's model and pricing pages (October 2026).
-- **Gemini model discovery (opt-in, `GEMINI_MODEL_DISCOVERY=auto`):** as its first step, before taking any job, the worker thread asks Google which models the key can use (`models.list()`, 15-second timeout) and updates the list (`gemini_models.refresh_model_list`): configured models no longer offered are **removed**; **newer** stable models are **added to the front**, newest first — `flash` and `flash-lite` on the free tier, plus `pro` only with `GEMINI_TIER=paid`. "Newer" means a higher version than the newest of that family already in the list; preview and experimental models are never added. Google's listing does not say which models are free or how good they are, and no Google API can confirm that a key has credits, so the family in the name and the tier setting decide. A list you set yourself (`GEMINI_MODELS`) is only checked, never extended. If the listing fails, the configured list is kept and the worker carries on; the server log shows what changed.
-- **Persisted queue:** every queued job is a row in SQLite (`app/ai/job_store.py`, same database file); after a restart the jobs come back in order — a job that was running runs again — and go to whichever provider is configured then.
+- **Gemini model discovery (opt-in, `GEMINI_MODEL_DISCOVERY=auto`):** right after it creates the provider, before taking any job, the worker thread asks Google which models the key can use (`models.list()`, 15-second timeout) and updates the list (`gemini_models.refresh_model_list`): configured models no longer offered are **removed**; **newer** stable models are **added to the front**, newest first — `flash` and `flash-lite` on the free tier, plus `pro` only with `GEMINI_TIER=paid`. "Newer" means a higher version than the newest of that family already in the list; preview and experimental models are never added. Google's listing does not say which models are free or how good they are, and no Google API can confirm that a key has credits, so the family in the name and the tier setting decide. A list you set yourself (`GEMINI_MODELS`) is only checked, never extended. If the listing fails, the configured list is kept and the worker carries on; the server log shows what changed.
+- **Persisted queue:** every queued job is a row in SQLite (`app/ai/job_store.py`, same database file); after a restart the jobs come back in order — a job that was running runs again — and go to whichever provider is configured then. Restored jobs start the worker thread right away.
 - **Thread safety:** the queue is only touched while holding the condition's lock; the database stores have their own locks; live updates cross from the worker thread to the asyncio loop through the existing thread-safe `EventBroadcaster.publish()`.
 - **Threads, not asyncio, in the worker:** the worker is plain `threading` — it uses no asyncio itself. Its job is one blocking SDK call at a time, then a pause, which a thread does simply. asyncio appears only at its edge: the live-update streams run on the server's event loop, and the worker hands each event to that loop with `loop.call_soon_threadsafe` (inside `EventBroadcaster.publish()`).
 
@@ -765,6 +769,9 @@ flowchart LR
 **Console log** (`app/ai/log.py`, level `AI_LOG_LEVEL`): every request, refusal, cancel, job start and finish, model attempt and fallback is one line on the server console, showing the thread that wrote it, and every queue change ends with the queue's state. For example (dates trimmed):
 
 ```
+14:17:55 AI INFO    [MainThread] AI analysis is on: Gemini (models: gemini-3.8-flash > …), timeout 180s per call - the worker starts on the first request
+14:18:05 AI INFO    [AnyIO worker thread] Worker thread ai-analysis-worker started (first request) - Gemini (models: …), 5s pause between jobs | queue: idle, 1 waiting (seed-075)
+14:18:06 AI INFO    [ai-analysis-worker] Loaded the Gemini SDK and client in 0.6s
 14:18:08 AI INFO    [AnyIO worker thread] Queued fault seed-076 "Customer portal users randomly logged o…" for tech1 - position 1 | queue: running seed-075, 1 waiting (seed-076)
 14:18:08 AI INFO    [AnyIO worker thread] Refused a request for fault seed-076 by tech1 - an analysis is already pending
 14:18:10 AI WARNING [ai-analysis-worker] gemini-3.8-flash is overloaded (503) after 2.0s - trying gemini-3.6-flash
@@ -779,6 +786,7 @@ flowchart LR
 
 We plan to implement more features in the future, such as performance improvements and users management.
 - **AI analysis queue page (admin portal)** — see and manage the AI queue in the browser: what is running, what is waiting, recent results, cancel any job. Today the server console log shows the same information ([§17](#17-ai-analysis-of-faults-worker-thread)).
+- **Several AI providers at once** — today exactly one provider is configured (`AI_PROVIDER`). The code is ready for more: the registry lists every provider and the worker gets its provider through a `ProviderLoader`, so supporting several means one loader per provider, each loading its SDK on first use. Because a Python process never returns an SDK's memory, the plan is then to run each provider in a **separate process** that exits after a period without requests, so an idle server holds no SDK memory at all.
 
 ---
 

@@ -26,8 +26,11 @@ How to add a provider:
     3. Add its SDK as an optional dependency group in backend/pyproject.toml.
 """
 
+import time
 from abc import ABC, abstractmethod
 from typing import List, NamedTuple, Optional, Sequence
+
+from app.ai.log import log
 
 
 class AnalysisError(Exception):
@@ -66,6 +69,18 @@ def check_unavailable(status_code: Optional[int]) -> None:
     """Raise ModelUnavailable if `status_code` means "try the next model" (see UNAVAILABLE_STATUS)."""
     if status_code in UNAVAILABLE_STATUS:
         raise ModelUnavailable(UNAVAILABLE_STATUS[status_code])
+
+
+def provider_label(display_name: str, models: Sequence[str], model: Optional[str] = None) -> str:
+    """
+    'Gemini (model: gemini-x)' for one model (or the one that answered);
+    'Gemini (models: gemini-a > gemini-b)' for a fallback list. Shared by
+    AnalysisProvider.label() and ProviderLoader.label() (loader.py), so the
+    label is the same before and after the provider is created.
+    """
+    if model is not None or len(models) == 1:
+        return f"{display_name} (model: {model or models[0]})"
+    return f"{display_name} (models: {' > '.join(models)})"
 
 
 class AnalysisResult(NamedTuple):
@@ -108,13 +123,26 @@ class AnalysisProvider(ABC):
         app/ai/prompt.py.
 
         Raises AnalysisError if no model answered.
+
+        Every attempt is logged to the console (app/ai/log.py): which model is
+        asked, how long it took, and why it fell back or failed.
         """
         failures = []
-        for model in self.models:
+        for number, model in enumerate(self.models, start=1):
+            log.info(f"Asking {self.display_name} {model} (model {number} of {len(self.models)})")
+            started = time.monotonic()
             try:
-                return AnalysisResult(self._ask(model, instructions, incident_data), model)
+                text = self._ask(model, instructions, incident_data)
             except ModelUnavailable as exc:
                 failures.append(f"{model} {exc}")
+                next_step = f"trying {self.models[number]}" if number < len(self.models) else "no models left"
+                log.warning(f"{model} {exc} after {time.monotonic() - started:.1f}s - {next_step}")
+                continue
+            except AnalysisError as exc:
+                log.warning(f"{model} failed after {time.monotonic() - started:.1f}s: {exc} - not trying other models")
+                raise
+            log.info(f"Answered by {model} in {time.monotonic() - started:.1f}s ({len(text):,} characters)")
+            return AnalysisResult(text, model)
         if len(failures) == 1:
             raise AnalysisError(failures[0])
         raise AnalysisError(f"all {len(failures)} models were unavailable - " + "; ".join(failures))
@@ -147,9 +175,7 @@ class AnalysisProvider(ABC):
         answered; without a model, the configured list, e.g.
         'Gemini (models: gemini-a > gemini-b)'.
         """
-        if model is not None or len(self.models) == 1:
-            return f"{self.display_name} (model: {model or self.model})"
-        return f"{self.display_name} (models: {' > '.join(self.models)})"
+        return provider_label(self.display_name, self.models, model)
 
     def timeout_message(self) -> str:
         """The AnalysisError text for a timeout, shared by every provider."""

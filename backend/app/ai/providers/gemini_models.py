@@ -22,8 +22,8 @@ The lists follow Google's model and pricing pages as of October 2026
 retired over time: when one is, it answers "not found" and is skipped like a
 busy one, but update these lists (or set GEMINI_MODELS) when that happens.
 
-Model discovery (opt-in, GEMINI_MODEL_DISCOVERY=auto): at startup the
-worker thread asks Google which models this key can use (GeminiProvider
+Model discovery (opt-in, GEMINI_MODEL_DISCOVERY=auto): when it starts (on
+the first analysis request), right after creating the provider, the worker thread asks Google which models this key can use (GeminiProvider
 .refresh_models()) and refresh_model_list() below updates the list:
   - configured models Google no longer offers are REMOVED (retired);
   - NEWER stable models of the families the tier may use are ADDED to the

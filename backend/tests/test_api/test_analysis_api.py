@@ -76,6 +76,18 @@ def test_requesting_an_analysis_end_to_end(ai_client):
     assert second["author"] == "ai-assistant" and second["text"].startswith("AI analysis by Fake AI")
 
 
+def test_the_status_comes_from_the_settings_until_the_first_request(ai_client):
+    """v0.4.5: the page works before the worker thread starts, and asking for the status starts nothing."""
+    worker = ai_client.app.state.analysis_worker
+    fault = create_fault(ai_client)
+    status = ai_client.get(f"/incidents/faults/{fault['id']}/analysis").json()
+    assert (status["provider"], status["models"]) == ("Fake AI", ["fake-model"])
+    assert not worker.started and not worker.provider_loaded
+    ai_client.post(f"/incidents/faults/{fault['id']}/analysis")
+    assert worker.started
+    wait_until(lambda: worker.provider_loaded)
+
+
 def test_a_duplicate_request_and_cancelling(ai_client):
     worker = ai_client.app.state.analysis_worker
     worker.provider = FakeProvider(delay_seconds=0.5)        # keep the first job busy for a moment

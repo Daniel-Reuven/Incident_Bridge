@@ -20,6 +20,19 @@ Only one worker thread can exist: start() refuses if a live thread named
 THREAD_NAME already exists. One AnalysisWorker is created per process at
 startup (app/api/app.py's lifespan, via app/ai/setup.py).
 
+Started on demand (v0.4.5): creating the worker at startup starts NO thread
+and loads NO SDK. The thread starts with the FIRST request (request() starts
+it while holding the queue lock, so two simultaneous first requests still
+start exactly one thread), or at startup when jobs were restored from SQLite
+(start_if_restored()). The thread's first steps are to create the provider -
+import its SDK and build its client (ProviderLoader in
+app/ai/providers/loader.py) - and then Gemini model discovery. Until then the
+page gets the provider's name and models from the settings. Once started,
+the thread runs until the server shuts down (it sleeps while the queue is
+empty, using no CPU); it never stops on its own, because a Python process
+never gives back the memory of an imported SDK, so stopping would save
+nothing.
+
 What happens to a job:
 1. request(): adds the "<user> requested <provider> analysis." comment, saves
    the job to SQLite (app/ai/job_store.py) and queues it. One pending job per
@@ -66,13 +79,14 @@ import time
 import traceback
 from collections import deque
 from datetime import datetime, timezone
-from typing import Deque, Optional, Tuple
+from typing import Deque, List, Optional, Tuple, Union
 
 from app.ai.jobs import AnalysisJob
 from app.ai.job_store import SqliteAnalysisJobStore
 from app.ai.log import log, short_title
 from app.ai.prompt import build_incident_data, build_instructions
 from app.ai.providers.base import AnalysisError, AnalysisProvider
+from app.ai.providers.loader import ProviderLoader
 from app.ai.reanalysis import DEFAULT_COOLDOWN_SECONDS, Decision, LastAnalysis, analysis_fingerprint, decide, wait_text
 from app.ai.splitter import error_comment, split_answer, total_answer_budget
 from app.events import EventBroadcaster, incident_event
@@ -87,11 +101,19 @@ QUEUE_EVENT_SCOPE = "ai_analysis"
 
 
 class AnalysisWorker:
-    def __init__(self, state, provider: AnalysisProvider, store: SqliteAnalysisJobStore,
+    def __init__(self, state, provider: Union[ProviderLoader, AnalysisProvider], store: SqliteAnalysisJobStore,
                  broadcaster: EventBroadcaster, delay_seconds: float,
-                 cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS):
+                 cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS, start_on_request: bool = True):
+        """
+        `provider`: a ProviderLoader (the app - the provider is created on the
+        first analysis) or a ready AnalysisProvider (tests).
+        `start_on_request`: start the thread on the first request (the app);
+        False leaves starting to start() - tests use it to inspect the queue.
+        Starts no thread itself; restores saved jobs (see start_if_restored()).
+        """
         self._state = state                   # AppState: incidents + users
-        self.provider = provider
+        self._loader = provider if isinstance(provider, ProviderLoader) else ProviderLoader.ready(provider)
+        self._start_on_request = start_on_request
         self._store = store
         self._broadcaster = broadcaster
         self.delay_seconds = delay_seconds
@@ -104,11 +126,43 @@ class AnalysisWorker:
         self._stop_event = threading.Event()      # interrupts the pause between requests on shutdown
         self._thread: Optional[threading.Thread] = None
 
-        # Jobs saved before a restart go back in the queue, oldest first.
-        self._queue.extend(store.load_all())
+        self._restore_jobs()
+
+    def _restore_jobs(self) -> None:
+        """Jobs saved before a restart go back in the queue, oldest first (start_if_restored() runs them)."""
+        self._queue.extend(self._store.load_all())
         if self._queue:
             log.info(f"Restored {len(self._queue)} queued job(s) from the database: "
                      f"{', '.join(job.incident_id for job in self._queue)}")
+
+    # ------------------------------------------------------------------
+    # The provider (created on the first analysis - see the module docstring)
+    # ------------------------------------------------------------------
+
+    @property
+    def provider_name(self) -> str:
+        """The provider's display name ("Gemini") - from the settings, no SDK needed."""
+        return self._loader.display_name
+
+    @property
+    def models(self) -> List[str]:
+        """The model list, best first: from the settings until the provider exists, then its live list."""
+        return self._loader.models
+
+    @property
+    def provider(self) -> Optional[AnalysisProvider]:
+        """The provider once created (by the worker thread), else None."""
+        return self._loader.provider
+
+    @provider.setter
+    def provider(self, provider: AnalysisProvider) -> None:
+        """Replace the provider (tests swap in a slower fake one)."""
+        self._loader.set(provider)
+
+    @property
+    def provider_loaded(self) -> bool:
+        """True once the provider (and its SDK) has been created."""
+        return self._loader.loaded
 
     # ------------------------------------------------------------------
     # Called from API request threads
@@ -146,11 +200,13 @@ class AnalysisWorker:
                 self._refused(fault, user, f"the queue is full ({MAX_QUEUED_JOBS} waiting)")
                 raise RuntimeError(f"The AI analysis queue is full ({MAX_QUEUED_JOBS} faults waiting) - try again later.")
             job = AnalysisJob(incident_id=fault.id, requested_by=user.username)
-            fault.add_comment(user, request_comment(user.username, self.provider, forced))
+            fault.add_comment(user, request_comment(user.username, self.provider_name, forced))
             self._store.add(job)
             self._queue.append(job)
             position = len(self._queue)
             self._condition.notify()          # wake the worker if it is waiting
+            if self._start_on_request and self._thread is None and not self._stopping:
+                self.start("first request")   # under the lock: exactly one thread, even for two first requests
         log.info(f"Queued fault {fault.id} {short_title(fault.title)} for {user.username}"
                  f"{' (forced re-analysis)' if forced else ''} - position {position} | {self.queue_summary()}")
         self._publish_queue()
@@ -173,7 +229,7 @@ class AnalysisWorker:
             else:
                 what = f"it was waiting at position {list(self._queue).index(job) + 1}"
                 self._queue.remove(job)
-            fault.add_comment(user, cancel_comment(user.username, self.provider))
+            fault.add_comment(user, cancel_comment(user.username, self.provider_name))
             self._store.remove(job.id)
         log.info(f"Cancelled fault {fault.id} by {user.username} - {what} | {self.queue_summary()}")
         self._publish_queue()
@@ -223,17 +279,36 @@ class AnalysisWorker:
         return f"queue: {running}, {len(waiting)} waiting{listed}"
 
     # ------------------------------------------------------------------
-    # Thread lifecycle (called from app/api/app.py's lifespan)
+    # Thread lifecycle: started by the first request() or start_if_restored(),
+    # stopped by app/api/app.py's lifespan at shutdown
     # ------------------------------------------------------------------
 
-    def start(self) -> None:
-        """Start the worker thread. Refuses if a thread with THREAD_NAME is already alive anywhere."""
-        if any(thread.name == THREAD_NAME and thread.is_alive() for thread in threading.enumerate()):
-            raise RuntimeError(f"A thread named {THREAD_NAME!r} is already running - only one is allowed.")
-        self._thread = threading.Thread(target=self._run, name=THREAD_NAME, daemon=True)
-        self._thread.start()
-        log.info(f"Worker thread {THREAD_NAME} started - {self.provider.label()}, "
-                 f"{self.delay_seconds:g}s pause between jobs | {self.queue_summary()}")
+    def start(self, reason: str = "") -> None:
+        """
+        Start the worker thread. Refuses if a thread with THREAD_NAME is
+        already alive anywhere. `reason` is only for the log line
+        ("first request", "restored jobs").
+        """
+        with self._condition:                 # re-entrant: request() calls this with the lock held
+            if any(thread.name == THREAD_NAME and thread.is_alive() for thread in threading.enumerate()):
+                raise RuntimeError(f"A thread named {THREAD_NAME!r} is already running - only one is allowed.")
+            self._thread = threading.Thread(target=self._run, name=THREAD_NAME, daemon=True)
+            self._thread.start()
+        log.info(f"Worker thread {THREAD_NAME} started{f' ({reason})' if reason else ''} - "
+                 f"{self._loader.label()}, {self.delay_seconds:g}s pause between jobs | {self.queue_summary()}")
+
+    def start_if_restored(self) -> bool:
+        """Start the thread now if jobs were restored from SQLite (they should not wait for a new request)."""
+        with self._condition:
+            if not self._queue or self._thread is not None:
+                return False
+            self.start("restored jobs")
+            return True
+
+    @property
+    def started(self) -> bool:
+        """True once the thread has been started (it then runs until stop())."""
+        return self._thread is not None
 
     def stop(self, timeout: float = 2.0) -> None:
         """
@@ -246,6 +321,9 @@ class AnalysisWorker:
             self._stopping = True
             self._condition.notify_all()
             busy = self._running is not None
+        if self._thread is None:
+            log.info(f"Worker thread {THREAD_NAME} was never started - nothing to stop | {self.queue_summary()}")
+            return
         log.info(f"Worker thread {THREAD_NAME} stopping"
                  + (" - a call is still running; that job stays saved and runs again after the next start" if busy else "")
                  + f" | {self.queue_summary()}")
@@ -261,7 +339,8 @@ class AnalysisWorker:
     # ------------------------------------------------------------------
 
     def _run(self) -> None:
-        self._refresh_models()                # once, before the first job (Gemini model discovery)
+        if self._load_provider():             # import the SDK and build the client, once
+            self._refresh_models()            # then Gemini model discovery, before the first job
         while True:
             job = self._next_job()
             if job is None:                   # stop() was called
@@ -278,6 +357,23 @@ class AnalysisWorker:
                 if self._stop_event.wait(self.delay_seconds):
                     return                    # stop() was called during the pause
 
+    def _load_provider(self) -> bool:
+        """
+        Create the provider (import its SDK, build its client) - the first
+        step of the thread. Returns False if that failed: it is logged, and
+        each job then tries again and posts an error comment if it still fails.
+        """
+        if self._loader.loaded:
+            return True
+        started = time.monotonic()
+        try:
+            self._loader.get()
+        except Exception as exc:
+            log.error(f"Could not create the {self.provider_name} provider ({type(exc).__name__}: {exc})")
+            return False
+        log.info(f"Loaded the {self.provider_name} SDK and client in {time.monotonic() - started:.1f}s")
+        return True
+
     def _refresh_models(self) -> None:
         """
         Let the provider update its model list (provider.refresh_models() -
@@ -287,10 +383,10 @@ class AnalysisWorker:
         the configured list is kept - it never stops the worker.
         """
         try:
-            summary = self.provider.refresh_models()
+            summary = self._loader.get().refresh_models()
         except Exception as exc:
             log.warning(f"Could not refresh the model list ({type(exc).__name__}: {exc}) - "
-                        f"keeping {self.provider.label()}")
+                        f"keeping {self._loader.label()}")
             return
         if summary:
             log.info(summary)
@@ -317,7 +413,7 @@ class AnalysisWorker:
             log.warning(f"Dropped the job for fault {job.incident_id} - it is closed or no longer exists")
             return False, "dropped (closed or gone)"
 
-        label = self.provider.label()          # all configured models - used if none answers
+        label = self._loader.label()           # all configured models - used if none answers
         instructions = build_instructions(total_answer_budget())
         incident_data = build_incident_data(fault, AI_USERNAME)
         fingerprint = analysis_fingerprint(fault, AI_USERNAME)   # of the data this answer is based on
@@ -327,18 +423,34 @@ class AnalysisWorker:
                  f"{len(incident_data):,} characters of data | {self.queue_summary()}")
         result = None
         try:
+            provider = self._loader.get()     # already created by _run(); tried again here if that failed
+        except Exception as exc:
+            log.error(f"Could not create the {self.provider_name} provider ({type(exc).__name__}: {exc})")
+            texts = [error_comment(label, f"the {self.provider_name} provider could not be started "
+                                          f"({type(exc).__name__}) - see the server log")]
+            return self._post(job, fault, texts, "ai_analysis_failed", fingerprint, None, called_api=False)
+        try:
             # Tries the provider's models in order, falling back when one is busy (providers/base.py).
-            result = self.provider.analyze(instructions, incident_data)
-            texts, action = split_answer(result.text, self.provider.label(result.model)), "ai_analysis_posted"
+            result = provider.analyze(instructions, incident_data)
+            texts, action = split_answer(result.text, provider.label(result.model)), "ai_analysis_posted"
         except AnalysisError as exc:
             texts, action = [error_comment(label, str(exc))], "ai_analysis_failed"
         except Exception as exc:              # an unexpected SDK error: still tell the users
             traceback.print_exc()
             texts, action = [error_comment(label, f"unexpected error ({type(exc).__name__})")], "ai_analysis_failed"
 
+        return self._post(job, fault, texts, action, fingerprint, result, called_api=True)
+
+    def _post(self, job: AnalysisJob, fault: Fault, texts: List[str], action: str, fingerprint: str,
+              result, called_api: bool) -> Tuple[bool, str]:
+        """
+        Post the answer (or error) comments - unless the job was cancelled
+        meanwhile - remember a success, and publish ONE incident event.
+        Returns (called_api, outcome) for _process().
+        """
         with self._condition:
             if job.cancelled:                 # cancelled while running: throw the answer away
-                return True, "answer discarded (cancelled while running)"
+                return called_api, "answer discarded (cancelled while running)"
 
         ai_user = self._state.users.get(AI_USERNAME)
         for text in texts:
@@ -346,11 +458,11 @@ class AnalysisWorker:
         self._state.incidents.save(fault)
         if action == "ai_analysis_posted":     # only a posted answer counts for the re-analysis rule
             self._store.record_success(fault.id, LastAnalysis(
-                self.provider.display_name, result.model, fingerprint, datetime.now(timezone.utc)))
+                self.provider_name, result.model, fingerprint, datetime.now(timezone.utc)))
         self._broadcaster.publish(incident_event(fault, action, AI_USERNAME))
         if action == "ai_analysis_failed":
-            return True, "posted an error comment"
-        return True, f"posted {len(texts)} comment{'s' if len(texts) > 1 else ''}"
+            return called_api, "posted an error comment"
+        return called_api, f"posted {len(texts)} comment{'s' if len(texts) > 1 else ''}"
 
     def _finish(self, job: AnalysisJob, outcome: str, seconds: float) -> None:
         """Clear the running job, remove it from SQLite, log how it ended, and publish the queue."""
@@ -368,7 +480,7 @@ class AnalysisWorker:
         """decide() for this fault, user and the provider configured now (app/ai/reanalysis.py)."""
         if last is None:
             last = self._store.last_success(fault.id)
-        return decide(last, analysis_fingerprint(fault, AI_USERNAME), self.provider.display_name,
+        return decide(last, analysis_fingerprint(fault, AI_USERNAME), self.provider_name,
                       user.role == Role.ADMIN, self.cooldown_seconds)
 
     def _check_reanalysis(self, fault: Fault, user: User, force: bool) -> bool:
@@ -419,23 +531,24 @@ class AnalysisWorker:
         self._broadcaster.publish({"scope": QUEUE_EVENT_SCOPE, **self.queue_snapshot()})
 
     def __repr__(self) -> str:
-        return f"AnalysisWorker(provider={self.provider!r}, queued={len(self._queue)}, alive={self.is_alive()})"
+        return f"AnalysisWorker(provider={self._loader!r}, queued={len(self._queue)}, alive={self.is_alive()})"
 
 
-def request_comment(username: str, provider: AnalysisProvider, forced: bool = False) -> str:
+def request_comment(username: str, provider_name: str, forced: bool = False) -> str:
     """
     The comment posted when someone asks for an analysis, e.g. 'tech1 requested
     Gemini analysis.', or for an admin's forced re-analysis 'admin requested
     Gemini analysis again (forced).' (app/ai/reanalysis.py recognises both).
+    `provider_name` is the provider's display name, e.g. "Gemini".
     """
     if forced:
-        return f"{username} requested {provider.display_name} analysis again (forced)."
-    return f"{username} requested {provider.display_name} analysis."
+        return f"{username} requested {provider_name} analysis again (forced)."
+    return f"{username} requested {provider_name} analysis."
 
 
-def cancel_comment(username: str, provider: AnalysisProvider) -> str:
+def cancel_comment(username: str, provider_name: str) -> str:
     """The comment posted when someone cancels one, e.g. 'tech1 requested to cancel Gemini analysis.'"""
-    return f"{username} requested to cancel {provider.display_name} analysis."
+    return f"{username} requested to cancel {provider_name} analysis."
 
 
 __all__ = ["AnalysisWorker", "THREAD_NAME", "MAX_QUEUED_JOBS", "QUEUE_EVENT_SCOPE",

@@ -17,7 +17,7 @@ from app.ai.worker import MAX_QUEUED_JOBS, THREAD_NAME, AnalysisWorker
 from app.models import IncidentStatus, MaintenanceTask, ResolutionType
 from app.models.system_users import AI_USERNAME
 
-from tests.test_ai.conftest import wait_until
+from tests.test_ai.conftest import wait_for_analysis, wait_until
 
 
 class GateProvider(FakeProvider):
@@ -49,7 +49,7 @@ def test_a_request_posts_the_request_comment_then_the_answer(state, make_fault, 
     fault = make_fault()
     worker = make_worker()
     worker.request(fault, state.users.get("tech1"))
-    wait_until(lambda: ai_comments(fault))
+    wait_for_analysis(worker, fault)
 
     texts = [c.text for c in fault.comments]
     assert texts[0] == "tech1 requested Fake AI analysis."
@@ -82,7 +82,7 @@ def test_jobs_run_in_fifo_order_one_at_a_time(state, make_fault, make_worker):
     assert worker.status_of(faults[0].id) == {"state": "running", "position": None}
     assert worker.status_of(faults[2].id) == {"state": "queued", "position": 2}
     provider.gate.set()
-    wait_until(lambda: all(ai_comments(f) for f in faults))
+    wait_for_analysis(worker, *faults)
     assert provider.max_active == 1
     assert [f'"{f.title}"' in call[1] for call, f in zip(provider.calls, faults)] == [True] * 3
 
@@ -108,7 +108,7 @@ def test_a_dropped_job_does_not_wait_for_the_delay(state, make_fault, make_worke
     closed.close(state.users.get("tech1"), ResolutionType.RESOLVED, "Fixed meanwhile.")
     started = time.monotonic()
     worker.start()
-    wait_until(lambda: ai_comments(normal))
+    wait_for_analysis(worker, normal)
     assert time.monotonic() - started < 2
     assert ai_comments(closed) == [] and len(provider.calls) == 1
 
@@ -171,7 +171,7 @@ def test_a_failure_becomes_an_error_comment(state, make_fault, make_worker, broa
     fault = make_fault()
     worker = make_worker(FakeProvider(error="timed out after 180 seconds"))
     worker.request(fault, state.users.get("tech1"))
-    wait_until(lambda: ai_comments(fault))
+    wait_for_analysis(worker, fault)
     assert ai_comments(fault) == ["AI analysis by Fake AI (model: fake-model) failed: timed out after 180 seconds."]
     assert len(broadcaster.incident_events("ai_analysis_failed")) == 1
 
@@ -185,7 +185,7 @@ def test_an_unexpected_exception_does_not_kill_the_thread(state, make_fault, mak
     worker = make_worker(Broken())
     worker.request(first, state.users.get("tech1"))
     worker.request(second, state.users.get("tech1"))
-    wait_until(lambda: ai_comments(second))
+    wait_for_analysis(worker, second)
     assert "unexpected error (KeyError)" in ai_comments(first)[0]
     assert worker.is_alive()
 
@@ -195,7 +195,7 @@ def test_a_long_answer_is_posted_as_parts_with_one_event(state, make_fault, make
     fault = make_fault()
     worker = make_worker(FakeProvider(answer=answer))
     worker.request(fault, state.users.get("tech1"))
-    wait_until(lambda: ai_comments(fault))
+    wait_for_analysis(worker, fault)
     parts = ai_comments(fault)
     assert len(parts) == 3 and parts[0].startswith("AI analysis by Fake AI (model: fake-model) - Part 1/3")
     assert len(broadcaster.incident_events("ai_analysis_posted")) == 1
@@ -212,7 +212,7 @@ def test_queued_jobs_survive_a_restart(state, make_fault, make_worker, db_path, 
     assert after.queue_snapshot() == {"running": None, "queued": [first.id, second.id]}
     after.start()
     try:
-        wait_until(lambda: ai_comments(first) and ai_comments(second))
+        wait_for_analysis(after, first, second)
         assert "(model: another-model)" in ai_comments(first)[0]
     finally:
         after.stop()
@@ -248,7 +248,7 @@ def test_a_reopened_fault_is_still_analyzed(state, make_fault, make_worker):
     fault.close(state.users.get("admin"), ResolutionType.RESOLVED, "Fixed.")
     fault.reopen(state.users.get("admin"), IncidentStatus.OPEN, "Came back.")
     worker.start()
-    wait_until(lambda: ai_comments(fault))
+    wait_for_analysis(worker, fault)
 
 
 def test_a_busy_model_falls_back_and_the_header_names_the_model_that_answered(state, make_fault, make_worker):
@@ -256,7 +256,7 @@ def test_a_busy_model_falls_back_and_the_header_names_the_model_that_answered(st
     fault = make_fault()
     worker = make_worker(provider)
     worker.request(fault, state.users.get("tech1"))
-    wait_until(lambda: ai_comments(fault))
+    wait_for_analysis(worker, fault)
     assert provider.asked == ["best-model", "backup-model"]
     assert ai_comments(fault)[0].startswith("AI analysis by Fake AI (model: backup-model)\n\n")
 
@@ -266,7 +266,7 @@ def test_when_every_model_is_busy_one_error_comment_lists_them(state, make_fault
     fault = make_fault()
     worker = make_worker(provider)
     worker.request(fault, state.users.get("tech1"))
-    wait_until(lambda: ai_comments(fault))
+    wait_for_analysis(worker, fault)
     assert ai_comments(fault) == ["AI analysis by Fake AI (models: a > b) failed: all 2 models were unavailable - "
                                   "a is overloaded (503); b is overloaded (503)."]
     assert len(broadcaster.incident_events("ai_analysis_failed")) == 1

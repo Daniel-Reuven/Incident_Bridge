@@ -17,7 +17,7 @@ from app.ai.worker import AnalysisWorker
 from app.models import IncidentStatus, ResolutionType, SeverityCategory
 from app.models.system_users import AI_USERNAME
 
-from tests.test_ai.conftest import wait_until
+from tests.test_ai.conftest import wait_for_analysis
 
 NOW = datetime(2026, 10, 12, 12, 0, tzinfo=timezone.utc)
 
@@ -102,7 +102,7 @@ def ai_comments(fault):
 
 def analyze_once(state, worker, fault, user="tech1"):
     worker.request(fault, state.users.get(user))
-    wait_until(lambda: ai_comments(fault) and worker.status_of(fault.id)["state"] == "idle")
+    wait_for_analysis(worker, fault)
 
 
 def test_a_second_request_without_changes_is_refused(state, make_fault, make_worker):
@@ -128,7 +128,8 @@ def test_another_provider_allows_it_again(state, make_fault, make_worker, db_pat
     analyze_once(state, make_worker(), fault)
     other = FakeProvider()
     other.display_name = "Other AI"                             # e.g. Gemini then, Claude now
-    after_restart = AnalysisWorker(state, other, SqliteAnalysisJobStore(db_path), broadcaster, 0)
+    after_restart = AnalysisWorker(state, other, SqliteAnalysisJobStore(db_path), broadcaster, 0,
+                                   start_on_request=False)
     after_restart.request(fault, state.users.get("tech1"))      # no error: a different provider
 
 

@@ -13,7 +13,7 @@ Only ONE provider is active at a time. Only the selected provider's key and
 model(s) are read. A model setting holds one model or a comma-separated list,
 best first; the provider falls back along the list when a model is busy or
 out of quota (app/ai/providers/base.py). Gemini needs no model setting: its
-list comes from GEMINI_TIER (app/ai/providers/gemini_models.py). The feature is OFF (no worker thread, no Analyze button)
+list comes from GEMINI_TIER (app/ai/providers/gemini_models.py). The feature is OFF (no worker, no Analyze button)
 while the selected provider's API key is not set - so a fresh checkout with
 no keys simply runs without it. AI_PROVIDER=fake needs no key (see
 app/ai/providers/fake_provider.py).
@@ -40,7 +40,7 @@ DEFAULT_COOLDOWN_SECONDS = 300.0
 class AIConfig:
     provider: str               # a key of PROVIDERS, e.g. "gemini"
     api_key: Optional[str]
-    models: Tuple[str, ...]     # best first; empty for the fake provider (it has a fixed model)
+    models: Tuple[str, ...]     # best first (the fake provider: its one fixed model)
     timeout_seconds: float
     delay_seconds: float
     cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS   # re-analysis cooldown for admins
@@ -81,8 +81,8 @@ def _read_models(info) -> Tuple[str, ...]:
     else its default_models() (Gemini: the tier's list). Raises ValueError
     if neither gives a model.
     """
-    if info.models_env is None:
-        return ()
+    if info.models_env is None:                    # a fixed model (the fake provider)
+        return tuple(info.default_models()) if info.default_models else ()
     raw = _read_text(info.models_env) or ""
     models = tuple(name.strip() for name in raw.split(",") if name.strip())
     if not models and info.default_models is not None:
