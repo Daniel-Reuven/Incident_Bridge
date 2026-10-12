@@ -138,3 +138,18 @@ def user_client(second_client):
     response = second_client.post("/auth/login", json={"username": "tech1", "password": "Passw0rd2"})
     assert response.status_code == 200, f"fixture setup failed: user login returned {response.status_code}"
     return second_client
+
+
+@pytest.fixture
+def app_log(caplog):
+    """
+    The app's console notices (app/logs.py's app_log - startup warnings, seed
+    import, notification outbox) written during the test. That logger does
+    not propagate to the root logger, so caplog's handler is attached to it
+    directly. Use app_log.text, or app_log.records for levels.
+    """
+    from app.logs import app_log as logger
+    logger.addHandler(caplog.handler)
+    caplog.set_level("INFO", logger=logger.name)
+    yield caplog
+    logger.removeHandler(caplog.handler)

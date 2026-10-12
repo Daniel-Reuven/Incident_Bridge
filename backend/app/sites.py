@@ -91,6 +91,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
 
 from app.context import SiteCheckSession
+from app.logs import log_line
 from app.models import (
     AvailabilityCheck, MailingList, Notification, NotificationState, Site, SiteStatus, SiteStatusChange, User,
 )
@@ -827,7 +828,7 @@ def _seed_path_from_env(env_var: str) -> Optional[str]:
 def seed_site_directory(directory: SiteDirectory,
                         sites_path: Optional[str] = None,
                         lists_path: Optional[str] = None,
-                        log: Callable[[str], None] = print) -> List[ImportReport]:
+                        log: Callable[[str], None] = log_line) -> List[ImportReport]:
     """
     Startup import: load the sites seed file, then the mailing lists seed
     file, into `directory`, and log a one-line summary per file plus every

@@ -34,6 +34,11 @@ the script prints the problems and exits with code 1 instead of starting.
 The AI analysis settings (AI_PROVIDER and the selected provider's key and
 model - see app/ai/config.py) are checked the same way, including that the
 provider's SDK package is installed.
+
+Console output: every line - Uvicorn's, the HTTP access log, the AI log and
+the app's notices - uses one format (app/logs.py), e.g.
+    INFO:     2026-10-12 19:16:30 HTTP 127.0.0.1:63317 - "GET /auth/me HTTP/1.1" 200 OK
+    INFO:     2026-10-12 19:16:31 AI   [ai-analysis-worker] Started fault seed-077 ...
 """
 
 import os
@@ -51,6 +56,7 @@ import sys  # noqa: E402
 import uvicorn  # noqa: E402 - must come after load_dotenv() so PORT etc. are already set
 
 from app.ai.setup import check_ai_settings  # noqa: E402
+from app.logs import LOGGING_CONFIG, app_log  # noqa: E402
 from app.repository import UserProvisioningError, seed_users_from_env  # noqa: E402
 
 
@@ -65,7 +71,7 @@ def _check_users_or_exit() -> None:
     try:
         seed_users_from_env(warn=False)
     except UserProvisioningError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        app_log.error(str(exc))
         sys.exit(1)
 
 
@@ -79,7 +85,7 @@ def _check_ai_settings_or_exit() -> None:
     try:
         check_ai_settings()
     except ValueError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        app_log.error(str(exc))
         sys.exit(1)
 
 
@@ -98,4 +104,7 @@ if __name__ == "__main__":
         # this limit is never reached; if a stream somehow stays open, it is
         # cancelled after this many seconds instead of hanging forever.
         timeout_graceful_shutdown=3,
+        # Every console line in one format - Uvicorn's own, the HTTP access
+        # lines and the app's (see app/logs.py).
+        log_config=LOGGING_CONFIG,
     )

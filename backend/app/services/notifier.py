@@ -20,6 +20,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Callable, List, NamedTuple, Optional, Tuple
 
+from app.logs import log_line
 from app.models import Notification
 
 
@@ -59,13 +60,14 @@ class Notifier(ABC):
 class OutboxNotifier(Notifier):
     """
     Records every delivery in an in-memory outbox instead of sending email,
-    and writes one log line per delivery (print by default). The Sent state
+    and writes one log line per delivery (by default to the server console,
+    in the shared format - app/logs.py). The Sent state
     itself is persisted with the notification (app/persistence_sites.py);
     the outbox is only this process's delivery log, so it starts empty after
     a restart.
     """
 
-    def __init__(self, log: Optional[Callable[[str], None]] = print):
+    def __init__(self, log: Optional[Callable[[str], None]] = log_line):
         self.outbox: List[DeliveredMessage] = []
         self._log = log
 

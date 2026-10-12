@@ -2,22 +2,26 @@
 Console logging for AI analysis: one logger, `incident_bridge.ai`, used by
 every file in app/ai/.
 
-Each line shows the time, the level and the THREAD that wrote it, so you can
-tell a request (a FastAPI pool thread) from the worker (`ai-analysis-worker`):
+Lines use the server's shared console format (app/logs.py): the level
+first, then the time, the source tag "AI", and the THREAD that wrote the
+line, so you can tell a request (a FastAPI pool thread) from the worker
+(`ai-analysis-worker`). The same layout as Uvicorn's own lines and the HTTP
+access lines (dates trimmed here):
 
-    14:18:08 AI INFO    [AnyIO worker thread] Queued fault seed-075 "Online store checkout…" for admin - position 1 | queue: idle, 1 waiting (seed-075)
-    14:18:08 AI INFO    [AnyIO worker thread] Worker thread ai-analysis-worker started (first request) - Gemini (models: gemini-3.8-flash > …), 5s pause between jobs | queue: idle, 1 waiting (seed-075)
-    14:18:08 AI INFO    [ai-analysis-worker] Loaded the Gemini SDK and client in 0.6s
-    14:18:08 AI INFO    [ai-analysis-worker] Started fault seed-075 "Online store checkout…" (requested by admin, waited 0.0s) - 8 comments, 3,171 characters of data | queue: running seed-075, 0 waiting
-    14:18:08 AI INFO    [ai-analysis-worker] Asking Gemini gemini-3.8-flash (model 1 of 4)
-    14:18:08 AI INFO    [AnyIO worker thread] Refused a request for fault seed-076 by tech1 - an analysis is already pending
-    14:18:08 AI INFO    [AnyIO worker thread] Cancelled fault seed-079 by admin - it was waiting at position 2 | queue: running seed-075, 1 waiting (seed-076)
-    14:18:10 AI WARNING [ai-analysis-worker] gemini-3.8-flash is overloaded (503) after 2.0s - trying gemini-3.6-flash
-    14:18:10 AI INFO    [ai-analysis-worker] Asking Gemini gemini-3.6-flash (model 2 of 4)
-    14:18:12 AI INFO    [ai-analysis-worker] Answered by gemini-3.6-flash in 2.0s (3,904 characters)
-    14:18:12 AI INFO    [ai-analysis-worker] Finished fault seed-075: posted 1 comment (4.0s) | queue: idle, 1 waiting (seed-076)
-    14:18:12 AI DEBUG   [ai-analysis-worker] Pausing 5s before the next job
-(each line also starts with the date).
+    INFO:     14:17:55 AI   [MainThread] AI analysis is on: Gemini (models: gemini-3.8-flash > …), timeout 180s per call - the worker starts on the first request
+    INFO:     14:18:08 AI   [AnyIO worker thread] Worker thread ai-analysis-worker started (first request) - Gemini (models: …), 5s pause between jobs | queue: idle, 1 waiting (seed-075)
+    INFO:     14:18:08 AI   [AnyIO worker thread] Queued fault seed-075 "Online store checkout…" for admin - position 1 | queue: idle, 1 waiting (seed-075)
+    INFO:     14:18:08 AI   [ai-analysis-worker] Loaded the Gemini SDK and client in 0.6s
+    INFO:     14:18:08 AI   [ai-analysis-worker] Started fault seed-075 "Online store checkout…" (requested by admin, waited 0.0s) - 8 comments, 3,171 characters of data | queue: running seed-075, 0 waiting
+    INFO:     14:18:08 AI   [ai-analysis-worker] Asking Gemini gemini-3.8-flash (model 1 of 4)
+    INFO:     14:18:08 AI   [AnyIO worker thread] Refused a request for fault seed-076 by tech1 - an analysis is already pending
+    INFO:     14:18:08 AI   [AnyIO worker thread] Cancelled fault seed-079 by admin - it was waiting at position 2 | queue: running seed-075, 1 waiting (seed-076)
+    WARNING:  14:18:10 AI   [ai-analysis-worker] gemini-3.8-flash is overloaded (503) after 2.0s - trying gemini-3.6-flash
+    INFO:     14:18:10 AI   [ai-analysis-worker] Asking Gemini gemini-3.6-flash (model 2 of 4)
+    INFO:     14:18:12 AI   [ai-analysis-worker] Answered by gemini-3.6-flash in 2.0s (3,904 characters)
+    INFO:     14:18:12 AI   [ai-analysis-worker] Finished fault seed-075: posted 1 comment (4.0s) | queue: idle, 1 waiting (seed-076)
+    DEBUG:    14:18:12 AI   [ai-analysis-worker] Pausing 5s before the next job
+(each time also starts with the date, e.g. 2026-10-12 14:18:12).
 
 The level comes from AI_LOG_LEVEL in backend/.env: INFO (default) shows
 every step above; WARNING shows only problems (busy models, failed calls,
@@ -35,9 +39,10 @@ Usage elsewhere in app/ai/:
 
 import logging
 import os
-import sys
 
-LOGGER_NAME = "incident_bridge.ai"
+from app.logs import AI_LOGGER, console_handler
+
+LOGGER_NAME = AI_LOGGER
 _LEVELS = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARNING": logging.WARNING,
            "ERROR": logging.ERROR, "OFF": logging.CRITICAL + 1}
 
@@ -45,10 +50,7 @@ _LEVELS = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARNING": logging.WARN
 def _build_logger() -> logging.Logger:
     logger = logging.getLogger(LOGGER_NAME)
     if not logger.handlers:                     # once per process, however often this module is imported
-        handler = logging.StreamHandler(sys.stderr)
-        handler.setFormatter(logging.Formatter("%(asctime)s AI %(levelname)-7s [%(threadName)s] %(message)s",
-                                               datefmt="%Y-%m-%d %H:%M:%S"))
-        logger.addHandler(handler)
+        logger.addHandler(console_handler())     # the shared format (app/logs.py)
         logger.propagate = False
     logger.setLevel(log_level_from_env())
     return logger

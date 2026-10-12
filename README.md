@@ -1,6 +1,6 @@
 # Incident Bridge
 
-**Status:** v0.4.5 — Stage 1 complete, including the group-of-four extension (Sites & Mailing Lists), plus AI analysis of faults on a dedicated worker thread
+**Status:** v0.4.6 — Stage 1 complete, including the group-of-four extension (Sites & Mailing Lists), plus AI analysis of faults on a dedicated worker thread
 **Course:** Advanced Programming — Project
 **Repository:** https://github.com/Daniel-Reuven/Incident_Bridge
 **Companion document:** [`AI_USAGE.md`](AI_USAGE.md) — how AI tools were used in this project
@@ -502,6 +502,14 @@ Both live in `backend/app/context.py`; neither ever suppresses an exception (`__
 - **AI analysis worker:** one dedicated, named background thread (`ai-analysis-worker`) works through a persisted FIFO queue of analysis requests, one API call at a time — see [§17](#17-ai-analysis-of-faults-worker-thread).
 - **Live updates:** Server-Sent Events (`GET /events`). Each browser tab subscribes with its own client id and its user's role; every change is published right after it is saved, never echoed back to the tab that made it, and site-portal events go to admin tabs only. A separate `ai_analysis` event carries the AI queue's state, which only the incident page listens to (to update its Analyze/Cancel buttons in place). Because endpoints (and the AI worker) run in their own threads and the event stream on the asyncio loop, events cross over with `loop.call_soon_threadsafe`.
 - **Restarting the server:** open tabs **reconnect on their own** within a few seconds (the browser's `EventSource` retries automatically) and live updates continue; the login session survives too, because it lives in a signed cookie — as long as `SESSION_SECRET_KEY` is unchanged and the user still exists in `INCIDENT_BRIDGE_USERS` (otherwise, log in again). Changes made while the server was down are not replayed, so refresh a page if something happened in the meantime. Stopping the server (Ctrl+C) is immediate even with tabs open: the app ends every open live-update stream first (`install_shutdown_hook` in `app/events.py`), so Uvicorn has nothing to wait for; a 3-second `timeout_graceful_shutdown` in `serve_app.py` remains only as a safety net.
+- **Console log:** every line the server prints has one layout (`app/logs.py`): the **level** first (padded and coloured like Uvicorn's own), then the **date and time**, a **source tag**, and the message. `APP` is Uvicorn's server messages and the app's notices (startup warnings, seed import, notification outbox); `HTTP` is one line per request, with the status text; `AI` is the AI analysis log, which also shows the thread that wrote the line. `serve_app.py` starts Uvicorn with this format (`log_config=LOGGING_CONFIG`), and `app/api/app.py` applies it on import, so the bare `uvicorn` command prints the same layout:
+
+  ```
+  INFO:     2026-10-12 19:16:20 APP  Application startup complete.
+  INFO:     2026-10-12 19:16:30 HTTP 127.0.0.1:63317 - "GET /auth/me HTTP/1.1" 200 OK
+  INFO:     2026-10-12 19:16:31 AI   [ai-analysis-worker] Asking Gemini gemini-3.8-flash (model 1 of 4)
+  WARNING:  2026-10-12 19:16:32 AI   [ai-analysis-worker] gemini-3.8-flash is overloaded (503) after 0.9s - trying gemini-3.6-flash
+  ```
 - **Frontend:** plain HTML/CSS/JavaScript, no build step, served by the same app (same origin). Pages: `index.html` (login), `dashboard.html` (both queues, the full filterable/sortable list, new incident, stale check, admin import), `incident.html` (details, actions, comments), `pressing.html` (pressing maintenance calls) and `sites.html` (the admin site portal). Lists are patched in place, so live updates never flicker.
 - **Runs locally, as a single process:** the queues are in-memory Python objects, so the app must run as one process / one Uvicorn worker; several workers would each have their own queues. The project runs locally for now; hosting will be decided when it expands.
 
@@ -578,6 +586,7 @@ Incident_Bridge/
 │   │   ├── site_scan.py          # which incidents mention which site
 │   │   ├── reports.py            # site health report
 │   │   ├── events.py             # EventBroadcaster (live updates)
+│   │   ├── logs.py               # one console log format for every line (Uvicorn, HTTP, AI, app notices)
 │   │   └── state.py              # AppState: builds everything at startup
 │   └── tests/                    # automated tests (see §14)
 ├── frontend/
@@ -766,16 +775,16 @@ flowchart LR
 
 **No repeat analyses without changes** (`app/ai/reanalysis.py`): after a **successful** analysis, the same fault cannot be analyzed again with the same provider until someone changes it — a new comment, a status change (claim, close/reopen), a new severity or assignee, or an edited title, description or details. The AI's own answers and the "requested … analysis" bookkeeping comments never count as changes. A **different provider** (e.g. Gemini then, Claude now) may analyze it again. Failed and cancelled analyses don't count. "Changed" is a hash (fingerprint) of exactly the data the model was given, stored with the provider, model and time of the last successful analysis in SQLite (table `analysis_history`), so the rule survives restarts. On the page, Analyze is greyed out with the note *No changes since the last analysis* (the reason is its tooltip). An **admin** also sees **Re-analyze**, which forces it with the same provider — but only after a cooldown since that analysis (`AI_REANALYSIS_COOLDOWN_SECONDS`, default 5 minutes), counted down live on the button (*Re-analyze in 3:12*); the comment then reads *"admin requested Gemini analysis again (forced)."* A regular user trying to force gets HTTP 403.
 
-**Console log** (`app/ai/log.py`, level `AI_LOG_LEVEL`): every request, refusal, cancel, job start and finish, model attempt and fallback is one line on the server console, showing the thread that wrote it, and every queue change ends with the queue's state. For example (dates trimmed):
+**Console log** (`app/ai/log.py`, level `AI_LOG_LEVEL`): every request, refusal, cancel, job start and finish, model attempt and fallback is one line on the server console, showing the thread that wrote it, and every queue change ends with the queue's state. The lines use the server's shared console format ([§11](#11-architecture--as-built), *Console log*), tagged `AI`. For example (dates trimmed):
 
 ```
-14:17:55 AI INFO    [MainThread] AI analysis is on: Gemini (models: gemini-3.8-flash > …), timeout 180s per call - the worker starts on the first request
-14:18:05 AI INFO    [AnyIO worker thread] Worker thread ai-analysis-worker started (first request) - Gemini (models: …), 5s pause between jobs | queue: idle, 1 waiting (seed-075)
-14:18:06 AI INFO    [ai-analysis-worker] Loaded the Gemini SDK and client in 0.6s
-14:18:08 AI INFO    [AnyIO worker thread] Queued fault seed-076 "Customer portal users randomly logged o…" for tech1 - position 1 | queue: running seed-075, 1 waiting (seed-076)
-14:18:08 AI INFO    [AnyIO worker thread] Refused a request for fault seed-076 by tech1 - an analysis is already pending
-14:18:10 AI WARNING [ai-analysis-worker] gemini-3.8-flash is overloaded (503) after 2.0s - trying gemini-3.6-flash
-14:18:12 AI INFO    [ai-analysis-worker] Finished fault seed-075: posted 1 comment (4.0s) | queue: idle, 1 waiting (seed-076)
+INFO:     14:17:55 AI   [MainThread] AI analysis is on: Gemini (models: gemini-3.8-flash > …), timeout 180s per call - the worker starts on the first request
+INFO:     14:18:05 AI   [AnyIO worker thread] Worker thread ai-analysis-worker started (first request) - Gemini (models: …), 5s pause between jobs | queue: idle, 1 waiting (seed-075)
+INFO:     14:18:06 AI   [ai-analysis-worker] Loaded the Gemini SDK and client in 0.6s
+INFO:     14:18:08 AI   [AnyIO worker thread] Queued fault seed-076 "Customer portal users randomly logged o…" for tech1 - position 1 | queue: running seed-075, 1 waiting (seed-076)
+INFO:     14:18:08 AI   [AnyIO worker thread] Refused a request for fault seed-076 by tech1 - an analysis is already pending
+WARNING:  14:18:10 AI   [ai-analysis-worker] gemini-3.8-flash is overloaded (503) after 2.0s - trying gemini-3.6-flash
+INFO:     14:18:12 AI   [ai-analysis-worker] Finished fault seed-075: posted 1 comment (4.0s) | queue: idle, 1 waiting (seed-076)
 ```
 
 **Live state of the buttons:** every queue change publishes one small `ai_analysis` event with the whole queue (`{"running": id, "queued": [ids]}`); the incident page updates its buttons from it in place — no toast, no refresh prompt.

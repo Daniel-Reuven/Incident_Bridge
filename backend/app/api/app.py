@@ -34,6 +34,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.ai.setup import create_analysis_worker
 from app.api import analysis, auth, events, incidents, sites
 from app.events import EventBroadcaster, install_shutdown_hook
+from app.logs import app_log, apply_console_format
 from app.state import AppState, database_path
 
 
@@ -69,13 +70,17 @@ async def lifespan(app: FastAPI):
     app.state.broadcaster.close()   # any stream still open ends now
 
 
+# One console format for every line (app/logs.py). serve_app.py already starts
+# Uvicorn with it; this also covers the bare `uvicorn app.api.app:app` command.
+apply_console_format()
+
 app = FastAPI(title="Incident Bridge API", version="0.1.0", lifespan=lifespan)
 
 # --- session cookie (signed, not encrypted - don't put secrets in it) ---
 _secret_key = os.environ.get("SESSION_SECRET_KEY")
 if not _secret_key:
-    print(
-        "WARNING: SESSION_SECRET_KEY is not set - using an insecure default. "
+    app_log.warning(
+        "SESSION_SECRET_KEY is not set - using an insecure default. "
         "Set it before deploying anywhere reachable by anyone else."
     )
     _secret_key = "dev-only-insecure-secret-change-me"
@@ -156,4 +161,4 @@ _frontend_dir = Path(__file__).resolve().parents[3] / "frontend"
 if _frontend_dir.is_dir():
     app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
 else:
-    print(f"NOTE: no frontend/ directory found at {_frontend_dir} - serving the API only.")
+    app_log.info(f"No frontend/ directory found at {_frontend_dir} - serving the API only.")

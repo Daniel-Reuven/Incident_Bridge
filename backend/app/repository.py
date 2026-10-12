@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, Iterator, List, Optional
 
+from app.logs import app_log
 from app.models import Fault, Incident, MaintenanceTask, Role, User
 from app.models.system_users import build_system_users, is_reserved_username
 from app.persistence import SqliteIncidentStore
@@ -108,7 +109,7 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = Tru
     raw = os.environ.get(env_var)
     if not raw or not raw.strip():
         if warn:
-            print(f"WARNING: {_DEFAULT_USERS_WARNING}")
+            app_log.warning(_DEFAULT_USERS_WARNING)
         store.add(User(username="admin", role=Role.ADMIN, password="Passw0rd1"))
         store.add(User(username="tech1", role=Role.USER, password="Passw0rd2"))
         _add_system_users(store)

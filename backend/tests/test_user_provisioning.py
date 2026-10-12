@@ -108,7 +108,7 @@ def test_unusable_values(monkeypatch, value, message):
 
 
 @pytest.mark.parametrize("value", [None, "", "   "])
-def test_unset_or_blank_falls_back_to_the_demo_pair(monkeypatch, capsys, value):
+def test_unset_or_blank_falls_back_to_the_demo_pair(monkeypatch, app_log, value):
     if value is None:
         monkeypatch.delenv("INCIDENT_BRIDGE_USERS", raising=False)
     else:
@@ -116,13 +116,14 @@ def test_unset_or_blank_falls_back_to_the_demo_pair(monkeypatch, capsys, value):
     store = seed_users_from_env()
     # The built-in "ai-assistant" system user is always added (see app/models/system_users.py).
     assert {u.username for u in store.all_users()} == {"admin", "tech1", "ai-assistant"}
-    assert "WARNING" in capsys.readouterr().out
+    assert [r.levelname for r in app_log.records] == ["WARNING"]
+    assert "INCIDENT_BRIDGE_USERS is not set" in app_log.text
 
 
-def test_warning_can_be_silenced(monkeypatch, capsys):
+def test_warning_can_be_silenced(monkeypatch, app_log):
     monkeypatch.delenv("INCIDENT_BRIDGE_USERS", raising=False)
     seed_users_from_env(warn=False)
-    assert capsys.readouterr().out == ""
+    assert app_log.records == []
 
 
 # --- serve_app.py -----------------------------------------------------------------
