@@ -32,7 +32,8 @@ const $ = (id) => document.getElementById(id);
 // Latest data from the server - dialogs read from here.
 let sites = [];          // every site, archived included
 let lists = [];          // every mailing list, archived included
-let notifications = [];  // filtered by the Notifications tab's selector
+let notifications = [];  // current ones, filtered by the Notifications tab's selector
+let archivedNotifications = [];  // finished longer than NOTIFICATION_ARCHIVE_DAYS ago - Archive tab, view only
 let editingSiteId = null;
 let editingListId = null;
 let statusSiteId = null;
@@ -56,13 +57,15 @@ if (user && user.role !== "admin") {
 
 async function refresh() {
   try {
-    const [allSites, allLists, report, filtered] = await Promise.all([
+    const [allSites, allLists, report, filtered, archived] = await Promise.all([
       api.listSites(true), api.listMailingLists(true), api.siteReport(),
       api.listNotifications($("notification-filter").value),
+      api.listNotifications("", { archived: true }),
     ]);
     sites = allSites;
     lists = allLists;
     notifications = filtered;
+    archivedNotifications = archived;
     renderReport(report);
     renderSites();
     renderLists();
@@ -148,25 +151,36 @@ function renderLists() {
   }), "No mailing lists. Create one with New mailing list.");
 }
 
-function renderNotifications() {
-  const empty = $("notification-filter").value === "draft" ? "No notifications are waiting for a decision." : "No notifications.";
-  renderRowList($("notification-list"), notifications, (n) => n.id, (n) => ({
-    // Colored by the NOTIFICATION's state (draft = needs a decision, sent =
-    // done, dismissed/skipped = no action), not by the site's status - the
-    // site's old and new status are in the title text.
+/**
+ * One notification row, for the Notifications tab and the Archive tab.
+ * Colored by the NOTIFICATION's state (draft = needs a decision, sent =
+ * done, dismissed/skipped = no action), not by the site's status - the
+ * site's old and new status are in the title text. A finished one says when
+ * it moves (or moved) to the archive (archive_at - see NOTIFICATION_ARCHIVE_DAYS).
+ */
+function notificationRow(n) {
+  const archiveNote = n.archive_at
+    ? `, ${n.archived ? "archived" : "moves to the archive"} ${formatDateTime(n.archive_at)}`
+    : "";
+  return {
     className: `row notification-${n.state}`,
     sig: JSON.stringify(n),
     html: `
       <span class="status-text notification-${n.state}">${label(n.state)}</span>
       <span class="row-main">
         <span class="row-title">Site ${n.site_id} (${escapeHtml(n.site_name)}): ${label(n.old_status)} to ${label(n.new_status)}</span>
-        <span class="row-sub">${plural(n.recipient_count, "recipient")}, created ${formatDateTime(n.created_at)} by ${escapeHtml(n.created_by)}</span>
+        <span class="row-sub">${plural(n.recipient_count, "recipient")}, created ${formatDateTime(n.created_at)} by ${escapeHtml(n.created_by)}${archiveNote}</span>
       </span>
       <span class="row-actions">
         <button class="btn ${n.state === "draft" ? "btn-primary" : "btn-ghost"} btn-sm" data-action="review" data-notification-id="${n.id}">
           ${n.state === "draft" ? "Review" : "View"}</button>
       </span>`,
-  }), empty);
+  };
+}
+
+function renderNotifications() {
+  const empty = $("notification-filter").value === "draft" ? "No notifications are waiting for a decision." : "No notifications.";
+  renderRowList($("notification-list"), notifications, (n) => n.id, notificationRow, empty);
 }
 
 function renderArchive() {
@@ -190,6 +204,8 @@ function renderArchive() {
       </span>
       <span class="row-actions"><button class="btn btn-ghost btn-sm" data-action="restore-list" data-list-id="${escapeHtml(l.list_id)}">Restore</button></span>`,
   }), "No archived mailing lists.");
+  renderRowList($("archived-notification-list"), archivedNotifications, (n) => n.id, notificationRow,
+    "No archived notifications.");
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +412,9 @@ async function submitList(e) {
 }
 
 async function openReview(notificationId) {
-  reviewing = notifications.find((n) => n.id === notificationId);
+  // From either tab: an archived one opens read-only like any finished notification.
+  reviewing = notifications.find((n) => n.id === notificationId)
+    || archivedNotifications.find((n) => n.id === notificationId);
   if (!reviewing) return;
   const n = reviewing;
   const form = $("notification-form");

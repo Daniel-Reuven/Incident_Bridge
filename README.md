@@ -1,6 +1,6 @@
 # Incident Bridge
 
-**Status:** v0.4.8 — Stage 1 complete, including the group-of-four extension (Sites & Mailing Lists), plus AI analysis of faults on a dedicated worker thread
+**Status:** v0.4.9 — Stage 1 complete, including the group-of-four extension (Sites & Mailing Lists), plus AI analysis of faults on a dedicated worker thread
 **Course:** Advanced Programming — Project
 **Repository:** https://github.com/Daniel-Reuven/Incident_Bridge
 **Companion document:** [`AI_USAGE.md`](AI_USAGE.md) — how AI tools were used in this project
@@ -399,7 +399,7 @@ stateDiagram-v2
 ```
 
 - **Availability check** (`backend/app/services/availability.py`): one HTTP GET with a timeout. 2xx/3xx in time → Operational; slower than the threshold, or 4xx → Degraded; 5xx, timeout or no connection → a failure. One failure makes the site Degraded, **two in a row** make it Down, so one dropped request never raises an outage. An admin can also set any status by hand, with a reason; Maintenance is manual only.
-- **Notifications:** every worthwhile status change creates a notification to the **active** mailing lists covering the site — a **Draft**, or **Skipped** when nobody would receive it. "Worthwhile" excludes Unknown → Operational (a new site found healthy) and any change to Unknown (a restore). A newer draft for the same site **supersedes** an older unsent one. An admin reviews a draft, may edit the text, and **sends** it (through the `Notifier` interface; delivery is recorded in an in-app outbox, no real email) or **dismisses** it. A failed delivery leaves it a Draft to retry.
+- **Notifications:** every worthwhile status change creates a notification to the **active** mailing lists covering the site — a **Draft**, or **Skipped** when nobody would receive it. "Worthwhile" excludes Unknown → Operational (a new site found healthy) and any change to Unknown (a restore). A newer draft for the same site **supersedes** an older unsent one. An admin reviews a draft, may edit the text, and **sends** it (through the `Notifier` interface; delivery is recorded in an in-app outbox, no real email) or **dismisses** it. A failed delivery leaves it a Draft to retry. **Archive:** a sent, dismissed or skipped notification moves from the *Notifications* tab to the *Archive* tab, view only, `NOTIFICATION_ARCHIVE_DAYS` days after it was finished (default 30; `0` = never). It is worked out from the notification's own times (`Notification.is_archived()`), so nothing extra is stored; Drafts are never archived, and only a Draft can be edited, sent or dismissed. `GET /sites/notifications?archived=true` lists the archived ones.
 
 ```mermaid
 stateDiagram-v2
@@ -677,13 +677,14 @@ Incident_Bridge/
 
 ## 14. Automated testing
 
-`backend/tests/` holds **1048 tests** (pytest), all passing, with **98% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
+`backend/tests/` holds **1064 tests** (pytest), all passing, with **98% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
 
 - **Unit tests** — the domain classes directly, no HTTP and no database: models (`tests/test_models/`), services (`tests/test_services/`), queues (`tests/test_queues/`), iterators, the generator, context managers, the scan, the report, the site directory, user provisioning and JSONL validation.
 - **Integration tests** (`tests/test_api/`) — the real app over HTTP with FastAPI's `TestClient` and a fresh in-memory database per test: permissions, error codes, every endpoint, live-update audiences. The `admin_client` and `user_client` fixtures are two separately logged-in users sharing the same backend.
 - **Restart tests** — two app instances on the same database file, proving data survives a restart.
 - **AI analysis tests** (`tests/test_ai/`, `tests/test_api/test_analysis_api.py`) — the queue and worker thread (FIFO, one call at a time, the delay, cancelling, dropping closed faults, restarts, the single named thread), the prompt, the splitter and the settings, all with the **fake provider** — no API key or network. `tests/test_ai/test_providers.py` runs each real provider's official SDK against a local stub server (success, API error, timeout, no retries); it is skipped when that SDK is not installed. CI installs them (`".[dev,ai]"`).
 - **`test_main_demo.py`** — runs `main.py` and checks every section prints and it finishes cleanly.
+- **Notification archive** (`test_notification_archive.py`) — drafts are never archived; sent, dismissed and skipped ones archive after the period; the `NOTIFICATION_ARCHIVE_DAYS` setting; `?archived=true` and the view-only rule over HTTP.
 - **Public pages and files** (`test_public_pages.py`) — the Guide, About and Terms pages open without logging in, the screenshots are served, `/health` reports the version from `pyproject.toml`; and static checks: every local link and image in `frontend/*.html` exists, every `#section` link has its target, every page loads the footer, the README's screenshots exist, and `LICENSE` names the same team as the About page.
 
 ```bash
@@ -718,6 +719,7 @@ The AI provider SDKs need **Python 3.10 or newer**; the rest of the app runs on 
 | `ALLOWED_ORIGINS` | No | Only if the frontend is served from another origin |
 | `SITES_SEED_PATH`, `MAILING_LISTS_SEED_PATH` | No | Import `data/sites.jsonl` / `data/mailing_lists.jsonl` at startup (relative to the repository root) |
 | `SITE_CHECK_TIMEOUT_SECONDS`, `SITE_CHECK_SLOW_MS` | No | Site check timeout (default 5 s) and "slow" threshold (default 2000 ms) |
+| `NOTIFICATION_ARCHIVE_DAYS` | No | Days before a sent, dismissed or skipped notification moves to the site portal's Archive tab (default 30; `0` = never; drafts are never archived) |
 | `AI_PROVIDER` | No | AI analysis provider: `gemini` (default), `claude`, `openai`, or `fake` (canned answers, no key — for trying the feature) |
 | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`, `OPENAI_API_KEY` + `OPENAI_MODEL` | Only for AI analysis | The selected provider's key and model(s). Without the key the feature is off (no button). A model setting may be a comma-separated fallback list, best first. Claude/OpenAI: a key without a model stops startup with a clear message. |
 | `GEMINI_TIER`, `GEMINI_MODELS` | No | Gemini's models: `GEMINI_TIER=free` (default) or `paid` picks a built-in fallback list; `GEMINI_MODELS` replaces it with your own comma-separated list. |

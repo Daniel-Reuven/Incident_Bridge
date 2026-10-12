@@ -32,7 +32,7 @@ from app.queues import FaultPriorityQueue, MaintenanceQueueManager
 from app.repository import IncidentRepository, UserStore, seed_users_from_env
 from app.services.availability import HttpChecker
 from app.services.notifier import OutboxNotifier
-from app.sites import SiteDirectory, seed_site_directory
+from app.sites import SiteDirectory, notification_archive_after_from_env, seed_site_directory
 
 
 DEFAULT_DATABASE_PATH = "incident_bridge.db"
@@ -137,7 +137,10 @@ class AppState:
         # HttpChecker.from_env() raises ValueError (stopping startup with a
         # clear message) if SITE_CHECK_TIMEOUT_SECONDS / SITE_CHECK_SLOW_MS
         # hold something that is not a positive number.
-        sites = SiteDirectory(site_store, checker=HttpChecker.from_env(), notifier=OutboxNotifier())
+        # notification_archive_after_from_env() raises ValueError the same way for a
+        # bad NOTIFICATION_ARCHIVE_DAYS.
+        sites = SiteDirectory(site_store, checker=HttpChecker.from_env(), notifier=OutboxNotifier(),
+                              archive_notifications_after=notification_archive_after_from_env())
         sites.bulk_load(*site_store.load_all())
         seed_site_directory(sites)
 

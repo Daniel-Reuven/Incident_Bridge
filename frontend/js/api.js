@@ -126,8 +126,14 @@ export const api = {
   archiveMailingList: (listId) => request(`/sites/mailing-lists/${encodeURIComponent(listId)}/archive`, { method: "POST" }),
   restoreMailingList: (listId) => request(`/sites/mailing-lists/${encodeURIComponent(listId)}/restore`, { method: "POST" }),
 
-  // state: "draft" | "sent" | "dismissed" | "skipped" | "" (all)
-  listNotifications: (state = "") => request("/sites/notifications" + (state ? `?state=${state}` : "")),
+  // state: "draft" | "sent" | "dismissed" | "skipped" | "" (all).
+  // archived: false = the current ones (default), true = only the archived ones (view only).
+  listNotifications: (state = "", { archived = false } = {}) => {
+    const query = new URLSearchParams();
+    if (state) query.set("state", state);
+    if (archived) query.set("archived", "true");
+    return request("/sites/notifications" + (query.toString() ? `?${query}` : ""));
+  },
   sendNotification: (id, message) =>
     request(`/sites/notifications/${id}/send`, { method: "POST", body: message ? { message } : {} }),
   dismissNotification: (id, reason) =>

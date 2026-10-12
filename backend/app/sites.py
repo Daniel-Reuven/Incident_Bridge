@@ -86,6 +86,7 @@ convenience wrapper that feeds this directory's site ids to the scan.
 
 import json
 import os
+from datetime import timedelta
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
@@ -214,18 +215,23 @@ class SiteDirectory:
     app/state.py passes an HttpChecker, tests and the demo a FakeChecker.
     Likewise `notifier`: without one, send_notification() raises
     RuntimeError (drafts are still created) - app/state.py passes an
-    OutboxNotifier.
+    OutboxNotifier. `archive_notifications_after`: how long a finished
+    notification stays in the current list before it is archived (see
+    Notification.is_archived()); None (the default) never archives -
+    app/state.py passes notification_archive_after_from_env().
     """
 
     def __init__(self, store: Optional[SqliteSiteStore] = None,
                  checker: Optional[AvailabilityChecker] = None,
-                 notifier: Optional[Notifier] = None):
+                 notifier: Optional[Notifier] = None,
+                 archive_notifications_after: Optional[timedelta] = None):
         self._sites: Dict[int, Site] = {}
         self._lists: Dict[str, MailingList] = {}
         self._notifications: Dict[str, Notification] = {}
         self._store = store
         self._checker = checker
         self._notifier = notifier
+        self.archive_notifications_after = archive_notifications_after
 
     # ------------------------------------------------------------------
     # Saving and startup loading
@@ -363,9 +369,20 @@ class SiteDirectory:
         except KeyError:
             raise KeyError(f"Notification {notification_id} not found.") from None
 
-    def notifications(self) -> Iterator[Notification]:
-        """Generator over every notification, newest first."""
-        yield from sorted(self._notifications.values(), key=lambda n: n.created_at, reverse=True)
+    def notifications(self, archived: Optional[bool] = None) -> Iterator[Notification]:
+        """
+        Generator over the notifications, newest first: all of them (archived
+        None, the default), only the archived ones (True), or only the current
+        ones (False) - drafts are always current. Archived is worked out now,
+        from archive_notifications_after.
+        """
+        for notification in sorted(self._notifications.values(), key=lambda n: n.created_at, reverse=True):
+            if archived is None or self.is_archived(notification) == archived:
+                yield notification
+
+    def is_archived(self, notification: Notification) -> bool:
+        """Whether `notification` is archived right now (see Notification.is_archived())."""
+        return notification.is_archived(self.archive_notifications_after)
 
     def next_site_id(self) -> int:
         """The id the next site created in the app gets: one above every id ever used (archived included)."""
@@ -808,6 +825,33 @@ class SiteDirectory:
     def __repr__(self) -> str:
         return (f"SiteDirectory(sites={len(self._sites)}, mailing_lists={len(self._lists)}, "
                 f"notifications={len(self._notifications)})")
+
+
+NOTIFICATION_ARCHIVE_ENV = "NOTIFICATION_ARCHIVE_DAYS"
+DEFAULT_NOTIFICATION_ARCHIVE_DAYS = 30.0
+
+
+def notification_archive_after_from_env() -> Optional[timedelta]:
+    """
+    NOTIFICATION_ARCHIVE_DAYS from the environment: how many days a sent,
+    dismissed or skipped notification stays in the Notifications tab before
+    it moves to the Archive tab (view only). Unset or empty: 30 days.
+    0 switches archiving off. Fractions work (0.5 = 12 hours). Raises
+    ValueError, stopping startup with a clear message, for anything that is
+    not a number of 0 or more.
+    """
+    raw = (os.environ.get(NOTIFICATION_ARCHIVE_ENV) or "").strip()
+    if not raw:
+        days = DEFAULT_NOTIFICATION_ARCHIVE_DAYS
+    else:
+        try:
+            days = float(raw)
+        except ValueError:
+            days = -1.0
+        if not days >= 0:                          # also rejects "nan"
+            raise ValueError(f"{NOTIFICATION_ARCHIVE_ENV} must be a number of days, 0 or more "
+                             f"(0 = never archive), got {raw!r}")
+    return timedelta(days=days) if days > 0 else None
 
 
 def _seed_path_from_env(env_var: str) -> Optional[str]:
