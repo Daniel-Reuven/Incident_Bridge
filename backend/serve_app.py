@@ -56,20 +56,36 @@ import uvicorn  # noqa: E402 - must come after load_dotenv() so PORT etc. are al
 
 from app.ai.setup import check_ai_settings  # noqa: E402
 from app.logs import LOGGING_CONFIG, app_log  # noqa: E402
-from app.repository import UserProvisioningError, seed_users_from_env  # noqa: E402
+from app.api.security import session_settings_from_env  # noqa: E402
+from app.persistence_users import SqliteUserStore  # noqa: E402
+from app.repository import UserProvisioningError, first_login_change_required, seed_users_from_env  # noqa: E402
+from app.state import database_path  # noqa: E402
 
 
 def _check_users_or_exit() -> None:
     """
-    Validate INCIDENT_BRIDGE_USERS BEFORE starting the server, so a bad
-    value (invalid JSON, a duplicate username, a weak password, ...) stops
-    the app with just its clear message and exit code 1 - no traceback, and
-    no auto-reloader left waiting. The app checks the same thing again at
-    startup (AppState.create()), which also covers running uvicorn directly.
+    Validate the user and session settings BEFORE starting the server, so a
+    bad value stops the app with just its clear message and exit code 1 -
+    no traceback, and no auto-reloader left waiting:
+      - INCIDENT_BRIDGE_USERS (invalid JSON, a duplicate username, a
+        password that fails the policy, ...) - only when the users table is
+        still empty, because that is the only time it is used (see
+        app/repository.py's load_users());
+      - REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN, SESSION_MAX_AGE_HOURS and
+        SESSION_COOKIE_SECURE.
+    The app checks the same things again at startup, which also covers
+    running uvicorn directly.
     """
     try:
-        seed_users_from_env(warn=False)
-    except UserProvisioningError as exc:
+        first_login_change_required()
+        session_settings_from_env()
+        users_db = SqliteUserStore(database_path())
+        try:
+            if users_db.count() == 0:
+                seed_users_from_env(warn=False)
+        finally:
+            users_db.close()
+    except (UserProvisioningError, ValueError) as exc:
         app_log.error(str(exc))
         sys.exit(1)
 

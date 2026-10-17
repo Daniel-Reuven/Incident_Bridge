@@ -32,7 +32,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.ai.setup import create_analysis_worker
-from app.api import analysis, auth, events, incidents, sites
+from app.api import analysis, auth, events, incidents, sites, users
+from app.api.security import SecurityHeadersMiddleware, session_settings_from_env
 from app.events import EventBroadcaster, install_shutdown_hook
 from app.logs import app_log, apply_console_format
 from app.version import app_version
@@ -85,7 +86,15 @@ if not _secret_key:
         "Set it before deploying anywhere reachable by anyone else."
     )
     _secret_key = "dev-only-insecure-secret-change-me"
-app.add_middleware(SessionMiddleware, secret_key=_secret_key, same_site="lax")
+# Lifetime and the Secure flag come from SESSION_MAX_AGE_HOURS (default 12) and
+# SESSION_COOKIE_SECURE (default false - set it to true behind HTTPS); see
+# app/api/security.py. A bad value stops startup with a clear message.
+_session_max_age, _session_secure = session_settings_from_env()
+app.add_middleware(SessionMiddleware, secret_key=_secret_key, same_site="lax",
+                   max_age=_session_max_age, https_only=_session_secure)
+
+# Security headers on every response (CSP, no framing, nosniff, referrer policy).
+app.add_middleware(SecurityHeadersMiddleware)
 
 # --- CORS: only needed if the frontend is served from a different origin ---
 # than this API during development. The normal setup (frontend served by
@@ -102,6 +111,7 @@ if _cors_origins:
     )
 
 app.include_router(auth.router)
+app.include_router(users.router)   # admin-only user management
 app.include_router(incidents.router)
 app.include_router(events.router)
 app.include_router(sites.router)   # admin-only site portal (Sites & Mailing Lists)

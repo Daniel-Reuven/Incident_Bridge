@@ -14,7 +14,7 @@ from app.state import AppState, order_pending_maintenance
 
 @pytest.fixture
 def reporter():
-    return User(username="reporter", role=Role.USER, password="Passw0rd1")
+    return User(username="reporter", role=Role.USER, password="Passw0rd!1")
 
 
 def make_task(reporter, title, minutes, position):

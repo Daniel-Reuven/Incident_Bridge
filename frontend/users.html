@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Users — Incident Bridge</title>
+<link rel="stylesheet" href="/css/styles.css">
+<script src="/js/theme.js"></script>
+</head>
+<!--
+  User management (admin only). Filled in by js/users.js from the /users API
+  (backend/app/api/users.py), which refuses non-admins with 403; users.js
+  also sends non-admins back to the dashboard.
+-->
+<body>
+  <header id="topbar"></header>
+  <main class="dashboard" id="users-page" hidden>
+    <a href="/dashboard.html" class="back-link">← Back to dashboard</a>
+    <div class="portal-header">
+      <h1>Users</h1>
+      <button class="btn btn-primary" id="new-user-btn">New user</button>
+    </div>
+    <p class="hint">Accounts are disabled, never deleted, so their incidents and comments keep their author.
+      A new account and a reset password must be changed at the next login. You cannot change your own role
+      or disable yourself.</p>
+    <div class="table-wrap">
+      <table class="data-table users-table">
+        <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Created</th><th><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody id="users-body"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+
+  <dialog id="new-user-dialog" class="dialog dialog-wide">
+    <form id="new-user-form" class="dialog-form">
+      <h2>New user</h2>
+      <label>Username<input type="text" name="username" required minlength="3" maxlength="32"
+        pattern="[A-Za-z0-9._\-]{3,32}" autocomplete="off"></label>
+      <p class="hint">3–32 characters: letters, digits, “.”, “_” or “-”.</p>
+      <label>Role
+        <select name="role"><option value="user">User</option><option value="admin">Admin</option></select>
+      </label>
+      <div class="pw-fields"></div>
+      <p class="form-error" id="new-user-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create user</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="reset-dialog" class="dialog dialog-wide">
+    <form id="reset-form" class="dialog-form">
+      <h2 id="reset-title">Reset password</h2>
+      <p class="hint">The user must change this password at their next login, and is signed out everywhere now.</p>
+      <div class="pw-fields"></div>
+      <p class="form-error" id="reset-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Reset password</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/js/users.js"></script>
+  <script type="module" src="/js/footer.js"></script>
+</body>
+</html>

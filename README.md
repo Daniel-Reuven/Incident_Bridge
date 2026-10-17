@@ -51,13 +51,13 @@ cd .. && python main.py      # offline demo of every Stage 1 requirement
 
 ## Screenshots
 
-The web app as of v0.4.8, with the bundled sample data (`data/sample_data.jsonl`, `sites.jsonl`, `mailing_lists.jsonl`), logged in as an admin. Click an image for full size.
+The web app as of v0.5.0 (with the dashboard tabs, Settings and Users page), with the bundled sample data (`data/sample_data.jsonl`, `sites.jsonl`, `mailing_lists.jsonl`), logged in as an admin. Click an image for full size.
 
-**1. Login** — there is no self-registration: the users come from `INCIDENT_BRIDGE_USERS` in `backend/.env` ([§11](#11-architecture--as-built)).
+**1. Login** — there is no self-registration: an admin creates accounts on the *Users* page; the very first ones come from `INCIDENT_BRIDGE_USERS` in `backend/.env` ([§11](#11-architecture--as-built)).
 
 [![Login page](docs/screenshots/01-login.png)](docs/screenshots/01-login.png)
 
-**2. Dashboard** — the filters, *Check stale incidents*, *Pressing maintenance calls*, *New incident* and the admin-only *Import seed data*, above the **maintenance queue** (FIFO: one at a time, in arrival order). Further down the page are the **fault queue** (priority order: most severe first, every severity together) and the full incident list. Every open tab updates live ([§5](#5-incident-lifecycle-and-actions), [§11](#11-architecture--as-built)).
+**2. Dashboard** — the text filter (title, description and comments), the other filters, *Check stale incidents*, *New incident* and the admin-only *Import seed data*, above four tabs: **Everything** (the **maintenance queue** — FIFO: one at a time, in arrival order — the **fault queue** — priority order: most severe first, every severity together — and the full incident list), **Maintenance** (its queue and active tasks, plus *Pressing maintenance calls*), **Faults** (its queue and active faults) and **Archive** (closed incidents of both kinds). Every open tab updates live ([§5](#5-incident-lifecycle-and-actions), [§11](#11-architecture--as-built)).
 
 [![Dashboard](docs/screenshots/02-dashboard.png)](docs/screenshots/02-dashboard.png)
 
@@ -69,13 +69,29 @@ The web app as of v0.4.8, with the bundled sample data (`data/sample_data.jsonl`
 
 [![Site portal](docs/screenshots/04-sites-portal.png)](docs/screenshots/04-sites-portal.png)
 
-**5. Pressing maintenance calls** — open maintenance tasks that have waited more than 3 days, oldest first, produced by a generator in a lazy pipeline (*Examined 82 of 82 incidents*); *Show first* stops the pipeline early ([§9](#9-iteration-iterableiterator-generator-and-lazy-pipeline)).
+**5. Pressing maintenance calls** — open maintenance tasks that have waited more than 3 days, oldest first, produced by a generator in a lazy pipeline (*Examined 35 of 35 incidents*); *Show first* stops the pipeline early ([§9](#9-iteration-iterableiterator-generator-and-lazy-pipeline)).
 
 [![Pressing maintenance calls](docs/screenshots/05-pressing-calls.png)](docs/screenshots/05-pressing-calls.png)
 
+**6. Settings — Password** — current password, new password and its confirmation; the **i** button shows the password policy and links to it in the Guide, and the checklist ticks off each rule while typing (*Not a common password* is checked by the server on save).
+
+[![Settings, Password tab](docs/screenshots/06-settings-password.png)](docs/screenshots/06-settings-password.png)
+
+**7. Settings — Interface** — color scheme (System / Light / Dark) and text size, kept in this browser and applied to every page.
+
+[![Settings, Interface tab](docs/screenshots/07-settings-interface.png)](docs/screenshots/07-settings-interface.png)
+
+**8. Dark theme** — the dashboard's *Faults* tab: the fault queue in priority order, with each fault's time as *hours ago, HH:MM UTC YYYY/MM/DD*.
+
+[![Dashboard in the dark theme](docs/screenshots/08-dashboard-dark.png)](docs/screenshots/08-dashboard-dark.png)
+
+**9. Users (admin only)** — every account with its role and status; new accounts and reset passwords must be changed at the next login, and an admin cannot change their own role or disable themselves.
+
+[![Users page](docs/screenshots/09-users.png)](docs/screenshots/09-users.png)
+
 The same images illustrate the app's own **Guide** page (`/guide.html`), which serves them from this folder at `/screenshots/` — one copy for both.
 
-*Updating the screenshots:* run the app with a fresh database, import the sample data, press *Check all sites* and analyze `seed-075`, then capture each page in a 1440×900 browser window — the login page cropped to its card, the pressing page to its table, the fault page as a full-page capture — and save it under the same file name in `docs/screenshots/`.
+*Updating the screenshots:* run the app with a fresh database (`AI_PROVIDER=fake`, `SITES_SEED_PATH` and `MAILING_LISTS_SEED_PATH` set), import the sample data, press *Check all sites* and analyze `seed-075`, then capture each page in a 1440×900 browser window — the login page cropped to its card (580×477), the pressing page and the Users page to 1440×720, the fault page as a full-page capture, the two Settings tabs cropped to the dialog, and the dark dashboard on its *Faults* tab — and save each under the same file name in `docs/screenshots/`. Then update the `width`/`height` of the matching `<img>` in `frontend/guide.html` if a size changed.
 
 ---
 
@@ -307,7 +323,9 @@ In the diagram, *italic* members are abstract (`extra_fields()`; `kind` is an ab
   - `Work session completed after 42.0s.` / `Work session interrupted after 3.1s by RuntimeError: disk full` (`IncidentWorkSession`, [§10](#10-context-managers))
 
   Part A's "a mandatory closure message once resolved" is exactly this: the closing message is stored on the incident and also recorded as the reason in the log entry.
-- **Dashboard helpers:** *Pressing maintenance calls* (open tasks waiting more than 3 days, [§9](#9-iteration-iterableiterator-generator-and-lazy-pipeline)) and *Check stale incidents* (in-progress incidents with no update for a chosen time, default 4 hours, highlighted in the lists).
+- **Dashboard tabs:** *Everything*, *Maintenance*, *Faults* (open and in-progress only) and *Archive* (closed incidents, most recently closed first; a reopened incident moves back automatically). Each tab shows its count; the open tab is kept in the URL (`dashboard.html#faults`) and, with the filter text, for the browser tab's session, so coming back from an incident page restores both.
+- **Text filter:** filters every list and queue of the open tab by title, description **and comments** (case-insensitive; with several words, each must appear). Queue rows keep their real position; a row matched only by a comment says *match in comments*; the tab counts show *matching / total*. It runs in the browser on the data the page already loads — no extra server call.
+- **Dashboard helpers:** *Pressing maintenance calls* (Maintenance tab; open tasks waiting more than 3 days, [§9](#9-iteration-iterableiterator-generator-and-lazy-pipeline)) and *Check stale incidents* (every tab except Archive; in-progress incidents with no update for a chosen time, default 4 hours, highlighted in the lists).
 
 ## 6. Sites & Mailing Lists subsystem (group-of-four extension)
 
@@ -451,20 +469,31 @@ All three data files were **generated with AI tools** (see `AI_USAGE.md`), then 
 
 | File | Records | One record looks like |
 |---|---|---|
-| `data/sample_data.jsonl` | 82 incidents (maintenance tasks and faults), several mentioning sites; `seed-075`–`seed-082` are complex faults with an investigation thread, for AI analysis; the first ten maintenance tasks are 1–12 days old (`minutes_ago`), so *Pressing maintenance calls* and *Check stale incidents* have something to show | `{"id": "seed-003", "kind": "fault", "title": "Payment API is down", "description": "...", "created_by": "tech1", "details": {"system_unavailable": true}}` — optional `assigned_to`; `details` for faults only; optional `minutes_ago` and `comments` (below) |
+| `data/sample_data.jsonl` | 35 incidents: 15 maintenance tasks and 20 faults (5 critical, 6 major, 9 minor); 6 of them (3 of each kind) are already closed, for the dashboard's Archive tab; several mention sites; `seed-075`–`seed-082` are complex faults with an investigation thread, for AI analysis; the first ten maintenance tasks are 1–12 days old (`created_at`), so *Pressing maintenance calls* and *Check stale incidents* have something to show. Ids keep their original numbers (gaps are expected) | `{"id": "seed-003", "kind": "fault", "title": "Payment API is down", "description": "...", "created_by": "tech1", "details": {"system_unavailable": true}}` — optional `assigned_to`; `details` for faults only; optional `created_at`, `comments` and `closed` (below) |
 | `data/sites.jsonl` | 12 sites | `{"site_id": 1007, "site_name": "Internal HR portal", "site_url": "https://hr.incident-bridge.invalid", "site_publish_date": "2020-07-14"}` |
 | `data/mailing_lists.jsonl` | 6 mailing lists | `{"list_id": "hr-systems", "name": "HR systems owners", "members": ["hr.it@example.com"], "site_ids": [1006, 1007, 1008]}` |
 
 **Optional timeline fields** (`IncidentRepository._apply_seed_timeline`), so a sample incident can look like one that has been worked on for a while:
 
 ```json
-{"id": "seed-075", "kind": "fault", "...": "...", "minutes_ago": 300,
- "comments": [{"author": "tech1", "text": "Opened a ticket with the vendor.", "minutes_ago": 290},
+{"id": "seed-075", "kind": "fault", "...": "...", "created_at": "2026-10-16T09:00:00Z",
+ "comments": [{"author": "tech1", "text": "Opened a ticket with the vendor.", "created_at": "2026-10-16T09:10:00+00:00"},
               {"author": "tech2", "text": "Vendor says it is not on their side."}]}
 ```
 
-- `minutes_ago` on the record: when it was reported, counted back from the moment of the import. Without it, the report time is the import time — or the oldest comment's time, so a report is never newer than its own updates.
-- `comments`: the update thread, **oldest first**. Each needs a known `author` (same rule as `created_by`) and a non-blank `text` within the 5,000-character comment limit; `minutes_ago` is optional (default: the import time).
+- **Times:** `created_at` is an ISO 8601 date and time **with a time zone** (`Z` or `+03:00`), not in the future. So an incident imported today can be dated yesterday. The older relative form `"minutes_ago": 1440` (counted back from the moment of the import) still works; giving both is an error. The bundled sample data uses `created_at` throughout.
+- `created_at` on the record: when it was reported. Without it, the report time is the import time — or the oldest comment's time, so a report is never newer than its own updates.
+- `comments`: the update thread, **oldest first**. Each needs a known `author` (same rule as `created_by`) and a non-blank `text` within the 5,000-character comment limit; `created_at` is optional (default: the import time).
+
+**Optional `closed` block** (`IncidentRepository._apply_seed_closure`), for incidents that are already finished:
+
+```json
+{"id": "seed-005", "kind": "fault", "...": "...", "created_at": "2026-10-15T08:00:00Z",
+ "closed": {"by": "tech3", "resolution": "resolved", "message": "Typo fixed in the invoice template.", "closed_at": "2026-10-16T08:00:00Z"}}
+```
+
+- `by` (a known user), `resolution` (`resolved`, `not_an_incident` or `by_design`) and `message` follow the normal close rules (`Incident.close()`: message required; *Not an incident* and *By design* are admin-only); `closed_at` (optional, default: the import time; same format as `created_at`, or `minutes_ago`) may not be older than the incident or its newest comment.
+- The closing log comment gets that time. A closed record goes into **no queue** — the import endpoint only queues records that are still Open.
 
 Addresses ending in `.invalid` are a reserved domain that never resolves, so those sites reliably show as Down in a check; email addresses are synthetic (`@example.com`).
 
@@ -479,7 +508,7 @@ Addresses ending in `.invalid` are a reserved domain that never resolves, so tho
 - a missing or invalid `id` → rejected (ids make re-importing idempotent);
 - an id already loaded → skipped, never overwritten; the same id twice in one file → reported as a duplicate;
 - unknown `kind`, blank or over-long title/description, invalid `details`, an unknown `created_by`/`assigned_to` user, a line that is not a JSON object, broken JSON → skipped with the reason;
-- an invalid `minutes_ago`, or a `comments` entry with an unknown author, an empty or too-long text, comments out of order, or a comment older than its incident → the whole record is skipped with the reason;
+- an invalid time (`created_at`/`closed_at` without a time zone or in the future, a negative `minutes_ago`, or both forms at once), or a `comments` entry with an unknown author, an empty or too-long text, comments out of order, or a comment older than its incident → the whole record is skipped with the reason;
 - a mailing list linking an unknown or archived site → the link is dropped with a warning, the list still loads.
 
 **Ways to load the data:** `python main.py` (offline demo, in memory); the admin's **Import seed data** button on the dashboard; `backend/seed_from_jsonl.py` (imports into a **running** server over its API, so the new incidents appear live); and the opt-in startup import for sites and lists ([§6.5](#65-access-live-updates-and-storage)).
@@ -530,11 +559,14 @@ Both live in `backend/app/context.py`; neither ever suppresses an exception (`__
 ## 11. Architecture — as built
 
 - **Backend:** FastAPI (`backend/app/api/app.py`) served by Uvicorn; request bodies are Pydantic models; domain errors map to HTTP codes in one place (`ValueError` → 400, `PermissionError` → 403, `KeyError`/`IndexError` → 404, `RuntimeError` → 409). Interactive API documentation is served by the app itself at **`/docs`** (generated by FastAPI from the code) — this is the API reference; this README is the project documentation.
-- **Users and auth:** no self-registration. Users come from `INCIDENT_BRIDGE_USERS` in `backend/.env`, read at every startup and **fail-fast**: invalid JSON, an invalid entry or a duplicate username (case-insensitive) or a reserved name stops the app with a message listing every problem. The name `ai-assistant` is reserved for a built-in **system user** (`app/models/system_users.py`) that the app always adds; it authors AI analysis comments (whichever AI provider is configured) and can never log in. Sessions use a signed cookie; the role is looked up on every request, never trusted from the browser. Password policy: at least 8 characters, letters and digits only, enforced by `PasswordPolicy` at provisioning and at password change.
+- **Users and auth:** no self-registration. Accounts live in the database (`users` table, `app/persistence_users.py`). On the **first start of a new database** (empty table) the users from `INCIDENT_BRIDGE_USERS` are created — validated **fail-fast** (invalid JSON, an invalid entry, a password that breaks the policy, a duplicate username (case-insensitive) or a reserved name stops the app with a message listing every problem) — and must change their password at first login (`REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN`). **After that the table is the source of truth** and `INCIDENT_BRIDGE_USERS` is ignored (a startup notice says so): admins manage accounts on the **Users** page (create, change role, disable/enable, reset password — `app/api/users.py`), and `backend/manage_users.py` resets a password from the command line when no admin can log in. Accounts are disabled, never deleted. The name `ai-assistant` is reserved for a built-in **system user** (`app/models/system_users.py`) that the app always adds in memory; it authors AI analysis comments and can never log in.
+- **Passwords:** the character-mix policy in `PasswordPolicy` — 8–128 characters with an uppercase letter, a lowercase letter, a digit and a symbol, not containing the username, not on a list of common passwords, and (when changing) different from the current one; served as data by `GET /auth/password-policy` for the live checklist and tooltip, and described on the Guide page (`/guide.html#password-policy`). Stored as PBKDF2-HMAC-SHA256 with a random salt and **600,000 iterations** (the count is stored with each hash; an older, weaker hash is re-hashed at the next login), compared in constant time. Changing a password needs the current one and a matching confirmation (checked by the server).
+- **Sessions and login hardening:** a signed cookie holding the username and the user's *session version*; the user, role and version are checked on every request, never trusted from the browser. A password change/reset or disabling the account bumps the version, which ends every other session. The cookie lasts `SESSION_MAX_AGE_HOURS` (default 12) and is `Secure` when `SESSION_COOKIE_SECURE=true`. Failed logins are limited (`app/services/login_guard.py`): 5 per username or 20 per address in 15 minutes lock that username/address for 15 minutes (HTTP 429). An unknown or disabled username gets the same answer in the same time as a wrong password. A user who must change their password gets 403 from every endpoint except `/auth/me` and `/auth/change-password` until they do.
+- **Security headers** on every response (`app/api/security.py`): a Content-Security-Policy (scripts, styles, images and API calls only from the app itself, Google Fonts for the two web fonts, no framing), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and a restrictive `Permissions-Policy`.
 - **Persistence:** SQLite. Incidents and comments (`app/persistence.py`) and sites, lists and notifications (`app/persistence_sites.py`) are separate stores in the same file, each with one long-lived connection guarded by a `threading.Lock` (FastAPI runs sync endpoints in a thread pool). At startup `AppState.create()` (`app/state.py`) rebuilds the queues exactly as they were. Users are deliberately not stored in the database; a stored username that no longer exists shows as a labeled placeholder instead of crashing.
 - **AI analysis worker:** one dedicated, named background thread (`ai-analysis-worker`) works through a persisted FIFO queue of analysis requests, one API call at a time — see [§17](#17-ai-analysis-of-faults-worker-thread).
 - **Live updates:** Server-Sent Events (`GET /events`). Each browser tab subscribes with its own client id and its user's role; every change is published right after it is saved, never echoed back to the tab that made it, and site-portal events go to admin tabs only. A separate `ai_analysis` event carries the AI queue's state, which only the incident page listens to (to update its Analyze/Cancel buttons in place). Because endpoints (and the AI worker) run in their own threads and the event stream on the asyncio loop, events cross over with `loop.call_soon_threadsafe`.
-- **Restarting the server:** open tabs **reconnect on their own** within a few seconds (the browser's `EventSource` retries automatically) and live updates continue; the login session survives too, because it lives in a signed cookie — as long as `SESSION_SECRET_KEY` is unchanged and the user still exists in `INCIDENT_BRIDGE_USERS` (otherwise, log in again). Changes made while the server was down are not replayed, so refresh a page if something happened in the meantime. Stopping the server (Ctrl+C) is immediate even with tabs open: the app ends every open live-update stream first (`install_shutdown_hook` in `app/events.py`), so Uvicorn has nothing to wait for; a 3-second `timeout_graceful_shutdown` in `serve_app.py` remains only as a safety net.
+- **Restarting the server:** open tabs **reconnect on their own** within a few seconds (the browser's `EventSource` retries automatically) and live updates continue; the login session survives too, because it lives in a signed cookie — as long as `SESSION_SECRET_KEY` is unchanged, the session is younger than `SESSION_MAX_AGE_HOURS` and the account is unchanged (otherwise, log in again). Changes made while the server was down are not replayed, so refresh a page if something happened in the meantime. Stopping the server (Ctrl+C) is immediate even with tabs open: the app ends every open live-update stream first (`install_shutdown_hook` in `app/events.py`), so Uvicorn has nothing to wait for; a 3-second `timeout_graceful_shutdown` in `serve_app.py` remains only as a safety net.
 - **Console log:** every line the server prints has one layout (`app/logs.py`): the **level** first (padded and coloured like Uvicorn's own), then the **date and time**, a **source tag**, and the message. `APP` is Uvicorn's server messages and the app's notices (startup warnings, seed import, notification outbox); `HTTP` is one line per request, with the status text; `AI` is the AI analysis log, which also shows the thread that wrote the line. `serve_app.py` starts Uvicorn with this format (`log_config=LOGGING_CONFIG`), and `app/api/app.py` applies it on import, so the bare `uvicorn` command prints the same layout:
 
   ```
@@ -543,7 +575,10 @@ Both live in `backend/app/context.py`; neither ever suppresses an exception (`__
   INFO:     2026-10-12 19:16:31 AI   [ai-analysis-worker] Asking Gemini gemini-3.8-flash (model 1 of 4)
   WARNING:  2026-10-12 19:16:32 AI   [ai-analysis-worker] gemini-3.8-flash is overloaded (503) after 0.9s - trying gemini-3.6-flash
   ```
-- **Frontend:** plain HTML/CSS/JavaScript, no build step, served by the same app (same origin). Pages: `index.html` (login), `dashboard.html` (both queues, the full filterable/sortable list, new incident, stale check, admin import), `incident.html` (details, actions, comments), `pressing.html` (pressing maintenance calls) and `sites.html` (the admin site portal). Lists are patched in place, so live updates never flicker.
+- **Frontend:** plain HTML/CSS/JavaScript, no build step, served by the same app (same origin). Pages: `index.html` (login), `dashboard.html` (tabs: Everything / Maintenance / Faults / Archive, both queues, the full filterable/sortable list with a text filter over titles, descriptions and comments, new incident, stale check, admin import), `incident.html` (details, actions, comments), `pressing.html` (pressing maintenance calls), `sites.html` (the admin site portal) and `users.html` (admin user management). Lists are patched in place, so live updates never flicker.
+- **Settings** (top bar, `js/settings.js`): a *Password* tab (current, new and confirm, with the policy tooltip linking to `/guide.html#password-policy` and a live checklist — `js/password-fields.js`) and an *Interface* tab (color scheme Light / Dark / System, text size 90–130%). The interface choices are kept in the browser's `localStorage` and applied by `js/theme.js`, a tiny script in the `<head>` of every page, so the right theme is drawn from the first frame; the dark theme only redefines the color tokens in `css/styles.css`. A user who must change their password gets the Password tab and cannot close it.
+- **Always the current interface files:** every response carries `Cache-Control: no-cache` (`app/api/security.py`), so the browser re-checks each HTML/JS/CSS file with the server before using its copy — an unchanged file costs a tiny *304 Not Modified*, a changed one is downloaded at once. No manual cache clearing after an upgrade. Pages that were already open when the server was upgraded reload themselves: the footer (`js/footer.js`) re-reads the version from `GET /health` every minute and when the tab comes back into view, and reloads the page when it differs from the version the page was loaded with — so bump the version in `backend/pyproject.toml` with every release.
+- **Dates and times:** wherever an incident's time is shown (dashboard rows, incident page and its comments, pressing calls, the Users list), it reads like *13 days ago, 16:11 UTC 2026/06/01* (`js/datetime.js`) — UTC so everyone compares the same clock.
 - **Public pages:** `guide.html` (how to use the app, for users and admins, illustrated with `docs/screenshots/`), `about.html` (what it is, the team, how it is built) and `terms.html` (terms of use: accounts, acceptable use, what the AI providers receive, storage and cookies). They open without logging in; their header (`js/public-page.js`) shows *Log in* or, when logged in, *Back to dashboard*. A footer on **every** page (`js/footer.js`) links them, with the version, the license and the repository. The team, repository and license are kept in one file, `js/site-info.js`; the version comes from `GET /health`, which reads `backend/pyproject.toml` (`app/version.py`), so it is bumped in one place only.
 - **Runs locally, as a single process:** the queues are in-memory Python objects, so the app must run as one process / one Uvicorn worker; several workers would each have their own queues. The project runs locally for now; hosting will be decided when it expands.
 
@@ -551,7 +586,8 @@ Both live in `backend/app/context.py`; neither ever suppresses an exception (`__
 
 | Area | Endpoints |
 |---|---|
-| Auth | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/change-password` |
+| Auth | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `GET /auth/password-policy`, `POST /auth/change-password` |
+| Users (admin) | `GET`/`POST /users`, `PATCH /users/{username}` (role, disabled), `POST /users/{username}/reset-password` |
 | Incidents | `GET /incidents` (filter by type/status), `GET /incidents/{id}`, `POST /incidents/{id}/comments`, `POST /incidents/import-jsonl` (admin), `GET /incidents/work/stale` |
 | Maintenance | `GET /incidents/maintenance/queue`, `POST /incidents/maintenance`, `POST .../start-next`, `POST .../{id}/start`, `POST .../complete-current`, `POST .../{id}/close`, `GET .../reopen-options`, `POST .../{id}/reopen`, `GET .../pressing` |
 | Faults | `GET /incidents/faults/queue`, `POST /incidents/faults`, `POST .../claim-next`, `GET .../{id}/claim-status`, `POST .../{id}/claim`, `PATCH .../{id}/severity`, `POST .../{id}/close`, `POST .../{id}/reopen` |
@@ -582,6 +618,7 @@ Incident_Bridge/
 │   ├── .env.example              # copy to .env - users, secrets, optional settings
 │   ├── serve_app.py              # starts the web app (loads .env, checks users and AI settings, runs uvicorn)
 │   ├── seed_from_jsonl.py        # imports a JSONL file into a RUNNING server, live
+│   ├── manage_users.py           # list users / reset a password / enable an account (server stopped)
 │   ├── app/
 │   │   ├── api_client.py         # ApiClient: our requests-based HTTP/JSON client (timeout, raise_for_status, validation, GET retry)
 │   │   ├── models/               # domain classes
@@ -594,7 +631,8 @@ Incident_Bridge/
 │   │   │   ├── maintenance_queue.py   # MaintenanceQueue (deque) + MaintenanceQueueManager
 │   │   │   └── fault_queue.py         # FaultPriorityQueue (heapq)
 │   │   ├── services/
-│   │   │   ├── password_policy.py     # PasswordPolicy
+│   │   │   ├── password_policy.py     # PasswordPolicy (character-mix rule)
+│   │   │   ├── login_guard.py         # LoginGuard: failed-login lockout
 │   │   │   ├── severity_scoring.py    # SeverityScorer
 │   │   │   ├── availability.py        # AvailabilityChecker, HttpChecker, FakeChecker
 │   │   │   └── notifier.py            # Notifier, OutboxNotifier
@@ -610,7 +648,8 @@ Incident_Bridge/
 │   │   │   └── reanalysis.py     #   when a fault may be analyzed again
 │   │   ├── api/
 │   │   │   ├── app.py            # FastAPI app: middleware, routers, error mapping, frontend files
-│   │   │   ├── auth.py, incidents.py, events.py, sites.py, analysis.py   # routers
+│   │   │   ├── auth.py, users.py, incidents.py, events.py, sites.py, analysis.py   # routers
+│   │   │   ├── security.py       # security headers + session cookie settings
 │   │   │   ├── deps.py           # shared dependencies (state, current user/admin, broadcaster, AI worker)
 │   │   │   ├── schemas.py, site_schemas.py                  # request bodies
 │   │   │   └── serializers.py, site_serializers.py          # objects -> JSON-ready dicts
@@ -619,6 +658,7 @@ Incident_Bridge/
 │   │   ├── repository.py         # UserStore, IncidentRepository, user provisioning, incident JSONL loading
 │   │   ├── persistence.py        # SqliteIncidentStore
 │   │   ├── persistence_sites.py  # SqliteSiteStore
+│   │   ├── persistence_users.py  # SqliteUserStore (user accounts)
 │   │   ├── sites.py              # SiteDirectory: sites, lists, notifications, checks, seed loading
 │   │   ├── site_scan.py          # which incidents mention which site
 │   │   ├── reports.py            # site health report
@@ -628,7 +668,7 @@ Incident_Bridge/
 │   │   └── state.py              # AppState: builds everything at startup
 │   └── tests/                    # automated tests (see §14)
 ├── frontend/
-│   ├── index.html, dashboard.html, incident.html, pressing.html, sites.html
+│   ├── index.html, dashboard.html, incident.html, pressing.html, sites.html, users.html
 │   ├── guide.html, about.html, terms.html   # public pages - no login needed
 │   ├── css/styles.css
 │   └── js/
@@ -637,9 +677,13 @@ Incident_Bridge/
 │       ├── public-page.js        # header + filled-in facts for the public pages
 │       ├── footer.js             # the footer on every page
 │       ├── events.js             # live-update client (per-tab id, event scopes)
+│       ├── theme.js              # color scheme + text size, applied before the page is drawn (every page)
+│       ├── settings.js, password-fields.js   # Settings dialog; password fields with policy tooltip + checklist
+│       ├── datetime.js           # "13 days ago, 16:11 UTC 2026/06/01"
 │       ├── topbar.js, toast.js, row-list.js, updates-order.js
 │       ├── text-limits.js        # text-length limits (mirror the backend) + live character counters
 │       ├── login.js, dashboard.js, incident.js, pressing.js
+│       ├── users.js              # admin user management
 │       └── sites.js, sites-format.js   # site portal
 ```
 
@@ -650,12 +694,12 @@ Incident_Bridge/
 | 1 | Does Minor go through the priority queue too? | **Yes.** All severities share one `FaultPriorityQueue`. |
 | 2 | Are "Not an Incident" / "By Design" separate from "Resolved"? | **No** — the same closing action; all three require a message. |
 | 3 | Can anyone reorder the maintenance queue? | **No, never.** A task may leave from any position only by being closed with a reason, and a reopened task may re-enter at a chosen position — nothing already in the queue is ever reordered. |
-| 4 | Password rules? | Current password required to change it; at least 8 characters, A–Z / a–z / 0–9 only. |
+| 4 | Password rules? | Character mix: 8–128 characters with upper, lower, digit and symbol; not the username, not a common password, not the current one. Changing needs the current password and a confirmation. |
 | 5 | One maintenance queue or per team? | One `"default"` queue for now; `MaintenanceQueueManager` supports named queues later. |
 | 6 | Who may set each resolution type? | Assigned user or admin: Resolved. Admin only: Not an Incident, By Design. |
 | 7 | Who may reopen a closed incident? | Admin only, with a reason; the previous resolution is kept in the log. |
 | 8 | Which fault may be claimed from its own page? | Any fault in the top severity group currently waiting; "Claim next" always takes the head of the queue. |
-| 9 | Duplicate usernames in `INCIDENT_BRIDGE_USERS`? | Not allowed (case-insensitive) — the app refuses to start and lists every problem. |
+| 9 | Duplicate usernames? | Not allowed (case-insensitive) — in `INCIDENT_BRIDGE_USERS` the app refuses to start and lists every problem; on the Users page the new account is refused. |
 | 10 | A seed record without an `id`? | Rejected — ids are what make re-importing safe. |
 | 11 | Who can use the site portal? | Admins only — every page, endpoint and live update. |
 | 12 | Are site notifications sent automatically? | **No.** They are drafted; an admin sends or dismisses them. |
@@ -678,7 +722,7 @@ Incident_Bridge/
 
 ## 14. Automated testing
 
-`backend/tests/` holds **1106 tests** (pytest), all passing, with **98% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
+`backend/tests/` holds **1207 tests** (pytest), all passing, with **98% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
 
 - **Unit tests** — the domain classes directly, no HTTP and no database: models (`tests/test_models/`), services (`tests/test_services/`), queues (`tests/test_queues/`), iterators, the generator, context managers, the scan, the report, the site directory, user provisioning and JSONL validation.
 - **Integration tests** (`tests/test_api/`) — the real app over HTTP with FastAPI's `TestClient` and a fresh in-memory database per test: permissions, error codes, every endpoint, live-update audiences. The `admin_client` and `user_client` fixtures are two separately logged-in users sharing the same backend.
@@ -708,11 +752,13 @@ pip install -e ".[dev]"     # to also run the tests (adds pytest, pytest-cov)
 
 No extra package is needed for AI analysis: every provider is called through `requests` (`app/api_client.py`).
 
-**2. Configure:** copy `backend/.env.example` to `backend/.env` and edit it — at least the passwords in `INCIDENT_BRIDGE_USERS` and `SESSION_SECRET_KEY`.
+**2. Configure:** copy `backend/.env.example` to `backend/.env` and edit it — at least the first passwords in `INCIDENT_BRIDGE_USERS` and `SESSION_SECRET_KEY`. `INCIDENT_BRIDGE_USERS` is only read while the database has no users yet; after the first start, manage accounts on the *Users* page.
 
 | Setting | Required? | Purpose |
 |---|---|---|
-| `INCIDENT_BRIDGE_USERS` | Yes, beyond local testing | JSON array of users (`username`, `password`, `role` = `admin`/`user`). Unset → a demo pair `admin`/`Passw0rd1` and `tech1`/`Passw0rd2` with a warning. |
+| `INCIDENT_BRIDGE_USERS` | Yes, beyond local testing | The **first** users, created only when the database has no users yet: JSON array of `username`, `password` (must follow the password policy), `role` = `admin`/`user`. Unset → a demo pair `admin`/`Demo#Pass1` and `tech1`/`Demo#Pass2` with a warning. Ignored once users exist. |
+| `REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN` | No | `true` (default): those first users must change their password at first login |
+| `SESSION_MAX_AGE_HOURS`, `SESSION_COOKIE_SECURE` | No | Login lifetime (default 12 hours) and the cookie's `Secure` flag (default `false`; set `true` behind HTTPS) |
 | `SESSION_SECRET_KEY` | Yes, beyond local testing | Signs the session cookie; use a long random string |
 | `DATABASE_PATH` | No | SQLite file; default `incident_bridge.db` in the folder the server is started from (normally `backend/`) |
 | `HOST`, `PORT`, `RELOAD` | No | Used by `serve_app.py` (defaults `0.0.0.0`, `8000`, auto-reload on) |
@@ -735,11 +781,13 @@ cd backend
 python serve_app.py
 ```
 
-Open `http://127.0.0.1:8000/` and log in. `serve_app.py` loads `.env`, checks `INCIDENT_BRIDGE_USERS` and the AI settings before starting (a bad value prints the problem and exits), then runs Uvicorn. At startup the server prints whether AI analysis is on, and with which provider and model. Running `uvicorn app.api.app:app` directly does not load `.env` — add `--env-file .env` or use `serve_app.py`.
+Open `http://127.0.0.1:8000/` and log in. `serve_app.py` loads `.env`, checks `INCIDENT_BRIDGE_USERS` (only while the database has no users), the session settings and the AI settings before starting (a bad value prints the problem and exits), then runs Uvicorn. At startup the server prints whether AI analysis is on, and with which provider and model. Running `uvicorn app.api.app:app` directly does not load `.env` — add `--env-file .env` or use `serve_app.py`.
+
+**First login and user accounts:** on the first start of a new database the users from `INCIDENT_BRIDGE_USERS` are created, and each must choose a new password at first login. From then on, admins manage accounts on the **Users** page. If no admin can log in any more, stop the server and run `python manage_users.py reset-password admin` (or `list`, `enable <username>`) from `backend/`.
 
 **4. Load the sample data** — any of:
 - as an admin, the dashboard's **Import seed data** button (choose `data/sample_data.jsonl`);
-- with the server running, from `backend/`: `python seed_from_jsonl.py` (or `python seed_from_jsonl.py path/to/file.jsonl`) — logs in with an admin from your `.env` and imports through the API, so the incidents appear live in every open browser;
+- with the server running, from `backend/`: `python seed_from_jsonl.py` (or `python seed_from_jsonl.py path/to/file.jsonl`) — logs in as an admin and imports through the API, so the incidents appear live in every open browser. It first tries the first admin's password from `INCIDENT_BRIDGE_USERS`; once that admin has changed it (the app asks at the first login), it asks for the current password — one prompt, up to 3 tries. `--username <name>` logs in as another admin and asks for the password straight away;
 - sites and mailing lists: set `SITES_SEED_PATH=data/sites.jsonl` and `MAILING_LISTS_SEED_PATH=data/mailing_lists.jsonl` in `.env` and restart.
 
 Re-importing is safe: records whose id already exists are skipped.
@@ -848,7 +896,7 @@ We plan to implement more features in the future, such as performance improvemen
 - **Backend:** Python 3.9+, FastAPI, Uvicorn; packaging, dependencies and test settings in `backend/pyproject.toml`
 - **Frontend:** HTML / CSS / vanilla JavaScript (no build step, no framework), served by the same app
 - **Data structures:** `collections.deque` (maintenance FIFO), `heapq` (shared fault priority queue), plus `dict`, `set`, `tuple`/`NamedTuple` and `list` where each fits ([§3](#3-data-structures--what-is-used-where-and-why))
-- **Auth:** users pre-provisioned from `.env` (fail-fast validation), signed session cookie (Starlette `SessionMiddleware`, `itsdangerous`), two roles (Admin/User), shared password policy
+- **Auth:** users in SQLite (the first ones from `.env`, fail-fast validation), admin user management, signed session cookie with a session version (Starlette `SessionMiddleware`, `itsdangerous`), two roles (Admin/User), character-mix password policy, PBKDF2 (600,000 iterations), login lockout, security headers
 - **Persistence:** SQLite (stdlib `sqlite3`), one connection per store guarded by a `threading.Lock`
 - **Live updates:** Server-Sent Events with role-based audiences; `asyncio.Queue` per browser tab, bridged from worker threads with `loop.call_soon_threadsafe`
 - **Site checks:** `httpx` (one GET per check, behind the `AvailabilityChecker` interface)

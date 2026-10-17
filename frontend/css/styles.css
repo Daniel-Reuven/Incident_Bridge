@@ -40,10 +40,46 @@
   --admin-action: #96600A;
   --admin-action-hover: #7A4E08;
 
+  --accent-hover: #095b55;
+  --stale-bg: #FFF4D6;         /* "Check stale incidents" highlight */
+  --stale-bg-hover: #FCEBC0;
+  --backdrop: rgba(26, 35, 48, 0.4);
+  --shadow: rgba(0, 0, 0, 0.18);
+  color-scheme: light;
+
   --font-display: 'Space Grotesk', system-ui, sans-serif;
   --font-body: 'IBM Plex Sans', system-ui, sans-serif;
 
   --radius: 6px;
+}
+
+/* Dark color scheme (Settings > Interface; js/theme.js sets data-theme on
+   <html> before the page is drawn - "System" follows the operating system).
+   Only the tokens change: every rule below uses them, so nothing else needs
+   a dark variant. Severity and status colors are lightened so they keep
+   their contrast on the dark surfaces. */
+:root[data-theme="dark"] {
+  --ink: #E2E8EC;
+  --ink-soft: #9DADB8;
+  --paper: #0F151B;
+  --row-hover: #1A2B2C;
+  --surface: #172029;
+  --line: #2C3944;
+  --accent: #3DB5A9;
+  --accent-hover: #5CC9BE;
+  --accent-ink: #0A1716;
+  --critical: #EC7A62;
+  --major: #E3A640;
+  --minor: #9DADB8;
+  --admin-action: #D9A048;
+  --admin-action-hover: #E8B464;
+  --stale-bg: #3A3016;
+  --stale-bg-hover: #47391A;
+  --backdrop: rgba(0, 0, 0, 0.6);
+  --shadow: rgba(0, 0, 0, 0.5);
+  --status-unknown: #8796A1;
+  --status-maintenance: #7C9CC0;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -93,7 +129,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
   background: transparent;
 }
 .btn-primary { background: var(--accent); color: var(--accent-ink); }
-.btn-primary:hover { background: #095b55; }
+.btn-primary:hover { background: var(--accent-hover); }
 .btn-ghost { border-color: var(--line); color: var(--ink); background: var(--surface); }
 .btn-ghost:hover { border-color: var(--ink-soft); }
 .btn-import { background: var(--admin-action); color: var(--accent-ink); }
@@ -112,7 +148,7 @@ label.inline-select { display: inline-flex; align-items: center; gap: 6px; margi
    generic form rule below (width: 100%), which in a toolbar makes the whole
    button row claim a full line of its own and wrap onto a second line. */
 label.inline-select select { width: auto; margin-top: 0; }
-input[type="text"], input[type="password"], input[type="number"], select, textarea {
+input[type="text"], input[type="search"], input[type="password"], input[type="number"], select, textarea {
   display: block;
   width: 100%;
   margin-top: 6px;
@@ -168,11 +204,13 @@ textarea { resize: vertical; }
 .dialog {
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
   padding: 0;
   max-width: 420px;
   width: 90vw;
 }
-.dialog::backdrop { background: rgba(26, 35, 48, 0.4); }
+.dialog::backdrop { background: var(--backdrop); }
 .dialog-form { padding: 24px; }
 .dialog-form h2 { margin-bottom: 18px; }
 .dialog-actions { display: flex; align-items: center; gap: 10px; margin-top: 20px; }
@@ -209,6 +247,11 @@ textarea { resize: vertical; }
 .filters label { margin-bottom: 0; }
 .queue-section { margin-bottom: 32px; }
 .queue-section h2 { display: flex; align-items: center; }
+
+/* Dashboard text filter and the "match in comments" note (comments are not
+   shown on the dashboard, so a row matched only by a comment says so). */
+.filter-search input { width: 300px; max-width: 100%; }
+.row-match-tag { font-size: 12px; font-weight: 500; color: var(--accent); white-space: nowrap; }
 
 /* --- row lists (maintenance + fault queue + full incident list) --- */
 .row {
@@ -304,7 +347,7 @@ textarea { resize: vertical; }
   padding: 10px 14px;
   border-radius: var(--radius);
   font-size: 13px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 2px 8px var(--shadow);
   opacity: 0;
   transform: translateY(6px);
   transition: opacity 160ms ease, transform 160ms ease;
@@ -325,8 +368,8 @@ textarea { resize: vertical; }
 }
 
 /* --- stale-work highlight (dashboard "Check stale incidents") --- */
-.row.row-stale { background: #FFF4D6; border-color: var(--major); }
-.row.row-stale:hover { background: #FCEBC0; }   /* a stale row keeps its yellow, just a shade darker */
+.row.row-stale { background: var(--stale-bg); border-color: var(--major); }
+.row.row-stale:hover { background: var(--stale-bg-hover); }   /* a stale row keeps its yellow, just a shade darker */
 .row-stale-tag { font-size: 12px; font-weight: 600; color: var(--major); white-space: nowrap; }
 
 /* --- pressing maintenance calls table --- */
@@ -636,3 +679,48 @@ body > main { flex: 1 0 auto; }
   .fact-list { grid-template-columns: 1fr; gap: 2px 0; }
   .fact-list dd { margin-bottom: 8px; }
 }
+
+/* --- Settings dialog (js/settings.js) and password fields (js/password-fields.js) --- */
+.settings-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.settings-head h2 { margin-bottom: 0; }
+.settings-forced-note { background: var(--paper); border-left: 4px solid var(--accent); padding: 10px 12px; border-radius: var(--radius); }
+.choice-group { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px 4px; margin: 0 0 14px; }
+.choice-group legend { font-size: 13px; color: var(--ink-soft); padding: 0 4px; }
+.choice { display: inline-flex; align-items: center; gap: 6px; margin: 0 18px 10px 0; font-size: 14px; color: var(--ink); }
+.choice input { margin: 0; }
+
+.pw-label-text { display: inline-flex; align-items: center; gap: 6px; }
+.info-tip { position: relative; display: inline-flex; }
+.info-btn {
+  width: 18px; height: 18px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--ink-soft); background: var(--surface); color: var(--ink-soft);
+  font: 600 11px/1 var(--font-body); cursor: help;
+}
+.info-btn:hover, .info-btn:focus-visible { border-color: var(--accent); color: var(--accent); }
+.info-panel {
+  display: none; position: absolute; z-index: 10; top: calc(100% + 6px); left: -8px; width: 280px;
+  padding: 10px 12px; background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: 0 4px 14px var(--shadow); font-size: 13px; line-height: 1.45;
+}
+.info-panel ul { margin: 6px 0 8px; padding-inline-start: 18px; }
+/* Shown on hover and while the button (or the link inside) has keyboard focus. */
+.info-tip:hover .info-panel, .info-tip:focus-within .info-panel { display: block; }
+
+.pw-checklist { list-style: none; margin: -6px 0 12px; padding: 0; font-size: 13px; }
+.pw-checklist li { display: flex; align-items: baseline; gap: 6px; color: var(--ink-soft); }
+.pw-mark::before { content: "○"; display: inline-block; width: 1em; }
+.pw-checklist .pw-ok { color: var(--accent); }
+.pw-checklist .pw-ok .pw-mark::before { content: "✓"; }
+.pw-checklist .pw-bad .pw-mark::before { content: "○"; }
+.pw-checklist .pw-pending .pw-mark::before { content: "…"; }
+.pw-match { min-height: 1.2em; margin: -8px 0 10px; font-size: 13px; }
+.pw-match.pw-ok { color: var(--accent); }
+.pw-match.pw-bad { color: var(--critical); }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+
+/* --- Users page (js/users.js) --- */
+.users-table { width: 100%; background: var(--surface); }
+.users-table tbody tr { cursor: default; }
+.users-table .user-actions-inner { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.users-table .user-disabled td:not(.user-actions) { color: var(--ink-soft); }

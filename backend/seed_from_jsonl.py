@@ -17,19 +17,24 @@ already-running server had no way to know about it until restarted; this
 version fixes that by going through the server itself, over HTTP, instead
 of around it.)
 
-Logs in as an admin using credentials read from the exact same
-INCIDENT_BRIDGE_USERS your .env already configures the server with -
-nothing hardcoded, nothing typed by hand.
+Logs in as an admin. Without --username it first tries the first admin of
+INCIDENT_BRIDGE_USERS (the server's first-start users, from your .env).
+Those passwords stop working once the admin has changed theirs (the app
+asks for that at the first login) - then the script asks for the current
+password, up to 3 times. With --username it asks straight away.
 
 Usage (from inside backend/, with the server already running elsewhere):
-    python seed_from_jsonl.py                       # loads ../data/sample_data.jsonl
+    python seed_from_jsonl.py                        # loads ../data/sample_data.jsonl
     python seed_from_jsonl.py path/to/other.jsonl    # loads a different file
+    python seed_from_jsonl.py --username boss        # log in as another admin
 
 Safe to run more than once against the same file: already-imported
 records (matched by their 'id' field) are skipped, not duplicated or
 overwritten - see load_from_jsonl_lines()'s docstring for the exact rules.
 """
 
+import argparse
+import getpass
 import json
 import os
 import sys
@@ -60,7 +65,7 @@ def _find_admin_credentials():
     """
     raw = os.environ.get("INCIDENT_BRIDGE_USERS")
     if not raw:
-        return "admin", "Passw0rd1"
+        return "admin", "Demo#Pass1"
     users = json.loads(raw)
     admin = next((u for u in users if u["role"] == "admin"), None)
     if admin is None:
@@ -68,9 +73,57 @@ def _find_admin_credentials():
     return admin["username"], admin["password"]
 
 
-def main() -> None:
+MAX_PASSWORD_ATTEMPTS = 3
+
+
+def _ask_password(username: str) -> str:
+    """The admin's password, typed at the terminal (shown as * where Python supports it, else hidden)."""
+    prompt = f"Password for {username!r} (then press Enter): "
+    try:
+        return getpass.getpass(prompt, echo_char="*")          # Python 3.14+
+    except TypeError:
+        print("(typing is hidden - nothing appears while you type)")
+        return getpass.getpass(prompt)
+
+
+def _login(client: httpx.Client, username: str, password, ask_first: bool) -> None:
+    """
+    Log `client` in as `username`. `password` is tried first unless
+    `ask_first`; after a wrong password the user is asked (up to
+    MAX_PASSWORD_ATTEMPTS times). Exits with a clear message on failure.
+    """
+    attempts = 0
+    if ask_first or password is None:
+        password, attempts = _ask_password(username), 1
+    while True:
+        response = client.post("/auth/login", json={"username": username, "password": password})
+        if response.status_code == 200:
+            if response.json().get("must_change_password"):
+                sys.exit(f"{username!r} must change the password first - log in to the app once "
+                         f"(http://{_CONNECT_HOST}:{_PORT}/), then run this again.")
+            return
+        if response.status_code == 429:
+            sys.exit(response.json().get("detail", "Too many failed logins - try again later."))
+        if response.status_code != 401:
+            response.raise_for_status()
+        if attempts == 0:
+            print(f"The password for {username!r} in INCIDENT_BRIDGE_USERS no longer works "
+                  f"(it is only the first password - the app asks to change it at the first login).")
+        elif attempts >= MAX_PASSWORD_ATTEMPTS:
+            sys.exit("Login failed - giving up. Check the username (--username) and password.")
+        else:
+            print("Wrong username or password, try again.")
+        password, attempts = _ask_password(username), attempts + 1
+
+
+def main(argv=None) -> None:
+    parser = argparse.ArgumentParser(description="Import a JSONL seed file into the RUNNING server.")
+    parser.add_argument("path", nargs="?", help="the .jsonl file (default: ../data/sample_data.jsonl)")
+    parser.add_argument("--username", help="log in as this admin (the password is asked for)")
+    args = parser.parse_args(argv)
+
     default_path = Path(__file__).resolve().parents[1] / "data" / "sample_data.jsonl"
-    jsonl_path = Path(sys.argv[1]) if len(sys.argv) > 1 else default_path
+    jsonl_path = Path(args.path) if args.path else default_path
 
     if not jsonl_path.is_file():
         sys.exit(
@@ -79,7 +132,10 @@ def main() -> None:
             f"or pass a path: python seed_from_jsonl.py path/to/file.jsonl"
         )
     content = jsonl_path.read_text(encoding="utf-8")
-    username, password = _find_admin_credentials()
+    if args.username:
+        username, password = args.username, None
+    else:
+        username, password = _find_admin_credentials()
 
     print(f"Connecting to {BASE_URL} ...")
     try:
@@ -93,8 +149,7 @@ def main() -> None:
         )
 
     with httpx.Client(base_url=BASE_URL) as client:
-        login = client.post("/auth/login", json={"username": username, "password": password})
-        login.raise_for_status()
+        _login(client, username, password, ask_first=bool(args.username))
 
         print(f"Importing {jsonl_path} as {username!r} ...")
         response = client.post("/incidents/import-jsonl", json={"content": content})

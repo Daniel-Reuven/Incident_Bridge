@@ -126,9 +126,25 @@ def test_the_guide_uses_every_readme_screenshot():
 def test_the_readme_screenshots_exist():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     links = set(re.findall(r"\((docs/screenshots/[^)]+)\)", readme))
-    assert len(links) == 5
+    assert len(links) == 9          # 5 until the Settings / dark theme / Users screenshots were added
     for link in links:
         assert (ROOT / link).is_file(), link
+
+
+def png_size(path):
+    """(width, height) from a PNG's header - no image library needed."""
+    import struct
+    header = path.read_bytes()[:24]
+    assert header[:8] == b"\x89PNG\r\n\x1a\n", path
+    return struct.unpack(">II", header[16:24])
+
+
+def test_every_guide_image_exists_with_its_real_size():
+    guide = (FRONTEND / "guide.html").read_text(encoding="utf-8")
+    images = re.findall(r'<img src="/screenshots/([^"]+)"[^>]* width="(\d+)" height="(\d+)"', guide)
+    assert len(images) == 9
+    for name, width, height in images:
+        assert png_size(SCREENSHOTS / name) == (int(width), int(height)), name
 
 
 def test_the_license_is_mit_and_names_the_team():

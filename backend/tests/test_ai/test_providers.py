@@ -191,8 +191,19 @@ def test_a_broken_or_empty_reply_fails_without_trying_other_models(stub, make, _
 
 
 def test_an_unreachable_api_fails_with_a_clear_message():
+    """
+    A refused connection, simulated with a mocked requests.Session: connecting
+    to a closed local port is refused at once on Linux but only times out on
+    Windows, so a real socket would make this test depend on the OS.
+    """
+    from unittest.mock import Mock
+    import requests
     from app.ai.providers.claude_provider import ClaudeProvider
-    provider = ClaudeProvider(models=("m",), api_key="k", timeout_seconds=2, base_url="http://127.0.0.1:9/v1")
+    from app.api_client import ApiClient
+    session = Mock(spec=requests.Session)
+    session.request.side_effect = requests.ConnectionError("connection refused")
+    client = ApiClient("http://api.invalid/v1", timeout_seconds=2, session=session, name="the Claude API")
+    provider = ClaudeProvider(models=("m",), api_key="k", timeout_seconds=2, client=client)
     with pytest.raises(AnalysisError, match="could not reach the Claude API"):
         provider.analyze("i", "{}")
 

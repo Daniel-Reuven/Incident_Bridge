@@ -43,6 +43,16 @@ from fastapi.testclient import TestClient
 
 from app.models import Role, User
 
+# Speed: the real PBKDF2 cost (600,000 iterations, app/models/user.py) would
+# make every created user and every login take ~0.3s. Tests use a tiny count;
+# tests/test_models/test_user.py checks the real setting and the re-hash.
+User.HASH_ITERATIONS = 1_000
+
+# The demo users must change their password at first login in the real app;
+# the API tests log straight in with them, so that is switched off here
+# (tests/test_api/test_users.py covers the forced change).
+os.environ["REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN"] = "false"
+
 
 # --------------------------------------------------------------------
 # Domain-layer fixtures - plain Python objects, no HTTP/DB involved.
@@ -51,14 +61,14 @@ from app.models import Role, User
 
 @pytest.fixture
 def admin_user() -> User:
-    """A fresh admin User, valid under PasswordPolicy (8+ chars, alphanumeric only)."""
-    return User(username="test-admin", role=Role.ADMIN, password="AdminPass1")
+    """A fresh admin User, valid under PasswordPolicy (8+ chars, upper, lower, digit and symbol)."""
+    return User(username="test-admin", role=Role.ADMIN, password="AdminPass!1")
 
 
 @pytest.fixture
 def regular_user() -> User:
     """A fresh non-admin User, valid under PasswordPolicy."""
-    return User(username="test-user", role=Role.USER, password="UserPass1")
+    return User(username="test-user", role=Role.USER, password="UserPass!1")
 
 
 # --------------------------------------------------------------------
@@ -120,8 +130,8 @@ def second_client(app_client):
 
 @pytest.fixture
 def admin_client(app_client):
-    """app_client, already logged in as the demo admin (admin / Passw0rd1)."""
-    response = app_client.post("/auth/login", json={"username": "admin", "password": "Passw0rd1"})
+    """app_client, already logged in as the demo admin (admin / Demo#Pass1)."""
+    response = app_client.post("/auth/login", json={"username": "admin", "password": "Demo#Pass1"})
     assert response.status_code == 200, f"fixture setup failed: admin login returned {response.status_code}"
     return app_client
 
@@ -130,12 +140,12 @@ def admin_client(app_client):
 def user_client(second_client):
     """
     An independent session (its own cookies) logged in as the demo
-    regular user (tech1 / Passw0rd2), sharing app_client's backend state.
+    regular user (tech1 / Demo#Pass2), sharing app_client's backend state.
     Request this together with admin_client in the same test to simulate
     two different people (an admin and a regular user) working the same
     incidents at the same time.
     """
-    response = second_client.post("/auth/login", json={"username": "tech1", "password": "Passw0rd2"})
+    response = second_client.post("/auth/login", json={"username": "tech1", "password": "Demo#Pass2"})
     assert response.status_code == 200, f"fixture setup failed: user login returned {response.status_code}"
     return second_client
 

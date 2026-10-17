@@ -88,17 +88,17 @@ _unknown_user_cache: dict = {}
 def _unknown_user(original_username: str) -> User:
     """
     Fallback for a persisted created_by/assigned_to/author username that
-    no longer matches any currently-provisioned user (e.g. someone was
-    removed from INCIDENT_BRIDGE_USERS between restarts). Keeps a restart
+    no longer matches any account (e.g. the users table was replaced
+    between restarts). Keeps a restart
     from crashing over one stale reference; the placeholder is clearly
     labeled rather than silently reassigned to a real account.
     """
     if original_username not in _unknown_user_cache:
         app_log.warning(f"Persisted data references unknown user {original_username!r} "
-                        f"(not in current INCIDENT_BRIDGE_USERS) - using a placeholder account for it.")
-        _unknown_user_cache[original_username] = User(
-            username=f"{original_username} (removed)", role=Role.USER, password="PlaceholderPassw0rd"
-        )
+                        f"(no such account) - using a placeholder account for it.")
+        # No password hash at all: the placeholder can never log in.
+        _unknown_user_cache[original_username] = User.from_record(
+            f"{original_username} (removed)", Role.USER, password_hash="", disabled=True)
     return _unknown_user_cache[original_username]
 
 

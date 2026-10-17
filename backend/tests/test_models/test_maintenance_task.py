@@ -20,13 +20,13 @@ def test_new_maintenance_task_has_no_queue_position_yet():
     tests/test_queues/test_maintenance_queue.py) - a task that exists but
     hasn't been enqueued anywhere yet has no position to report.
     """
-    reporter = User(username="reporter", role=Role.USER, password="Passw0rd1")
+    reporter = User(username="reporter", role=Role.USER, password="Passw0rd!1")
     task = MaintenanceTask(title="Patch server", description="Apply patches", created_by=reporter)
     assert task.queue_position is None
 
 
 def test_from_dict_builds_a_task_with_the_given_fields():
-    reporter = User(username="reporter", role=Role.USER, password="Passw0rd1")
+    reporter = User(username="reporter", role=Role.USER, password="Passw0rd!1")
     record = {"id": "seed-task-1", "kind": "maintenance", "title": "Patch server", "description": "Apply patches"}
 
     task = MaintenanceTask.from_dict(record, created_by=reporter)
@@ -44,7 +44,7 @@ def test_from_dict_without_an_id_is_rejected():
     because the id is what makes re-importing idempotent - a record without
     one is rejected rather than silently given a random uuid.
     """
-    reporter = User(username="reporter", role=Role.USER, password="Passw0rd1")
+    reporter = User(username="reporter", role=Role.USER, password="Passw0rd!1")
     record = {"kind": "maintenance", "title": "Patch server", "description": "Apply patches"}
 
     with pytest.raises(ValueError, match="'id'"):
@@ -52,19 +52,19 @@ def test_from_dict_without_an_id_is_rejected():
 
 
 def test_from_dict_accepts_a_numeric_id_as_text():
-    reporter = User(username="reporter", role=Role.USER, password="Passw0rd1")
+    reporter = User(username="reporter", role=Role.USER, password="Passw0rd!1")
     record = {"id": 101, "kind": "maintenance", "title": "Patch server", "description": "Apply patches"}
     assert MaintenanceTask.from_dict(record, created_by=reporter).id == "101"
 
 
 def test_str_representation_when_unqueued():
-    reporter = User(username="reporter", role=Role.USER, password="Passw0rd1")
+    reporter = User(username="reporter", role=Role.USER, password="Passw0rd!1")
     task = MaintenanceTask(title="Patch server", description="Apply patches", created_by=reporter)
     assert str(task) == "[MaintenanceTask - Unqueued] Patch server"
 
 
 def test_str_representation_when_queued():
-    reporter = User(username="reporter", role=Role.USER, password="Passw0rd1")
+    reporter = User(username="reporter", role=Role.USER, password="Passw0rd!1")
     task = MaintenanceTask(title="Patch server", description="Apply patches", created_by=reporter)
     task.queue_position = 5
     assert str(task) == "[MaintenanceTask - Pos 5] Patch server"

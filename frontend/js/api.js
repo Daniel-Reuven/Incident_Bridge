@@ -45,8 +45,19 @@ export const api = {
   login: (username, password) => request("/auth/login", { method: "POST", body: { username, password } }),
   logout: () => request("/auth/logout", { method: "POST" }),
   me: () => request("/auth/me"),
-  changePassword: (current_password, new_password) =>
-    request("/auth/change-password", { method: "POST", body: { current_password, new_password } }),
+  changePassword: (current_password, new_password, confirm_password) =>
+    request("/auth/change-password", { method: "POST", body: { current_password, new_password, confirm_password } }),
+  passwordPolicy: () => request("/auth/password-policy"),
+
+  // --- user management (admin only - backend/app/api/users.py) ---
+  listUsers: () => request("/users"),
+  createUser: (username, role, password, confirm_password) =>
+    request("/users", { method: "POST", body: { username, role, password, confirm_password } }),
+  updateUser: (username, changes) =>
+    request(`/users/${encodeURIComponent(username)}`, { method: "PATCH", body: changes }),
+  resetUserPassword: (username, new_password, confirm_password) =>
+    request(`/users/${encodeURIComponent(username)}/reset-password`,
+      { method: "POST", body: { new_password, confirm_password } }),
 
   // --- shared incident operations ---
   listIncidents: (params = {}) => {

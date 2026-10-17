@@ -4,7 +4,14 @@ from app.models import Comment, Incident, User
 
 
 def user_to_dict(user: User) -> dict:
-    return {"id": user.id, "username": user.username, "role": user.role.value}
+    return {"id": user.id, "username": user.username, "role": user.role.value,
+            "must_change_password": user.must_change_password}
+
+
+def account_to_dict(user: User) -> dict:
+    """One account for the admin's user list - never the password hash."""
+    return {"username": user.username, "role": user.role.value, "disabled": user.disabled,
+            "must_change_password": user.must_change_password, "created_at": user.created_at.isoformat()}
 
 
 def comment_to_dict(comment: Comment) -> dict:

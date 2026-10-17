@@ -3,14 +3,49 @@ import { mountTopbar } from "./topbar.js";
 import { connectLiveUpdates } from "./events.js";
 import { renderRowList } from "./row-list.js";
 import { showToast, describeEvent } from "./toast.js";
+import { formatWhen } from "./datetime.js";
+
+/*
+ * Dashboard: four tabs over the same data, plus a text filter.
+ *
+ *   Everything   both queues + every incident (open, in progress and closed)
+ *   Maintenance  the maintenance FIFO queue + active maintenance tasks, and
+ *                the "Pressing maintenance calls" link
+ *   Faults       the fault priority queue + active faults
+ *   Archive      closed incidents of both kinds, most recently closed first
+ *
+ * The data is fetched once per refresh (both queues + the full incident
+ * list, which already includes every comment) and kept in `data`; switching
+ * tabs, typing in the filter or changing a selector only re-renders it.
+ * Live updates call refresh(), so a closed incident moves to Archive (and a
+ * reopened one back) without reloading the page.
+ *
+ * The open tab is kept in the URL hash (#faults) and, with the filter text,
+ * in sessionStorage - so coming back from an incident page restores both.
+ */
+
+const TABS = ["all", "maintenance", "faults", "archive"];
+const TAB_TYPE = { maintenance: "maintenance", faults: "fault" };   // the one incident type a tab shows
+const LIST_TITLES = { all: "All incidents", maintenance: "Maintenance tasks", faults: "Faults", archive: "Archive" };
+const LIST_HINTS = {
+  all: "",
+  maintenance: "Open and in progress - closed tasks are in Archive",
+  faults: "Open and in progress - closed faults are in Archive",
+  archive: "Closed incidents, most recently closed first",
+};
+const RESOLUTION_LABELS = { resolved: "Resolved", not_an_incident: "Not an incident", by_design: "By design" };
 
 // Stale-work highlighting - uses the generator in backend/app/iterators.py via
 // GET /incidents/work/stale. Declared first: refresh() reads these as soon as it runs.
 let staleActive = false;
-let staleInfo = new Map(); // incident id -> { minutes_since_update, ... } for incidents flagged stale
+let staleInfo = new Map(); // incident id -> { minutes_since_update, type, ... } for incidents flagged stale
+
+let currentTab = initialTab();
+let data = { maintenance: { current: null, pending: [] }, faults: [], incidents: [] };
 
 const user = await mountTopbar();
 if (user) {
+  wireTabs();
   wireFilters();
   wireNewIncidentDialog();
   wireDelegatedNavigation();
@@ -29,7 +64,7 @@ if (user) {
   document.getElementById("start-next-btn").addEventListener("click", async () => {
     try {
       await api.startNextMaintenance();
-      await loadMaintenance();
+      await refresh();
     } catch (err) {
       alert(err.message);
     }
@@ -43,20 +78,15 @@ if (user) {
     }
   });
 
+  showTab(currentTab);
   await refresh();
 
-  // Any live-update event could affect any of the three lists below (a
-  // maintenance change can shift "All incidents" too, a severity change
-  // reorders the fault queue, etc.) - rather than special-case which
-  // event types touch which list, just refresh all three every time.
-  // renderRowList's per-row diffing (see row-list.js) means an unrelated
-  // list's rows are left completely untouched when nothing in them
-  // actually changed, so this stays flicker-free without needing that
-  // bookkeeping - the server already excludes this tab's own client_id
-  // (see events.js / backend/app/events.py), so there's no need to
-  // filter here too. This is also why the toast fires unconditionally
-  // for every event this tab receives: those are, by construction,
-  // always *someone else's* action.
+  // Any live-update event could change any list (a closed fault leaves the
+  // fault queue and moves to Archive, etc.), so every event re-fetches
+  // everything. renderRowList's per-row diffing (see row-list.js) leaves
+  // unchanged rows untouched, so this stays flicker-free. The server
+  // already excludes this tab's own client_id (see events.js /
+  // backend/app/events.py), so the toast is always someone else's action.
   connectLiveUpdates((event) => {
     showToast(describeEvent(event));
     refresh();
@@ -69,24 +99,109 @@ function severityLabel(value) {
 function severityClass(value) {
   return { 1: "sev-critical", 2: "sev-major", 3: "sev-minor" }[value] || "";
 }
-function timeAgo(iso) {
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// --- per-viewer memory (sessionStorage can be unavailable: always optional) ---
+
+function remember(key, value) {
+  try { sessionStorage.setItem(`dashboard.${key}`, value); } catch { /* not kept - fine */ }
+}
+function recall(key) {
+  try { return sessionStorage.getItem(`dashboard.${key}`); } catch { return null; }
+}
+
+// --- tabs ---
+
+function initialTab() {
+  const fromHash = window.location.hash.slice(1);
+  if (TABS.includes(fromHash)) return fromHash;
+  const remembered = recall("tab");
+  return TABS.includes(remembered) ? remembered : "all";
+}
+
+function showTab(name) {
+  currentTab = name;
+  remember("tab", name);
+  history.replaceState(null, "", `#${name}`);
+  document.querySelectorAll('.tabs [role="tab"]').forEach((tab) =>
+    tab.setAttribute("aria-selected", String(tab.id === `tab-${name}`)));
+  document.querySelectorAll("[data-tabs]").forEach((section) => {
+    section.hidden = !section.dataset.tabs.split(" ").includes(name);
+  });
+
+  // Controls that only make sense in some tabs.
+  document.getElementById("filter-type-label").hidden = name !== "all";
+  document.getElementById("filter-status-label").hidden = name === "archive";
+  document.getElementById("sort-by-label").hidden = name === "archive";
+  document.getElementById("stale-threshold-label").hidden = name === "archive";
+  document.getElementById("check-stale-btn").hidden = name === "archive";
+  document.getElementById("pressing-link").hidden = name !== "maintenance";
+  const status = document.getElementById("filter-status");
+  status.querySelector('option[value="closed"]').hidden = name !== "all";   // closed = Archive in the type tabs
+  if (name !== "all" && status.value === "closed") status.value = "";
+
+  document.getElementById("list-title").textContent = LIST_TITLES[name];
+  document.getElementById("list-hint").textContent = LIST_HINTS[name];
+  render();
+}
+
+function wireTabs() {
+  document.querySelectorAll('.tabs [role="tab"]').forEach((tab) =>
+    tab.addEventListener("click", () => showTab(tab.id.replace("tab-", ""))));
+  window.addEventListener("hashchange", () => {
+    const name = window.location.hash.slice(1);
+    if (TABS.includes(name) && name !== currentTab) showTab(name);
+  });
+}
+
+/** Does `item` belong in `tab`'s list? (Everything: all of them; Archive: closed ones.) */
+function inTab(item, tab) {
+  if (tab === "all") return true;
+  if (tab === "archive") return item.status === "closed";
+  return item.type === TAB_TYPE[tab] && item.status !== "closed";
+}
+
+// --- text filter ---
+
+function filterTerms() {
+  return document.getElementById("filter-text").value.toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+/**
+ * Match `item` against the filter terms: every term must appear (case
+ * insensitive) in the title, the description or a comment. Returns null
+ * for no match, otherwise { inComments } - true when the terms are not all
+ * in the title/description, so the row can say the match is in a comment
+ * (comments are not shown on the dashboard).
+ */
+function matchFilter(item, terms) {
+  if (terms.length === 0) return { inComments: false };
+  const main = `${item.title}\n${item.description}`.toLowerCase();
+  const comments = (item.comments || []).map((c) => c.text).join("\n").toLowerCase();
+  if (!terms.every((t) => main.includes(t) || comments.includes(t))) return null;
+  return { inComments: !terms.every((t) => main.includes(t)) };
+}
+
+function matchTag(match) {
+  return match && match.inComments ? `<span class="row-match-tag">match in comments</span>` : "";
+}
+
+function emptyMessage(fallback) {
+  const text = document.getElementById("filter-text").value.trim();
+  return text ? `Nothing matches “${escapeHtml(text)}”.` : fallback;
+}
+
+/** renderRowList keeps an existing empty message; reset it so a changed filter text shows up. */
+function renderList(container, items, keyFn, rowFn, empty) {
+  if (items.length === 0) container.dataset.empty = "0";
+  renderRowList(container, items, keyFn, rowFn, empty);
+}
+
 // One delegated click listener per list container, attached once, rather
 // than per-row - required by renderRowList's reuse-existing-elements
-// approach (see row-list.js): a per-row listener would either need
-// re-attaching after every patch (easy to forget) or would silently
-// double-bind on a reused row (attaching the same handler twice), neither
-// of which is right. Each row's data-key is its incident id.
+// approach (see row-list.js). Each row's data-key is its incident id.
 function wireDelegatedNavigation() {
   ["maintenance-queue", "fault-queue", "incident-list"].forEach((id) => {
     document.getElementById(id).addEventListener("click", (e) => {
@@ -96,98 +211,7 @@ function wireDelegatedNavigation() {
   });
 }
 
-async function loadMaintenance() {
-  const { current, pending } = await api.maintenanceQueue();
-  const items = [];
-  // Labels use the server's queue_position - the same numbering the
-  // incident page's badge shows, where an in-progress task is position 1
-  // and waiting tasks follow (so with a task in progress, the first waiting
-  // one is #2, not #1). The fallbacks only matter if a position is missing.
-  if (current) items.push({ task: current, label: `#${current.queue_position || 1} In progress` });
-  pending.forEach((t, i) => items.push({ task: t, label: `#${t.queue_position || i + 1} in queue` }));
-
-  renderRowList(
-    document.getElementById("maintenance-queue"),
-    items,
-    (item) => item.task.id,
-    ({ task, label }) => {
-      const stale = staleInfo.get(task.id);
-      return {
-        className: `row${stale ? " row-stale" : ""}`,
-        html: `
-        <span class="row-position">${label}</span>
-        <span class="row-title">${escapeHtml(task.title)}</span>${staleTag(stale)}
-        <span class="row-meta">by ${escapeHtml(task.created_by)} · ${timeAgo(task.created_at)}</span>`,
-        sig: JSON.stringify([label, task.title, task.updated_at, stale ? stale.minutes_since_update : null]),
-      };
-    },
-    "Nothing queued."
-  );
-}
-
-async function loadFaultQueue() {
-  const faults = await api.faultQueue() || [];
-
-  const faultsWithPositions = faults.map((f, index) => ({
-    ...f,
-    position: index + 1
-  }));
-
-  renderRowList(
-    document.getElementById("fault-queue"),
-    faultsWithPositions,
-    (f) => f.id,
-    (f) => ({
-      className: `row ${severityClass(f.severity)}`,
-      html: `
-        <span class="row-position">#${f.position}</span>
-        <span class="row-badge">${severityLabel(f.severity)}</span>
-        <span class="row-title">${escapeHtml(f.title)}</span>
-        <span class="row-meta">${timeAgo(f.created_at)}</span>
-      `,
-      sig: JSON.stringify([f.id, f.severity, f.title, f.updated_at]),
-    }),
-    "No faults found."
-  );
-}
-
-
-
-async function loadIncidents() {
-  const type = document.getElementById("filter-type").value;
-  const status = document.getElementById("filter-status").value;
-  const sortBy = document.getElementById("sort-by").value;
-
-  const items = await api.listIncidents({ type, status });
-  items.sort((a, b) => {
-    if (sortBy === "severity") return (a.severity ?? 4) - (b.severity ?? 4);
-    if (sortBy === "status") return a.status.localeCompare(b.status);
-    return new Date(b.created_at) - new Date(a.created_at);
-  });
-
-  renderRowList(
-    document.getElementById("incident-list"),
-    items,
-    (item) => item.id,
-    (item, i) => {
-      const isFault = item.type === "fault";
-      const sevClass = isFault ? severityClass(item.severity) : "";
-      const badge = isFault ? severityLabel(item.severity) : "Maintenance";
-      const stale = staleInfo.get(item.id);
-      return {
-        className: `row ${sevClass}${stale ? " row-stale" : ""}`,
-        html: `
-          <span class="row-badge">${badge}</span>
-          <span class="row-title">${escapeHtml(item.title)}</span>${staleTag(stale)}
-          <span class="row-status">${item.status.replace("_", " ")}</span>
-          <span class="row-meta">${timeAgo(item.created_at)}</span>`,
-        sig: JSON.stringify([i, item.status, item.severity, item.title, item.updated_at,
-                             stale ? stale.minutes_since_update : null]),
-      };
-    },
-    "No incidents match these filters."
-  );
-}
+// --- loading and rendering ---
 
 async function refresh() {
   try {
@@ -195,7 +219,136 @@ async function refresh() {
   } catch {
     // keep the previous highlights if the check fails - the lists themselves still refresh
   }
-  await Promise.all([loadMaintenance(), loadFaultQueue(), loadIncidents()]);
+  const [maintenance, faults, incidents] = await Promise.all([
+    api.maintenanceQueue(), api.faultQueue(), api.listIncidents(),
+  ]);
+  data = { maintenance, faults: faults || [], incidents };
+  render();
+}
+
+function render() {
+  const terms = filterTerms();
+  renderCounts(terms);
+  renderMaintenanceQueue(terms);
+  renderFaultQueue(terms);
+  renderIncidentList(terms);
+}
+
+function renderCounts(terms) {
+  const matching = data.incidents.filter((item) => matchFilter(item, terms));
+  for (const tab of TABS) {
+    const shown = matching.filter((item) => inTab(item, tab)).length;
+    const total = data.incidents.filter((item) => inTab(item, tab)).length;
+    document.getElementById(`count-${tab}`).textContent = terms.length ? `${shown} / ${total}` : String(total);
+  }
+}
+
+function renderMaintenanceQueue(terms) {
+  const { current, pending } = data.maintenance;
+  const items = [];
+  // Labels use the server's queue_position - the same numbering the
+  // incident page's badge shows, where an in-progress task is position 1
+  // and waiting tasks follow. Positions are taken BEFORE filtering, so a
+  // filtered queue still shows each task's real place in line.
+  if (current) items.push({ task: current, label: `#${current.queue_position || 1} In progress` });
+  pending.forEach((t, i) => items.push({ task: t, label: `#${t.queue_position || i + 1} in queue` }));
+  const shown = items
+    .map((item) => ({ ...item, match: matchFilter(item.task, terms) }))
+    .filter((item) => item.match);
+
+  renderList(
+    document.getElementById("maintenance-queue"),
+    shown,
+    (item) => item.task.id,
+    ({ task, label, match }) => {
+      const stale = staleInfo.get(task.id);
+      return {
+        className: `row${stale ? " row-stale" : ""}`,
+        html: `
+        <span class="row-position">${label}</span>
+        <span class="row-title">${escapeHtml(task.title)}</span>${staleTag(stale)}${matchTag(match)}
+        <span class="row-meta">by ${escapeHtml(task.created_by)} · ${formatWhen(task.created_at)}</span>`,
+        sig: JSON.stringify([label, task.title, task.updated_at, stale ? stale.minutes_since_update : null,
+                             match.inComments]),
+      };
+    },
+    emptyMessage("Nothing queued.")
+  );
+}
+
+function renderFaultQueue(terms) {
+  // Positions first (the real priority order), then the filter.
+  const shown = data.faults
+    .map((f, index) => ({ ...f, position: index + 1, match: matchFilter(f, terms) }))
+    .filter((f) => f.match);
+
+  renderList(
+    document.getElementById("fault-queue"),
+    shown,
+    (f) => f.id,
+    (f) => {
+      const stale = staleInfo.get(f.id);
+      return {
+        className: `row ${severityClass(f.severity)}${stale ? " row-stale" : ""}`,
+        html: `
+        <span class="row-position">#${f.position}</span>
+        <span class="row-badge">${severityLabel(f.severity)}</span>
+        <span class="row-title">${escapeHtml(f.title)}</span>${staleTag(stale)}${matchTag(f.match)}
+        <span class="row-meta">${formatWhen(f.created_at)}</span>`,
+        sig: JSON.stringify([f.position, f.severity, f.title, f.updated_at,
+                             stale ? stale.minutes_since_update : null, f.match.inComments]),
+      };
+    },
+    emptyMessage("No faults found.")
+  );
+}
+
+function renderIncidentList(terms) {
+  const type = document.getElementById("filter-type").value;
+  const status = document.getElementById("filter-status").value;
+  const sortBy = document.getElementById("sort-by").value;
+  const archive = currentTab === "archive";
+
+  const items = data.incidents
+    .filter((item) => inTab(item, currentTab))
+    .filter((item) => currentTab !== "all" || !type || item.type === type)
+    .filter((item) => archive || !status || item.status === status)
+    .map((item) => ({ ...item, match: matchFilter(item, terms) }))
+    .filter((item) => item.match);
+
+  items.sort((a, b) => {
+    if (archive) return new Date(b.updated_at) - new Date(a.updated_at);   // most recently closed first
+    if (sortBy === "severity") return (a.severity ?? 4) - (b.severity ?? 4);
+    if (sortBy === "status") return a.status.localeCompare(b.status);
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+
+  renderList(
+    document.getElementById("incident-list"),
+    items,
+    (item) => item.id,
+    (item) => {
+      const isFault = item.type === "fault";
+      const sevClass = isFault ? severityClass(item.severity) : "";
+      const badge = isFault ? severityLabel(item.severity) : "Maintenance";
+      const stale = staleInfo.get(item.id);
+      const state = item.status === "closed"
+        ? `closed · ${RESOLUTION_LABELS[item.resolution_type] || "closed"}`
+        : item.status.replace("_", " ");
+      const when = archive ? `closed ${formatWhen(item.updated_at)}` : formatWhen(item.created_at);
+      return {
+        className: `row ${sevClass}${stale ? " row-stale" : ""}`,
+        html: `
+          <span class="row-badge">${badge}</span>
+          <span class="row-title">${escapeHtml(item.title)}</span>${staleTag(stale)}${matchTag(item.match)}
+          <span class="row-status">${state}</span>
+          <span class="row-meta">${when}</span>`,
+        sig: JSON.stringify([item.status, item.resolution_type, item.severity, item.title, item.updated_at,
+                             stale ? stale.minutes_since_update : null, item.match.inComments, archive]),
+      };
+    },
+    emptyMessage(archive ? "No closed incidents yet." : "No incidents match these filters.")
+  );
 }
 
 // --- stale-work check ---
@@ -212,9 +365,9 @@ function staleTag(stale) {
 
 async function loadStale() {
   if (!staleActive) return null;
-  const data = await api.staleIncidents(document.getElementById("stale-threshold").value);
-  staleInfo = new Map(data.results.map((r) => [r.id, r]));
-  return data;
+  const result = await api.staleIncidents(document.getElementById("stale-threshold").value);
+  staleInfo = new Map(result.results.map((r) => [r.id, r]));
+  return result;
 }
 
 function wireStaleCheck() {
@@ -226,18 +379,22 @@ function wireStaleCheck() {
       staleActive = false;
       staleInfo = new Map();
       button.textContent = "Check stale incidents";
-      await refresh();
+      render();
       return;
     }
     showToast("Checking stale incidents…");
     staleActive = true;
     try {
-      const data = await loadStale();
+      const result = await loadStale();
       button.textContent = "Hide stale highlight";
-      await Promise.all([loadMaintenance(), loadFaultQueue(), loadIncidents()]);
-      showToast(data.count
-        ? `${data.count} stale incident${data.count === 1 ? "" : "s"} highlighted (no update for over ${formatIdle(data.stale_after_minutes)})`
-        : "No stale incidents found");
+      render();
+      // Count only what this tab shows (Maintenance: maintenance tasks, Faults: faults).
+      const type = TAB_TYPE[currentTab];
+      const count = result.results.filter((r) => !type || r.type === type).length;
+      const what = type === "fault" ? "fault" : type === "maintenance" ? "maintenance task" : "incident";
+      showToast(count
+        ? `${count} stale ${what}${count === 1 ? "" : "s"} highlighted (no update for over ${formatIdle(result.stale_after_minutes)})`
+        : `No stale ${what}s found`);
     } catch (err) {
       staleActive = false;
       staleInfo = new Map();
@@ -250,8 +407,15 @@ function wireStaleCheck() {
 
 function wireFilters() {
   ["filter-type", "filter-status", "sort-by"].forEach((id) =>
-    document.getElementById(id).addEventListener("change", loadIncidents)
+    document.getElementById(id).addEventListener("change", render)
   );
+  const text = document.getElementById("filter-text");
+  text.value = recall("filter") || "";
+  let timer = null;
+  text.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { remember("filter", text.value); render(); }, 150);
+  });
 }
 
 function wireNewIncidentDialog() {

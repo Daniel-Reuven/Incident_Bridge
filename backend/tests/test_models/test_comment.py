@@ -11,7 +11,7 @@ from app.models.user import User
 
 @pytest.fixture
 def author():
-    return User(username="alice", role=Role.USER, password="Passw0rd1")
+    return User(username="alice", role=Role.USER, password="Passw0rd!1")
 
 
 def test_comment_stores_stripped_text(author):

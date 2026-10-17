@@ -20,8 +20,8 @@ from app.repository import IncidentRepository, UserStore
 @pytest.fixture
 def users():
     store = UserStore()
-    store.add(User("admin", Role.ADMIN, "Passw0rd1"))
-    store.add(User("tech1", Role.USER, "Passw0rd2"))
+    store.add(User("admin", Role.ADMIN, "Passw0rd!1"))
+    store.add(User("tech1", Role.USER, "Passw0rd!2"))
     return store
 
 
@@ -95,3 +95,45 @@ def test_the_bundled_complex_sample_faults_have_comment_threads():
     with_threads = [r for r in records if r.get("comments")]
     assert len(with_threads) >= 8
     assert all(r["kind"] == "fault" and len(r["comments"]) >= 3 for r in with_threads)
+
+
+# --- absolute times: "created_at" (ISO 8601 with a time zone) ------------------
+
+def iso_minutes_ago(minutes, suffix="Z"):
+    moment = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    return moment.strftime("%Y-%m-%dT%H:%M:%S") + suffix
+
+
+@pytest.mark.parametrize("suffix", ["Z", "+00:00"])
+def test_absolute_times_set_the_report_and_comment_times(users, suffix):
+    repo, result = load(users, fault(created_at=iso_minutes_ago(1440, suffix), comments=[
+        {"author": "tech1", "text": "Looking.", "created_at": iso_minutes_ago(600, suffix)}]))
+    incident = repo.get("f-1")
+    assert result.created == 1
+    assert close_to(incident.created_at, 1440) and close_to(incident.comments[0].created_at, 600)
+
+
+def test_an_absolute_time_in_another_zone_is_the_same_moment(users):
+    moment = (datetime.now(timezone(timedelta(hours=3))) - timedelta(hours=5)).replace(microsecond=0)
+    repo, _ = load(users, fault(created_at=moment.isoformat()))
+    assert repo.get("f-1").created_at == moment.astimezone(timezone.utc)
+
+
+@pytest.mark.parametrize("extra, reason", [
+    ({"created_at": "2026-10-16 14:30"}, "needs a time zone"),
+    ({"created_at": "yesterday"}, "must be an ISO 8601 date and time"),
+    ({"created_at": 12}, "must be an ISO 8601 date and time"),
+    ({"created_at": "2999-01-01T00:00:00Z"}, "is in the future"),
+    ({"created_at": "2026-01-01T00:00:00Z", "minutes_ago": 5}, "not both"),
+])
+def test_bad_absolute_times_skip_the_record(users, extra, reason):
+    _, result = load(users, fault(**extra))
+    assert result.created == 0 and reason in result.skipped_invalid[0]
+
+
+def test_the_bundled_sample_data_uses_absolute_times():
+    path = Path(__file__).resolve().parents[2] / "data" / "sample_data.jsonl"
+    text = path.read_text(encoding="utf-8")
+    assert "minutes_ago" not in text
+    records = [json.loads(line) for line in text.splitlines() if line.strip()]
+    assert all("created_at" in r for r in records)

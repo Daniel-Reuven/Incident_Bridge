@@ -17,8 +17,8 @@ import pytest
 from app.models import Role, User
 from app.repository import UserProvisioningError, UserStore, seed_users_from_env
 
-ADMIN = {"username": "admin", "password": "Passw0rd1", "role": "admin"}
-TECH = {"username": "tech1", "password": "Passw0rd2", "role": "user"}
+ADMIN = {"username": "admin", "password": "Passw0rd!1", "role": "admin"}
+TECH = {"username": "tech1", "password": "Passw0rd!2", "role": "user"}
 
 
 def set_users(monkeypatch, value):
@@ -28,16 +28,16 @@ def set_users(monkeypatch, value):
 # --- User.from_dict -----------------------------------------------------------
 
 def test_from_dict_builds_a_user():
-    user = User.from_dict({"username": "  tech1 ", "password": "Passw0rd2", "role": "user"})
-    assert (user.username, user.role) == ("tech1", Role.USER) and user.check_password("Passw0rd2")
+    user = User.from_dict({"username": "  tech1 ", "password": "Passw0rd!2", "role": "user"})
+    assert (user.username, user.role) == ("tech1", Role.USER) and user.check_password("Passw0rd!2")
 
 
 @pytest.mark.parametrize("entry, message", [
     ("tech1", "JSON object"),
     ({"username": "tech1", "role": "user"}, "missing field\\(s\\): password"),
-    ({"password": "Passw0rd2"}, "missing field\\(s\\): username, role"),
-    ({"username": " ", "password": "Passw0rd2", "role": "user"}, "non-blank"),
-    ({"username": "tech1", "password": "Passw0rd2", "role": "boss"}, "must be one of: admin, user"),
+    ({"password": "Passw0rd!2"}, "missing field\\(s\\): username, role"),
+    ({"username": " ", "password": "Passw0rd!2", "role": "user"}, "non-blank"),
+    ({"username": "tech1", "password": "Passw0rd!2", "role": "boss"}, "must be one of: admin, user"),
     ({"username": "tech1", "password": 12345678, "role": "user"}, "must be a string"),
     ({"username": "tech1", "password": "short", "role": "user"}, "at least 8"),
 ])
@@ -50,9 +50,9 @@ def test_from_dict_rejects_bad_entries(entry, message):
 
 def test_store_rejects_duplicates_case_insensitively():
     store = UserStore()
-    store.add(User("tech1", Role.USER, "Passw0rd2"))
+    store.add(User("tech1", Role.USER, "Passw0rd!2"))
     with pytest.raises(ValueError, match="already used by 'tech1'"):
-        store.add(User("TECH1", Role.ADMIN, "Passw0rd1"))
+        store.add(User("TECH1", Role.ADMIN, "Passw0rd!1"))
     assert store.get("tech1").role == Role.USER          # the original was not replaced
     assert store.get("TECH1") is None                    # lookups stay exact-case
 
@@ -67,7 +67,7 @@ def test_valid_value_loads_every_user(monkeypatch):
 
 
 def test_duplicate_username_stops_startup_with_a_clear_message(monkeypatch):
-    set_users(monkeypatch, [ADMIN, TECH, {"username": "Tech1", "password": "Passw0rd3", "role": "user"}])
+    set_users(monkeypatch, [ADMIN, TECH, {"username": "Tech1", "password": "Passw0rd!3", "role": "user"}])
     with pytest.raises(UserProvisioningError) as caught:
         seed_users_from_env()
     message = str(caught.value)
@@ -77,7 +77,7 @@ def test_duplicate_username_stops_startup_with_a_clear_message(monkeypatch):
 
 
 def test_every_problem_is_reported_at_once(monkeypatch):
-    set_users(monkeypatch, [ADMIN, ADMIN, {"username": "x", "role": "user"}, {"username": "y", "password": "Passw0rd1",
+    set_users(monkeypatch, [ADMIN, ADMIN, {"username": "x", "role": "user"}, {"username": "y", "password": "Passw0rd!1",
                                                                               "role": "boss"}])
     with pytest.raises(UserProvisioningError) as caught:
         seed_users_from_env()
@@ -90,7 +90,7 @@ def test_every_problem_is_reported_at_once(monkeypatch):
 
 @pytest.mark.parametrize("name", ["ai-assistant", "AI-Assistant", "AI-ASSISTANT"])
 def test_a_reserved_system_username_stops_startup(monkeypatch, name):
-    set_users(monkeypatch, [ADMIN, {"username": name, "password": "Passw0rd3", "role": "user"}])
+    set_users(monkeypatch, [ADMIN, {"username": name, "password": "Passw0rd!3", "role": "user"}])
     with pytest.raises(UserProvisioningError) as caught:
         seed_users_from_env()
     assert f"entry 2: username {name!r} is reserved for a built-in system user" in str(caught.value)

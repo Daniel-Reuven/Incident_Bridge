@@ -24,7 +24,7 @@ def test_a_system_user_can_never_log_in():
 
 def test_a_system_user_password_cannot_be_set():
     with pytest.raises(PermissionError):
-        SystemUser(AI_USERNAME).set_password(None, "Passw0rd1")
+        SystemUser(AI_USERNAME).set_password(None, "Passw0rd!1")
 
 
 @pytest.mark.parametrize("name, reserved", [("ai-assistant", True), ("AI-Assistant", True), ("tech1", False)])

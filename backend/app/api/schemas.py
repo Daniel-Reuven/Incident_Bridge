@@ -22,6 +22,24 @@ class LoginRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+    confirm_password: str
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    role: str
+    password: str
+    confirm_password: str
+
+
+class UpdateUserRequest(BaseModel):
+    role: Optional[str] = None
+    disabled: Optional[bool] = None
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str
+    confirm_password: str
 
 
 class CreateMaintenanceTaskRequest(BaseModel):
