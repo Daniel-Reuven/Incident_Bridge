@@ -9,9 +9,12 @@ import { formatWhen } from "./datetime.js";
  * Dashboard: four tabs over the same data, plus a text filter.
  *
  *   Everything   both queues + every incident (open, in progress and closed)
- *   Maintenance  the maintenance FIFO queue + active maintenance tasks, and
- *                the "Pressing maintenance calls" link
- *   Faults       the fault priority queue + active faults
+ *   Maintenance  the maintenance FIFO queue only - it already holds every
+ *                active task (in progress first, then waiting, in order), so
+ *                there is no second list and no sorting; the text filter
+ *                still applies. Plus the "Pressing maintenance calls" link.
+ *   Faults       the fault priority queue + active faults (the list also
+ *                shows claimed faults, which have left the queue)
  *   Archive      closed incidents of both kinds, most recently closed first
  *
  * The data is fetched once per refresh (both queues + the full incident
@@ -26,13 +29,22 @@ import { formatWhen } from "./datetime.js";
 
 const TABS = ["all", "maintenance", "faults", "archive"];
 const TAB_TYPE = { maintenance: "maintenance", faults: "fault" };   // the one incident type a tab shows
-const LIST_TITLES = { all: "All incidents", maintenance: "Maintenance tasks", faults: "Faults", archive: "Archive" };
+const LIST_TITLES = { all: "All incidents", faults: "Faults", archive: "Archive" };
 const LIST_HINTS = {
   all: "",
-  maintenance: "Open and in progress - closed tasks are in Archive",
   faults: "Open and in progress - closed faults are in Archive",
   archive: "Closed incidents, most recently closed first",
 };
+
+// Sorting the list (Everything and Faults tabs). "asc" is the natural
+// reading order of each key; the toggle button says what it currently does.
+const STATUS_RANK = { open: 0, in_progress: 1, closed: 2 };
+const ORDER_LABELS = {
+  severity: { asc: "Most severe first", desc: "Least severe first" },
+  status: { asc: "Open first", desc: "Closed first" },
+  created_at: { asc: "Newest first", desc: "Oldest first" },
+};
+let sortOrder = recall("sortOrder") === "desc" ? "desc" : "asc";
 const RESOLUTION_LABELS = { resolved: "Resolved", not_an_incident: "Not an incident", by_design: "By design" };
 
 // Stale-work highlighting - uses the generator in backend/app/iterators.py via
@@ -133,8 +145,9 @@ function showTab(name) {
 
   // Controls that only make sense in some tabs.
   document.getElementById("filter-type-label").hidden = name !== "all";
-  document.getElementById("filter-status-label").hidden = name === "archive";
-  document.getElementById("sort-by-label").hidden = name === "archive";
+  // Maintenance: the queue's FIFO order is the point, so no status filter and no sorting.
+  document.getElementById("filter-status-label").hidden = name === "archive" || name === "maintenance";
+  document.getElementById("sort-group").hidden = name === "archive" || name === "maintenance";
   document.getElementById("stale-threshold-label").hidden = name === "archive";
   document.getElementById("check-stale-btn").hidden = name === "archive";
   document.getElementById("pressing-link").hidden = name !== "maintenance";
@@ -142,8 +155,8 @@ function showTab(name) {
   status.querySelector('option[value="closed"]').hidden = name !== "all";   // closed = Archive in the type tabs
   if (name !== "all" && status.value === "closed") status.value = "";
 
-  document.getElementById("list-title").textContent = LIST_TITLES[name];
-  document.getElementById("list-hint").textContent = LIST_HINTS[name];
+  document.getElementById("list-title").textContent = LIST_TITLES[name] || "";
+  document.getElementById("list-hint").textContent = LIST_HINTS[name] || "";
   render();
 }
 
@@ -316,12 +329,9 @@ function renderIncidentList(terms) {
     .map((item) => ({ ...item, match: matchFilter(item, terms) }))
     .filter((item) => item.match);
 
-  items.sort((a, b) => {
-    if (archive) return new Date(b.updated_at) - new Date(a.updated_at);   // most recently closed first
-    if (sortBy === "severity") return (a.severity ?? 4) - (b.severity ?? 4);
-    if (sortBy === "status") return a.status.localeCompare(b.status);
-    return new Date(b.created_at) - new Date(a.created_at);
-  });
+  items.sort(archive
+    ? (a, b) => new Date(b.updated_at) - new Date(a.updated_at)            // most recently closed first
+    : compareBy(sortBy, sortOrder));
 
   renderList(
     document.getElementById("incident-list"),
@@ -405,10 +415,55 @@ function wireStaleCheck() {
   threshold.addEventListener("change", () => { if (staleActive) refresh(); });
 }
 
+/**
+ * Comparator for the list: by `key` ("severity", "status" or "created_at"),
+ * `order` "asc" (most severe / open / newest first) or "desc" (the reverse).
+ * Items without a severity (maintenance tasks) always come last when
+ * sorting by severity, whichever the order. Ties: newest first.
+ */
+function compareBy(key, order) {
+  const sign = order === "desc" ? -1 : 1;
+  const newestFirst = (a, b) => new Date(b.created_at) - new Date(a.created_at);
+  return (a, b) => {
+    let result = 0;
+    if (key === "severity") {
+      if (a.severity == null || b.severity == null) {
+        if (a.severity != null) return -1;
+        if (b.severity != null) return 1;
+      } else {
+        result = sign * (a.severity - b.severity);
+      }
+    } else if (key === "status") {
+      result = sign * (STATUS_RANK[a.status] - STATUS_RANK[b.status]);
+    } else {
+      result = sign * newestFirst(a, b);
+    }
+    return result || newestFirst(a, b);
+  };
+}
+
+function updateOrderButton() {
+  const key = document.getElementById("sort-by").value;
+  const button = document.getElementById("sort-order");
+  button.textContent = `${sortOrder === "asc" ? "↓" : "↑"} ${ORDER_LABELS[key][sortOrder]}`;
+  button.title = "Reverse the order";
+}
+
 function wireFilters() {
-  ["filter-type", "filter-status", "sort-by"].forEach((id) =>
+  ["filter-type", "filter-status"].forEach((id) =>
     document.getElementById(id).addEventListener("change", render)
   );
+  const sortBy = document.getElementById("sort-by");
+  const remembered = recall("sortBy");
+  if (remembered && ORDER_LABELS[remembered]) sortBy.value = remembered;
+  sortBy.addEventListener("change", () => { remember("sortBy", sortBy.value); updateOrderButton(); render(); });
+  document.getElementById("sort-order").addEventListener("click", () => {
+    sortOrder = sortOrder === "asc" ? "desc" : "asc";
+    remember("sortOrder", sortOrder);
+    updateOrderButton();
+    render();
+  });
+  updateOrderButton();
   const text = document.getElementById("filter-text");
   text.value = recall("filter") || "";
   let timer = null;

@@ -57,7 +57,7 @@ The web app as of v0.5.0 (with the dashboard tabs, Settings and Users page), wit
 
 [![Login page](docs/screenshots/01-login.png)](docs/screenshots/01-login.png)
 
-**2. Dashboard** — the text filter (title, description and comments), the other filters, *Check stale incidents*, *New incident* and the admin-only *Import seed data*, above four tabs: **Everything** (the **maintenance queue** — FIFO: one at a time, in arrival order — the **fault queue** — priority order: most severe first, every severity together — and the full incident list), **Maintenance** (its queue and active tasks, plus *Pressing maintenance calls*), **Faults** (its queue and active faults) and **Archive** (closed incidents of both kinds). Every open tab updates live ([§5](#5-incident-lifecycle-and-actions), [§11](#11-architecture--as-built)).
+**2. Dashboard** — the text filter (title, description and comments), the other filters, *Check stale incidents*, *New incident* and the admin-only *Import seed data*, above four tabs: **Everything** (the **maintenance queue** — FIFO: one at a time, in arrival order — the **fault queue** — priority order: most severe first, every severity together — and the full incident list), **Maintenance** (only its FIFO queue — it already holds every active task, so there is no second list and no sorting — plus *Pressing maintenance calls*), **Faults** (its queue and active faults) and **Archive** (closed incidents of both kinds). Every open tab updates live ([§5](#5-incident-lifecycle-and-actions), [§11](#11-architecture--as-built)).
 
 [![Dashboard](docs/screenshots/02-dashboard.png)](docs/screenshots/02-dashboard.png)
 
@@ -81,7 +81,7 @@ The web app as of v0.5.0 (with the dashboard tabs, Settings and Users page), wit
 
 [![Settings, Interface tab](docs/screenshots/07-settings-interface.png)](docs/screenshots/07-settings-interface.png)
 
-**8. Dark theme** — the dashboard's *Faults* tab: the fault queue in priority order, with each fault's time as *hours ago, HH:MM UTC YYYY/MM/DD*.
+**8. Dark theme** — the dashboard's *Faults* tab: the fault queue in priority order, with each fault's time as *hours ago, HH:MM zone YYYY/MM/DD* in the viewer's own time zone (captured in Israel time, GMT+3).
 
 [![Dashboard in the dark theme](docs/screenshots/08-dashboard-dark.png)](docs/screenshots/08-dashboard-dark.png)
 
@@ -323,7 +323,7 @@ In the diagram, *italic* members are abstract (`extra_fields()`; `kind` is an ab
   - `Work session completed after 42.0s.` / `Work session interrupted after 3.1s by RuntimeError: disk full` (`IncidentWorkSession`, [§10](#10-context-managers))
 
   Part A's "a mandatory closure message once resolved" is exactly this: the closing message is stored on the incident and also recorded as the reason in the log entry.
-- **Dashboard tabs:** *Everything*, *Maintenance*, *Faults* (open and in-progress only) and *Archive* (closed incidents, most recently closed first; a reopened incident moves back automatically). Each tab shows its count; the open tab is kept in the URL (`dashboard.html#faults`) and, with the filter text, for the browser tab's session, so coming back from an incident page restores both.
+- **Dashboard tabs:** *Everything*, *Maintenance* (just the FIFO queue: it already holds every active task, in order, so it has no second list, no status filter and no sorting), *Faults* (the priority queue, plus the list of open and in-progress faults — claimed faults leave the queue) and *Archive* (closed incidents, most recently closed first; a reopened incident moves back automatically). On *Everything* and *Faults* the list sorts by severity, status or report time, with a button that reverses the order (*Most severe first* / *Least severe first*, *Open first* / *Closed first*, *Newest first* / *Oldest first*; maintenance tasks, which have no severity, stay last when sorting by severity). Each tab shows its count; the open tab is kept in the URL (`dashboard.html#faults`) and, with the filter text, for the browser tab's session, so coming back from an incident page restores both.
 - **Text filter:** filters every list and queue of the open tab by title, description **and comments** (case-insensitive; with several words, each must appear). Queue rows keep their real position; a row matched only by a comment says *match in comments*; the tab counts show *matching / total*. It runs in the browser on the data the page already loads — no extra server call.
 - **Dashboard helpers:** *Pressing maintenance calls* (Maintenance tab; open tasks waiting more than 3 days, [§9](#9-iteration-iterableiterator-generator-and-lazy-pipeline)) and *Check stale incidents* (every tab except Archive; in-progress incidents with no update for a chosen time, default 4 hours, highlighted in the lists).
 
@@ -578,7 +578,7 @@ Both live in `backend/app/context.py`; neither ever suppresses an exception (`__
 - **Frontend:** plain HTML/CSS/JavaScript, no build step, served by the same app (same origin). Pages: `index.html` (login), `dashboard.html` (tabs: Everything / Maintenance / Faults / Archive, both queues, the full filterable/sortable list with a text filter over titles, descriptions and comments, new incident, stale check, admin import), `incident.html` (details, actions, comments), `pressing.html` (pressing maintenance calls), `sites.html` (the admin site portal) and `users.html` (admin user management). Lists are patched in place, so live updates never flicker.
 - **Settings** (top bar, `js/settings.js`): a *Password* tab (current, new and confirm, with the policy tooltip linking to `/guide.html#password-policy` and a live checklist — `js/password-fields.js`) and an *Interface* tab (color scheme Light / Dark / System, text size 90–130%). The interface choices are kept in the browser's `localStorage` and applied by `js/theme.js`, a tiny script in the `<head>` of every page, so the right theme is drawn from the first frame; the dark theme only redefines the color tokens in `css/styles.css`. A user who must change their password gets the Password tab and cannot close it.
 - **Always the current interface files:** every response carries `Cache-Control: no-cache` (`app/api/security.py`), so the browser re-checks each HTML/JS/CSS file with the server before using its copy — an unchanged file costs a tiny *304 Not Modified*, a changed one is downloaded at once. No manual cache clearing after an upgrade. Pages that were already open when the server was upgraded reload themselves: the footer (`js/footer.js`) re-reads the version from `GET /health` every minute and when the tab comes back into view, and reloads the page when it differs from the version the page was loaded with — so bump the version in `backend/pyproject.toml` with every release.
-- **Dates and times:** wherever an incident's time is shown (dashboard rows, incident page and its comments, pressing calls, the Users list), it reads like *13 days ago, 16:11 UTC 2026/06/01* (`js/datetime.js`) — UTC so everyone compares the same clock.
+- **Dates and times:** wherever an incident's time is shown (dashboard rows, incident page and its comments, pressing calls, the Users list), it reads like *13 days ago, 19:11 GMT+3 2026/06/01* (`js/datetime.js`): the server stores and sends every time in UTC, and each browser shows it in its **own time zone**, named, so people in different places each see their local clock.
 - **Public pages:** `guide.html` (how to use the app, for users and admins, illustrated with `docs/screenshots/`), `about.html` (what it is, the team, how it is built) and `terms.html` (terms of use: accounts, acceptable use, what the AI providers receive, storage and cookies). They open without logging in; their header (`js/public-page.js`) shows *Log in* or, when logged in, *Back to dashboard*. A footer on **every** page (`js/footer.js`) links them, with the version, the license and the repository. The team, repository and license are kept in one file, `js/site-info.js`; the version comes from `GET /health`, which reads `backend/pyproject.toml` (`app/version.py`), so it is bumped in one place only.
 - **Runs locally, as a single process:** the queues are in-memory Python objects, so the app must run as one process / one Uvicorn worker; several workers would each have their own queues. The project runs locally for now; hosting will be decided when it expands.
 
@@ -679,7 +679,7 @@ Incident_Bridge/
 │       ├── events.js             # live-update client (per-tab id, event scopes)
 │       ├── theme.js              # color scheme + text size, applied before the page is drawn (every page)
 │       ├── settings.js, password-fields.js   # Settings dialog; password fields with policy tooltip + checklist
-│       ├── datetime.js           # "13 days ago, 16:11 UTC 2026/06/01"
+│       ├── datetime.js           # "13 days ago, 19:11 GMT+3 2026/06/01" (the viewer's time zone)
 │       ├── topbar.js, toast.js, row-list.js, updates-order.js
 │       ├── text-limits.js        # text-length limits (mirror the backend) + live character counters
 │       ├── login.js, dashboard.js, incident.js, pressing.js
@@ -722,7 +722,7 @@ Incident_Bridge/
 
 ## 14. Automated testing
 
-`backend/tests/` holds **1207 tests** (pytest), all passing, with **98% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
+`backend/tests/` holds **1209 tests** (pytest), all passing, with **98% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
 
 - **Unit tests** — the domain classes directly, no HTTP and no database: models (`tests/test_models/`), services (`tests/test_services/`), queues (`tests/test_queues/`), iterators, the generator, context managers, the scan, the report, the site directory, user provisioning and JSONL validation.
 - **Integration tests** (`tests/test_api/`) — the real app over HTTP with FastAPI's `TestClient` and a fresh in-memory database per test: permissions, error codes, every endpoint, live-update audiences. The `admin_client` and `user_client` fixtures are two separately logged-in users sharing the same backend.
@@ -787,7 +787,7 @@ Open `http://127.0.0.1:8000/` and log in. `serve_app.py` loads `.env`, checks `I
 
 **4. Load the sample data** — any of:
 - as an admin, the dashboard's **Import seed data** button (choose `data/sample_data.jsonl`);
-- with the server running, from `backend/`: `python seed_from_jsonl.py` (or `python seed_from_jsonl.py path/to/file.jsonl`) — logs in as an admin and imports through the API, so the incidents appear live in every open browser. It first tries the first admin's password from `INCIDENT_BRIDGE_USERS`; once that admin has changed it (the app asks at the first login), it asks for the current password — one prompt, up to 3 tries. `--username <name>` logs in as another admin and asks for the password straight away;
+- with the server running, from `backend/`: `python seed_from_jsonl.py` (or `python seed_from_jsonl.py path/to/file.jsonl`) — logs in as an admin and imports through the API, so the incidents appear live in every open browser. It first tries the first admin's password from `INCIDENT_BRIDGE_USERS`; once that admin has changed it (the app asks at the first login), it asks for the current password — one prompt, up to 3 tries. In a terminal window (PowerShell, cmd, a shell) the typing is hidden; in an IDE's Run window, which cannot hide it, the script says so and reads the password as visible text. `--username <name>` logs in as another admin and asks for the password straight away;
 - sites and mailing lists: set `SITES_SEED_PATH=data/sites.jsonl` and `MAILING_LISTS_SEED_PATH=data/mailing_lists.jsonl` in `.env` and restart.
 
 Re-importing is safe: records whose id already exists are skipped.

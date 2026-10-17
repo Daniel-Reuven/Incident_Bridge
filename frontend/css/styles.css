@@ -245,6 +245,8 @@ textarea { resize: vertical; }
 }
 .filters { display: flex; gap: 16px; flex-wrap: wrap; }
 .filters label { margin-bottom: 0; }
+.sort-group { display: flex; align-items: flex-end; gap: 8px; }
+.sort-order { white-space: nowrap; padding: 8px 12px; }
 .queue-section { margin-bottom: 32px; }
 .queue-section h2 { display: flex; align-items: center; }
 

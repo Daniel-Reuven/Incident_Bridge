@@ -74,15 +74,36 @@ def _find_admin_credentials():
 
 
 MAX_PASSWORD_ATTEMPTS = 3
+_warned_visible = False     # the "password will be visible" warning is shown once
 
 
 def _ask_password(username: str) -> str:
-    """The admin's password, typed at the terminal (shown as * where Python supports it, else hidden)."""
+    """
+    The admin's password, typed at the terminal.
+
+    In a real terminal window (PowerShell, cmd, Windows Terminal, a Linux or
+    macOS shell) it is read with getpass, so the typing is hidden (shown as *
+    on Python 3.14+). getpass on Windows reads straight from the console
+    window - inside an IDE's Run window (PyCharm, VS Code's debug console...)
+    that window is invisible, so the prompt never shows and the script waits
+    forever for keys typed somewhere you cannot see. When there is no real
+    terminal (sys.stdin is not a TTY), the password is read as normal input
+    instead, after a warning that it will be visible.
+    """
     prompt = f"Password for {username!r} (then press Enter): "
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        global _warned_visible
+        if not _warned_visible:
+            print("This console cannot hide what you type - the password WILL BE VISIBLE. "
+                  "Run the script from a terminal window (e.g. PowerShell) to hide it.", flush=True)
+            _warned_visible = True
+        print(prompt, end="", flush=True)
+        return sys.stdin.readline().rstrip("\r\n")
+    sys.stdout.flush()
     try:
         return getpass.getpass(prompt, echo_char="*")          # Python 3.14+
     except TypeError:
-        print("(typing is hidden - nothing appears while you type)")
+        print("(typing is hidden - nothing appears while you type)", flush=True)
         return getpass.getpass(prompt)
 
 

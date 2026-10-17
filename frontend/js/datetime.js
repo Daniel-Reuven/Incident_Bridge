@@ -1,12 +1,14 @@
 /**
  * How the app shows a moment in time: how long ago, then the exact time in
- * UTC, e.g.
+ * the VIEWER'S OWN time zone (the browser's), with the zone's name, e.g.
  *
- *     formatWhen("2026-06-01T16:11:00Z")  ->  "13 days ago, 16:11 UTC 2026/06/01"
+ *     formatWhen("2026-06-01T16:11:00Z")  ->  "13 days ago, 19:11 GMT+3 2026/06/01"   (in Israel)
+ *                                         ->  "13 days ago, 12:11 EDT 2026/06/01"     (in New York)
  *
- * UTC (not the viewer's local time) so everyone on the team reads the same
- * clock when they compare notes. timeAgo() alone is used where space is
- * short; formatUtc() alone where "ago" adds nothing.
+ * The server stores and sends every time in UTC (ISO 8601); only the display
+ * is converted, so two people in different time zones see the same moment in
+ * their own clock, each labeled with its zone. timeAgo() alone is used where
+ * space is short; formatLocal() alone where "ago" adds nothing.
  */
 
 export function timeAgo(iso) {
@@ -18,15 +20,30 @@ export function timeAgo(iso) {
   return plural(Math.round(hours / 24), "day");
 }
 
-export function formatUtc(iso) {
+export function formatLocal(iso) {
   const d = new Date(iso);
   const two = (n) => String(n).padStart(2, "0");
-  return `${two(d.getUTCHours())}:${two(d.getUTCMinutes())} UTC `
-    + `${d.getUTCFullYear()}/${two(d.getUTCMonth() + 1)}/${two(d.getUTCDate())}`;
+  return `${two(d.getHours())}:${two(d.getMinutes())} ${zoneName(d)} `
+    + `${d.getFullYear()}/${two(d.getMonth() + 1)}/${two(d.getDate())}`;
 }
 
 export function formatWhen(iso) {
-  return iso ? `${timeAgo(iso)}, ${formatUtc(iso)}` : "";
+  return iso ? `${timeAgo(iso)}, ${formatLocal(iso)}` : "";
+}
+
+/** The browser's short name for its time zone at that moment ("GMT+3", "EDT", "UTC"...). */
+function zoneName(date) {
+  try {
+    const part = new Intl.DateTimeFormat("en-US", { timeZoneName: "short" })
+      .formatToParts(date).find((p) => p.type === "timeZoneName");
+    if (part) return part.value;
+  } catch {
+    // very old browser: fall through to the numeric offset
+  }
+  const offset = -date.getTimezoneOffset();
+  const sign = offset >= 0 ? "+" : "-";
+  const abs = Math.abs(offset);
+  return `UTC${sign}${Math.floor(abs / 60)}${abs % 60 ? `:${String(abs % 60).padStart(2, "0")}` : ""}`;
 }
 
 function plural(n, unit) {

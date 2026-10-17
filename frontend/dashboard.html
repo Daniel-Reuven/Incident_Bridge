@@ -30,13 +30,16 @@
             <option value="closed">Closed</option>
           </select>
         </label>
-        <label id="sort-by-label">Sort by
-          <select id="sort-by">
-            <option value="severity">Severity</option>
-            <option value="created_at">Newest</option>
-            <option value="status">Status</option>
-          </select>
-        </label>
+        <div class="sort-group" id="sort-group">
+          <label>Sort by
+            <select id="sort-by">
+              <option value="severity">Severity</option>
+              <option value="status">Status</option>
+              <option value="created_at">Reported</option>
+            </select>
+          </label>
+          <button type="button" class="btn btn-ghost sort-order" id="sort-order" aria-describedby="sort-by"></button>
+        </div>
       </div>
       <div class="actions-row" style="margin-bottom:0">
         <label class="inline-select" id="stale-threshold-label">Stale after
@@ -80,7 +83,8 @@
       <div id="fault-queue"><p class="empty">Loading…</p></div>
     </section>
 
-    <section class="queue-section" data-tabs="all maintenance faults archive">
+    <!-- Not on the Maintenance tab: there the FIFO queue IS the list (every task in it is open or in progress). -->
+    <section class="queue-section" data-tabs="all faults archive">
       <h2><span id="list-title">All incidents</span> <span class="hint" id="list-hint"></span></h2>
       <div id="incident-list"><p class="empty">Loading…</p></div>
     </section>

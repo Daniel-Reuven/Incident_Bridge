@@ -116,13 +116,14 @@
       <a href="/screenshots/02-dashboard.png"><img src="/screenshots/02-dashboard.png" alt="The dashboard: filters, buttons and tabs above the maintenance queue" width="1440" height="900" loading="lazy"></a>
       <figcaption>The dashboard, seen by an admin (<em>Import seed data</em>, <em>Site portal</em> and <em>Users</em> are admin-only).</figcaption>
     </figure>
-    <p>After logging in you land on the dashboard. It has four tabs, each with its count: <strong>Everything</strong> (all of the below), <strong>Maintenance</strong> (the maintenance queue and the active tasks), <strong>Faults</strong> (the fault queue and the active faults) and <strong>Archive</strong> (closed incidents of both kinds, most recently closed first). The <em>Everything</em> tab, from top to bottom:</p>
+    <p>After logging in you land on the dashboard. It has four tabs, each with its count: <strong>Everything</strong> (all of the below), <strong>Maintenance</strong> (just the maintenance queue — every task in it is open or in progress, in order, so there is nothing to sort), <strong>Faults</strong> (the fault queue and the active faults) and <strong>Archive</strong> (closed incidents of both kinds, most recently closed first). The <em>Everything</em> tab, from top to bottom:</p>
     <ul>
       <li><strong>Maintenance queue</strong> — first in, first out: tasks are done one at a time, in the order they were reported. <em>#1 in queue</em> is next.</li>
       <li><strong>Fault queue</strong> — priority order: every <span style="color:var(--critical);font-weight:600">Critical</span> fault before any <span style="color:var(--major);font-weight:600">Major</span> one, and every Major before any Minor; within a severity, oldest first.</li>
-      <li><strong>All incidents</strong> — everything, including closed incidents. The <em>Type</em>, <em>Status</em> and <em>Sort by</em> filters at the top apply to this list.</li>
+      <li><strong>All incidents</strong> — everything, including closed incidents. The <em>Type</em>, <em>Status</em> and <em>Sort by</em> filters at the top apply to this list; the button next to <em>Sort by</em> reverses the order (for example <em>Most severe first</em> / <em>Least severe first</em>).</li>
     </ul>
     <p>Type in <strong>Filter</strong> to show only incidents whose title, description or comments contain the words you type (a row found only through a comment says <em>match in comments</em>); the tab counts then show <em>matching / total</em>.</p>
+    <p>Times are shown in <strong>your own time zone</strong>, for example <em>3 hours ago, 14:36 GMT+3 2026/10/17</em> — someone in another country sees the same moment in theirs.</p>
     <p>Click any row to open the incident. The dashboard updates by itself when anyone changes something — a closed incident moves to Archive on its own — there is no need to refresh. Coming back from an incident page reopens the same tab, with the same filter.</p>
     <h3>Two helpers</h3>
     <ul>
