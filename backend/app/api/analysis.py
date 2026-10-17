@@ -47,7 +47,7 @@ def _status(worker: Optional[AnalysisWorker], fault: Fault, user: User) -> dict:
         return {"enabled": False, "provider": None, "model": None, "models": [], "state": "idle", "position": None,
                 "last_analysis": None, "blocked": False, "reason": None, "can_force": False, "force_wait_seconds": 0}
     # Name and models come from the settings until the worker thread has created the provider
-    # (v0.4.5 - nothing here imports an SDK); after that, the live (possibly refreshed) list.
+    # (v0.4.5 - nothing here creates the provider); after that, the live (possibly refreshed) list.
     models = worker.models
     return {"enabled": True, "provider": worker.provider_name, "model": models[0],
             "models": models, **worker.status_of(fault.id),

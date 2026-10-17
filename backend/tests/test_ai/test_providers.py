@@ -1,13 +1,12 @@
 """
 Tests for the three real providers (app/ai/providers/gemini_provider.py,
 claude_provider.py, openai_provider.py) WITHOUT a real API: each provider's
-official SDK talks to a small local HTTP server that answers like the real
-API, returns an error, or never answers (to trigger the timeout) - per
-model, so the fallback from a busy model to the next one is tested through
-the real SDKs too.
-
-Each test is skipped if that provider's SDK is not installed
-(pip install -e ".[ai]" installs all three).
+own REST code (HttpProvider + app/api_client.py, over `requests`) talks to a
+small local HTTP server that answers like the real API, returns an error,
+returns a broken reply, or never answers (to trigger the timeout) - per
+model, so the fallback from a busy model to the next one is tested end to
+end too. The stub also records the request headers, so the tests check
+that each key is sent the way its API expects (and never in the URL).
 
 Run from backend/:  python -m pytest tests/test_ai/test_providers.py -v
 """
@@ -33,6 +32,13 @@ REPLIES = {
                    "parallel_tool_calls": False, "tool_choice": "auto", "tools": []},
 }
 
+# A well-formed reply that holds no text (e.g. Gemini blocked the prompt).
+EMPTY_REPLIES = {
+    "generateContent": {"candidates": [{"finishReason": "SAFETY"}]},
+    "/messages": {"content": []},
+    "/responses": {"output": [{"type": "reasoning", "summary": []}]},
+}
+
 
 class StubApi:
     """
@@ -46,6 +52,8 @@ class StubApi:
         self.modes = {}
         self.listing = []
         self.requests = []
+        self.headers = []
+        self.paths = []
         self.asked = []
         stub = self
 
@@ -55,6 +63,7 @@ class StubApi:
 
             def do_GET(self):
                 """The model listing (Gemini's GET .../models), answered from stub.listing."""
+                stub.paths.append(self.path)
                 data = json.dumps({"models": stub.listing}).encode()
                 self.send_response(200 if stub.mode != "503" else 503)
                 self.send_header("content-type", "application/json")
@@ -65,6 +74,8 @@ class StubApi:
             def do_POST(self):
                 request = json.loads(self.rfile.read(int(self.headers["content-length"])))
                 stub.requests.append(request)
+                stub.headers.append(dict(self.headers))
+                stub.paths.append(self.path)
                 # Gemini puts the model in the path (.../models/<model>:generateContent), the others in the body.
                 model = request.get("model") or self.path.split("/models/")[-1].split(":")[0]
                 stub.asked.append(model)
@@ -74,11 +85,17 @@ class StubApi:
                     return
                 if mode in ("401", "429", "503"):
                     status = int(mode)
-                    body = {"error": {"code": status, "message": f"error {status}", "type": "api_error"}}
+                    data = json.dumps({"error": {"code": status, "message": f"error {status}", "type": "api_error"}})
+                elif mode == "not-json":
+                    status, data = 200, "<html>proxy error page</html>"
+                elif mode == "wrong-shape":
+                    status, data = 200, json.dumps({"unexpected": True})
+                elif mode == "empty":
+                    status, data = 200, json.dumps(EMPTY_REPLIES[next(m for m in EMPTY_REPLIES if m in self.path)])
                 else:
                     status = 200
-                    body = next(reply for marker, reply in REPLIES.items() if marker in self.path)
-                data = json.dumps(body).encode()
+                    data = json.dumps(next(reply for marker, reply in REPLIES.items() if marker in self.path))
+                data = data.encode()
                 self.send_response(status)
                 self.send_header("content-type", "application/json")
                 self.send_header("content-length", str(len(data)))
@@ -99,29 +116,19 @@ def stub():
 
 
 def gemini(url, timeout, models=("m",), **settings):
-    pytest.importorskip("google.genai")
-    from google import genai
-    from google.genai import types
     from app.ai.providers.gemini_provider import GeminiProvider
-    provider = GeminiProvider(models=models, api_key="k", timeout_seconds=timeout, **settings)
-    provider._client = genai.Client(api_key="k", http_options=types.HttpOptions(base_url=url, timeout=int(timeout * 1000)))
-    return provider
+    return GeminiProvider(models=models, api_key="gemini-key", timeout_seconds=timeout, base_url=url + "/v1beta",
+                          **settings)
 
 
 def claude(url, timeout, models=("m",)):
-    anthropic = pytest.importorskip("anthropic")
     from app.ai.providers.claude_provider import ClaudeProvider
-    provider = ClaudeProvider(models=models, api_key="k", timeout_seconds=timeout)
-    provider._client = anthropic.Anthropic(api_key="k", base_url=url, timeout=timeout, max_retries=0)
-    return provider
+    return ClaudeProvider(models=models, api_key="claude-key", timeout_seconds=timeout, base_url=url + "/v1")
 
 
 def openai_(url, timeout, models=("m",)):
-    openai = pytest.importorskip("openai")
     from app.ai.providers.openai_provider import OpenAIProvider
-    provider = OpenAIProvider(models=models, api_key="k", timeout_seconds=timeout)
-    provider._client = openai.OpenAI(api_key="k", base_url=url + "/v1", timeout=timeout, max_retries=0)
-    return provider
+    return OpenAIProvider(models=models, api_key="openai-key", timeout_seconds=timeout, base_url=url + "/v1")
 
 
 PROVIDERS = [(gemini, "Gemini answer"), (claude, "Claude answer"), (openai_, "OpenAI answer")]
@@ -170,7 +177,53 @@ def test_a_slow_api_times_out_without_retrying(stub, make, _):
     assert stub.asked == ["m"]                          # a timeout does not fall back
 
 
-# --- Gemini model discovery through the real SDK ---------------------------------
+@pytest.mark.parametrize("make, _", PROVIDERS)
+@pytest.mark.parametrize("mode, message", [
+    ("not-json", "unexpected reply: .* not valid JSON"),
+    ("wrong-shape", "unexpected reply: the reply has no '(candidates|content|output)' list"),
+    ("empty", "returned an empty answer"),
+])
+def test_a_broken_or_empty_reply_fails_without_trying_other_models(stub, make, _, mode, message):
+    stub.mode = mode
+    with pytest.raises(AnalysisError, match=message):
+        make(stub.url, 5, models=("m", "backup")).analyze("i", "{}")
+    assert stub.asked == ["m"]                          # another model would not fix a broken reply
+
+
+def test_an_unreachable_api_fails_with_a_clear_message():
+    from app.ai.providers.claude_provider import ClaudeProvider
+    provider = ClaudeProvider(models=("m",), api_key="k", timeout_seconds=2, base_url="http://127.0.0.1:9/v1")
+    with pytest.raises(AnalysisError, match="could not reach the Claude API"):
+        provider.analyze("i", "{}")
+
+
+@pytest.mark.parametrize("make, header, value", [
+    (gemini, "x-goog-api-key", "gemini-key"),
+    (claude, "x-api-key", "claude-key"),
+    (openai_, "Authorization", "Bearer openai-key"),
+])
+def test_the_key_is_sent_in_its_header_and_never_in_the_url(stub, make, header, value):
+    make(stub.url, 5).analyze("i", "{}")
+    sent = {name.lower(): text for name, text in stub.headers[0].items()}
+    assert sent[header.lower()] == value
+    assert "key" not in stub.paths[0]
+
+
+@pytest.mark.parametrize("make, path", [
+    (gemini, "/v1beta/models/m:generateContent"), (claude, "/v1/messages"), (openai_, "/v1/responses"),
+])
+def test_each_provider_posts_to_its_api_path(stub, make, path):
+    make(stub.url, 5).analyze("i", "{}")
+    assert stub.paths == [path]
+
+
+def test_claude_sends_the_api_version_and_a_token_limit(stub):
+    claude(stub.url, 5).analyze("THE INSTRUCTIONS", "{}")
+    assert {k.lower(): v for k, v in stub.headers[0].items()}["anthropic-version"] == "2023-06-01"
+    assert stub.requests[0]["system"] == "THE INSTRUCTIONS" and stub.requests[0]["max_tokens"] > 0
+
+
+# --- Gemini model discovery through the REST listing ---------------------------------
 
 def listed(name, *actions):
     return {"name": f"models/{name}", "supportedGenerationMethods": list(actions)}
@@ -198,3 +251,18 @@ def test_a_failed_listing_raises_and_leaves_the_list_alone(stub):
     with pytest.raises(Exception):
         provider.refresh_models()
     assert provider.models == ["m"]
+
+
+def test_the_listing_sends_the_page_size_and_follows_page_tokens():
+    """Pagination with a mocked ApiClient: every page is read, in order, and only generateContent models kept."""
+    from unittest.mock import Mock
+    from app.ai.providers.gemini_provider import GeminiProvider
+    client = Mock()
+    client.get_json.side_effect = [
+        {"models": [listed("gemini-a", "generateContent")], "nextPageToken": "page2"},
+        {"models": [listed("embedder", "embedContent"), listed("gemini-b", "generateContent")]},
+    ]
+    provider = GeminiProvider(models=("m",), api_key="k", timeout_seconds=5, client=client)
+    assert provider.available_models() == ["gemini-a", "gemini-b"]
+    first, second = (call.kwargs["params"] for call in client.get_json.call_args_list)
+    assert first == {"pageSize": 100} and second == {"pageSize": 100, "pageToken": "page2"}

@@ -6,7 +6,6 @@ Run from backend/:  python -m pytest tests/test_ai/test_config.py -v
 """
 
 import importlib
-import importlib.util
 
 import pytest
 
@@ -109,27 +108,11 @@ def test_the_fake_provider_needs_no_key(monkeypatch):
     assert provider.label() == "Fake AI (model: fake-model)"
 
 
-def test_a_missing_sdk_gives_the_pip_command(monkeypatch):
-    """Startup finds a missing SDK with find_spec - without importing anything."""
-    monkeypatch.setenv("GEMINI_API_KEY", "secret")
-    real_find_spec = importlib.util.find_spec
-
-    def missing_google(name, *args):
-        if name.startswith("google"):
-            raise ModuleNotFoundError("No module named 'google'", name="google")   # the parent package is missing
-        return real_find_spec(name, *args)
-
-    monkeypatch.setattr(importlib.util, "find_spec", missing_google)
-    with pytest.raises(ValueError, match=r'pip install -e "\.\[gemini\]"'):
-        check_ai_settings()
-
-
-def test_the_startup_check_never_imports_the_sdk(monkeypatch):
-    """check_ai_settings() must not import a provider module (that is what loads the SDK's memory)."""
+def test_the_startup_check_never_creates_a_provider(monkeypatch):
+    """check_ai_settings() must not import a provider module - the provider is created on the first analysis."""
     monkeypatch.setenv("AI_PROVIDER", "claude")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-x")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *args: object())   # "installed"
     imported = []
     real_import = importlib.import_module
     monkeypatch.setattr(importlib, "import_module", lambda name, *a: imported.append(name) or real_import(name, *a))
@@ -137,27 +120,10 @@ def test_the_startup_check_never_imports_the_sdk(monkeypatch):
     assert not any(name.endswith("_provider") for name in imported)
 
 
-def test_build_provider_still_reports_a_missing_sdk(monkeypatch):
-    """The first analysis (build_provider) gives the same pip hint if the package vanished after startup."""
-    monkeypatch.setenv("GEMINI_API_KEY", "secret")
-    real_import = importlib.import_module
-
-    def failing_import(name, *args):
-        if name.endswith("gemini_provider"):
-            raise ModuleNotFoundError("No module named 'google'", name="google")
-        return real_import(name, *args)
-
-    monkeypatch.setattr(importlib, "import_module", failing_import)
-    with pytest.raises(ValueError, match=r'pip install -e "\.\[gemini\]"'):
-        build_provider(AIConfig.from_env())
-
-
 @pytest.mark.parametrize("name", list(PROVIDERS))
 def test_the_registry_display_name_matches_the_provider_class(name):
     """The page shows the registry's name before the provider exists, so it must match the class."""
     info = PROVIDERS[name]
-    if info.sdk_module is not None:
-        pytest.importorskip(info.sdk_module)
     module = importlib.import_module(f"app.ai.providers.{info.module}")
     assert getattr(module, info.class_name).display_name == info.display_name
 
@@ -167,10 +133,27 @@ def test_the_fake_provider_has_its_model_in_the_settings(monkeypatch):
     assert AIConfig.from_env().models == ("fake-model",)
 
 
-def test_every_real_provider_has_its_own_pip_extra():
+def test_every_real_provider_has_a_key_and_a_model_setting():
     for name, info in PROVIDERS.items():
         if name != "fake":
-            assert info.pip_extra == name and info.key_env and info.models_env
+            assert info.key_env and info.models_env
+
+
+@pytest.mark.parametrize("provider, key_env, model_env, expected_class", [
+    ("gemini", "GEMINI_API_KEY", "GEMINI_MODELS", "GeminiProvider"),
+    ("claude", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ClaudeProvider"),
+    ("openai", "OPENAI_API_KEY", "OPENAI_MODEL", "OpenAIProvider"),
+    ("fake", None, None, "FakeProvider"),
+])
+def test_the_factory_builds_the_class_named_by_ai_provider(monkeypatch, provider, key_env, model_env, expected_class):
+    """build_provider() is the one place that turns the AI_PROVIDER setting into a provider object."""
+    monkeypatch.setenv("AI_PROVIDER", provider)
+    if key_env:
+        monkeypatch.setenv(key_env, "secret")
+        monkeypatch.setenv(model_env, "model-a, model-b")
+    built = build_provider(AIConfig.from_env())
+    assert type(built).__name__ == expected_class
+    assert built.models == (["model-a", "model-b"] if key_env else ["fake-model"])
 
 
 def test_the_reanalysis_cooldown_defaults_to_five_minutes(monkeypatch):

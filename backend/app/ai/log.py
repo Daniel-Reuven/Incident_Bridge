@@ -11,7 +11,7 @@ access lines (dates trimmed here):
     INFO:     14:17:55 AI   [MainThread] AI analysis is on: Gemini (models: gemini-3.8-flash > …), timeout 180s per call - the worker starts on the first request
     INFO:     14:18:08 AI   [AnyIO worker thread] Worker thread ai-analysis-worker started (first request) - Gemini (models: …), 5s pause between jobs | queue: idle, 1 waiting (seed-075)
     INFO:     14:18:08 AI   [AnyIO worker thread] Queued fault seed-075 "Online store checkout…" for admin - position 1 | queue: idle, 1 waiting (seed-075)
-    INFO:     14:18:08 AI   [ai-analysis-worker] Loaded the Gemini SDK and client in 0.6s
+    INFO:     14:18:08 AI   [ai-analysis-worker] Created the Gemini provider and its HTTP client in 0.0s
     INFO:     14:18:08 AI   [ai-analysis-worker] Started fault seed-075 "Online store checkout…" (requested by admin, waited 0.0s) - 8 comments, 3,171 characters of data | queue: running seed-075, 0 waiting
     INFO:     14:18:08 AI   [ai-analysis-worker] Asking Gemini gemini-3.8-flash (model 1 of 4)
     INFO:     14:18:08 AI   [AnyIO worker thread] Refused a request for fault seed-076 by tech1 - an analysis is already pending

@@ -38,8 +38,7 @@ so "may use" comes from the model family in the name and the tier setting.
 No Google API can confirm that a key has paid credits, so Pro models are
 added only when GEMINI_TIER=paid says so.
 
-This module imports no SDK, so the settings can be checked without
-google-genai installed.
+This module makes no network call, so the settings can be checked at startup.
 """
 
 import os

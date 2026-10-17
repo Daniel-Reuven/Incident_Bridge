@@ -3,10 +3,11 @@ The provider interface every AI provider implements, including the shared
 MODEL FALLBACK logic.
 
 The rest of the AI feature (the worker in app/ai/worker.py, the prompt in
-app/ai/prompt.py) only ever talks to AnalysisProvider - it never imports a
-company's SDK. Each real provider lives in its own file in this folder and
-is the only place its SDK is imported (see app/ai/providers/__init__.py for
-the registry that picks one).
+app/ai/prompt.py) only ever talks to AnalysisProvider - it never knows
+which company's API is behind it. Each real provider lives in its own file
+in this folder and is the only place that knows its API's request and reply
+format (see app/ai/providers/__init__.py for the registry that picks one,
+and http_provider.py for the shared HTTP part).
 
 Model fallback: a provider is configured with an ORDERED list of models,
 best first (for Gemini the list comes from the tier - see gemini_models.py).
@@ -19,11 +20,13 @@ another model would not help, and a timeout already used up the time.
 
 How to add a provider:
     1. Create app/ai/providers/<name>_provider.py with a subclass of
-       AnalysisProvider that implements _ask() and raises ModelUnavailable
-       for "busy / rate limited / no quota" errors.
+       HttpProvider (http_provider.py) that describes its REST call:
+       headers, path, request body and where the text is in the reply.
+       (A provider that is not an HTTP API subclasses AnalysisProvider and
+       implements _ask(), raising ModelUnavailable for "busy / rate limited
+       / no quota" errors.)
     2. Add one ProviderInfo line for it to PROVIDERS in
        app/ai/providers/__init__.py.
-    3. Add its SDK as an optional dependency group in backend/pyproject.toml.
 """
 
 import time

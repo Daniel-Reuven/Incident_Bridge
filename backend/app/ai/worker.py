@@ -21,17 +21,16 @@ THREAD_NAME already exists. One AnalysisWorker is created per process at
 startup (app/api/app.py's lifespan, via app/ai/setup.py).
 
 Started on demand (v0.4.5): creating the worker at startup starts NO thread
-and loads NO SDK. The thread starts with the FIRST request (request() starts
+and creates NO provider. The thread starts with the FIRST request (request() starts
 it while holding the queue lock, so two simultaneous first requests still
 start exactly one thread), or at startup when jobs were restored from SQLite
-(start_if_restored()). The thread's first steps are to create the provider -
-import its SDK and build its client (ProviderLoader in
+(start_if_restored()). The thread's first steps are to create the provider
+and its HTTP client (ProviderLoader in
 app/ai/providers/loader.py) - and then Gemini model discovery. Until then the
 page gets the provider's name and models from the settings. Once started,
 the thread runs until the server shuts down (it sleeps while the queue is
-empty, using no CPU); it never stops on its own, because a Python process
-never gives back the memory of an imported SDK, so stopping would save
-nothing.
+empty, using no CPU); it never stops on its own - a sleeping thread costs
+nothing, so stopping would save nothing.
 
 What happens to a job:
 1. request(): adds the "<user> requested <provider> analysis." comment, saves
@@ -141,7 +140,7 @@ class AnalysisWorker:
 
     @property
     def provider_name(self) -> str:
-        """The provider's display name ("Gemini") - from the settings, no SDK needed."""
+        """The provider's display name ("Gemini") - from the settings, no provider needed."""
         return self._loader.display_name
 
     @property
@@ -161,7 +160,7 @@ class AnalysisWorker:
 
     @property
     def provider_loaded(self) -> bool:
-        """True once the provider (and its SDK) has been created."""
+        """True once the provider (and its HTTP client) has been created."""
         return self._loader.loaded
 
     # ------------------------------------------------------------------
@@ -339,7 +338,7 @@ class AnalysisWorker:
     # ------------------------------------------------------------------
 
     def _run(self) -> None:
-        if self._load_provider():             # import the SDK and build the client, once
+        if self._load_provider():             # create the provider and its HTTP client, once
             self._refresh_models()            # then Gemini model discovery, before the first job
         while True:
             job = self._next_job()
@@ -359,7 +358,7 @@ class AnalysisWorker:
 
     def _load_provider(self) -> bool:
         """
-        Create the provider (import its SDK, build its client) - the first
+        Create the provider and its HTTP client - the first
         step of the thread. Returns False if that failed: it is logged, and
         each job then tries again and posts an error comment if it still fails.
         """
@@ -371,7 +370,7 @@ class AnalysisWorker:
         except Exception as exc:
             log.error(f"Could not create the {self.provider_name} provider ({type(exc).__name__}: {exc})")
             return False
-        log.info(f"Loaded the {self.provider_name} SDK and client in {time.monotonic() - started:.1f}s")
+        log.info(f"Created the {self.provider_name} provider and its HTTP client in {time.monotonic() - started:.1f}s")
         return True
 
     def _refresh_models(self) -> None:
@@ -435,7 +434,7 @@ class AnalysisWorker:
             texts, action = split_answer(result.text, provider.label(result.model)), "ai_analysis_posted"
         except AnalysisError as exc:
             texts, action = [error_comment(label, str(exc))], "ai_analysis_failed"
-        except Exception as exc:              # an unexpected SDK error: still tell the users
+        except Exception as exc:              # an unexpected error: still tell the users
             traceback.print_exc()
             texts, action = [error_comment(label, f"unexpected error ({type(exc).__name__})")], "ai_analysis_failed"
 

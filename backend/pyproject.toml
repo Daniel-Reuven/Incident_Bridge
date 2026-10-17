@@ -4,7 +4,6 @@
 #
 # Install for running the app:   pip install -e .
 # Install for development/tests: pip install -e ".[dev]"
-# Add the AI provider you use:    pip install -e ".[gemini]"   (or ".[claude]", ".[openai]", ".[ai]" for all three)
 
 [build-system]
 # setuptools is only used to read this file and make the project
@@ -15,7 +14,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "incident-bridge"
 # The project's single version number - bump it here (there is no separate VERSION file).
-version = "0.4.9"
+version = "0.5.0"
 description = "Incident Bridge - incident management backend (FastAPI)"
 requires-python = ">=3.9"
 
@@ -25,25 +24,18 @@ dependencies = [
     "uvicorn[standard]>=0.53",
     "itsdangerous>=2.2",    # signs the session cookie (SessionMiddleware)
     "python-dotenv>=1.2",   # loads .env in serve_app.py / seed_from_jsonl.py
-    "httpx>=0.28",          # seed_from_jsonl.py and FastAPI's TestClient
+    "httpx>=0.28",          # seed_from_jsonl.py, site availability checks and FastAPI's TestClient
+    "requests>=2.32",       # app/api_client.py - the AI providers' REST calls (no AI SDKs)
 ]
 
 [project.optional-dependencies]
 # Test-only dependencies (formerly requirements-dev.txt).
 # Install with: pip install -e ".[dev]"
-# The tests never need an AI SDK - they use the fake provider.
+# The tests never need the network or an API key (fake provider, stub server, mocks).
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
 ]
-
-# AI analysis (app/ai/): each provider's official SDK is its own optional
-# group, so you install only the one selected by AI_PROVIDER in .env.
-# Each SDK is imported only when its provider is selected.
-gemini = ["google-genai>=2.29"]      # Google's official SDK - AI_PROVIDER=gemini (default)
-claude = ["anthropic>=1.13"]         # Anthropic's official SDK - AI_PROVIDER=claude
-openai = ["openai>=3.29"]            # OpenAI's official SDK - AI_PROVIDER=openai
-ai = ["incident-bridge[gemini,claude,openai]"]   # all three
 
 [tool.setuptools.packages.find]
 # backend/ is a "flat layout" with several top-level folders (for example

@@ -13,8 +13,9 @@ Files:
     config.py       AIConfig: reads and validates the AI_* / <PROVIDER>_* settings
     providers/      AnalysisProvider interface + model fallback (base.py), one file per
                     provider, the registry, Gemini's tier model lists (gemini_models.py),
-                    and ProviderLoader (loader.py): creates the provider - imports its
-                    SDK - on the first analysis, not at startup
+                    the shared REST part (http_provider.py, over app/api_client.py) and
+                    ProviderLoader (loader.py): creates the provider on the first
+                    analysis, not at startup
     prompt.py       instructions + incident JSON sent to the model
     splitter.py     answer -> comment texts (header, parts, truncation, errors)
     jobs.py         AnalysisJob

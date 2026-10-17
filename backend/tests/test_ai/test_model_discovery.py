@@ -3,7 +3,7 @@ Tests for Gemini model discovery (GEMINI_MODEL_DISCOVERY=auto):
 refresh_model_list() and gemini_settings() in app/ai/providers/gemini_models.py,
 and the worker thread refreshing the list once before its first job
 (AnalysisWorker._refresh_models in app/ai/worker.py). No network - the
-listing through the real SDK is tested in test_providers.py.
+listing through the REST API (stub server) is tested in test_providers.py.
 
 Run from backend/:  python -m pytest tests/test_ai/test_model_discovery.py -v
 """

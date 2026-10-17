@@ -1,6 +1,6 @@
 """
 Tests for starting the AI side on demand (v0.4.5): the worker thread and
-the provider (its SDK and client) are created on the FIRST analysis request,
+the provider (and its HTTP client) are created on the FIRST analysis request,
 not at server startup - except when jobs were restored from SQLite.
 
 See app/ai/worker.py ("Started on demand"), app/ai/providers/loader.py and
@@ -145,7 +145,7 @@ def test_the_thread_loads_the_provider_then_refreshes_models(make_worker, make_f
     wait_for_analysis(worker, fault)
     assert order == ["build", "refresh"]
     assert worker.models == ["newer-model", "fake-model"]                # the live list from now on
-    assert "Loaded the Fake AI SDK and client" in ai_log.text
+    assert "Created the Fake AI provider and its HTTP client" in ai_log.text
 
 
 def test_a_provider_that_cannot_be_created_posts_an_error_and_the_thread_survives(make_worker, make_fault, state):

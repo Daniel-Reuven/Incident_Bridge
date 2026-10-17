@@ -2,14 +2,13 @@
 ProviderLoader: the configured AI provider, created only when it is first
 needed (v0.4.5).
 
-Creating a provider imports its company's SDK and builds its client, which
-costs memory for as long as the server runs (measured: google-genai about
-+21 MB, anthropic about +32 MB, openai about +12 MB) - and a Python process
-never gives that memory back, even if the SDK is "unloaded". So the server
-does NOT create the provider at startup. It only remembers what the
-settings say (the provider's name and model list) and creates the provider
-the first time an analysis actually runs. A server where nobody ever presses
-"Analyze" never loads an SDK at all.
+The server does NOT create the provider at startup. It only remembers what
+the settings say (the provider's name and model list) and creates the
+provider - its module and its HTTP client (app/api_client.py) - the first
+time an analysis actually runs. (Until v0.4.9 this saved 12-32 MB per
+company SDK; since v0.5.0 no SDK is used, and the lazy creation keeps
+startup free of any provider work.) A server where nobody ever presses
+"Analyze" never creates a provider at all.
 
 Until then, everything the page needs - "Analyze using Gemini", the model
 list in the tooltip - comes from the settings (`display_name`, `models`).
@@ -17,19 +16,18 @@ Once the provider exists, `models` is ITS list, which may have been updated
 by Gemini model discovery.
 
 Thread-safe: get() may be called from several threads; the provider is
-built exactly once. If building fails (should not happen - startup already
-checked that the SDK is installed), get() raises and the next call tries
-again.
+built exactly once. If building fails (should not happen), get()
+raises and the next call tries again.
 
 Only ONE provider is configured at a time (AI_PROVIDER), so the worker holds
 one loader. Supporting several providers later means one loader per
-provider (e.g. a dict keyed by AI_PROVIDER value), each loading its SDK on
+provider (e.g. a dict keyed by AI_PROVIDER value), each created on
 first use - nothing here assumes there is only one.
 
 Usage:
     loader = ProviderLoader("Gemini", ("gemini-a", "gemini-b"), lambda: build_provider(config))
-    loader.label()      # 'Gemini (models: gemini-a > gemini-b)' - no SDK import
-    provider = loader.get()   # imports the SDK and builds the client, once
+    loader.label()      # 'Gemini (models: gemini-a > gemini-b)' - nothing created
+    provider = loader.get()   # creates the provider and its HTTP client, once
     # Tests can pass a ready provider:
     loader = ProviderLoader.ready(FakeProvider())
 """
@@ -62,7 +60,7 @@ class ProviderLoader:
 
     @property
     def loaded(self) -> bool:
-        """True once the provider (and its SDK) has been created."""
+        """True once the provider (and its HTTP client) has been created."""
         return self._provider is not None
 
     @property
@@ -71,7 +69,7 @@ class ProviderLoader:
         return self._provider
 
     def get(self) -> AnalysisProvider:
-        """The provider, creating it (importing its SDK) the first time. Raises whatever building raises."""
+        """The provider, creating it the first time. Raises whatever building raises."""
         with self._lock:
             if self._provider is None:
                 self._provider = self._build()

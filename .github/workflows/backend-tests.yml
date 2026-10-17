@@ -4,10 +4,10 @@
 # locally on your own machine.
 #
 # Dependencies come from backend/pyproject.toml: the project itself plus
-# its "dev" extra (pytest, pytest-cov) and its "ai" extra (the Gemini,
-# Claude and OpenAI SDKs - so tests/test_ai/test_providers.py runs each SDK
-# against a local stub server instead of being skipped). No API keys are
-# needed: nothing calls a real AI API. There are no requirements*.txt files
+# its "dev" extra (pytest, pytest-cov). The AI providers call their REST
+# APIs through app/api_client.py (requests, a normal dependency), and
+# tests/test_ai/test_providers.py runs them against a local stub server.
+# No API keys are needed: nothing calls a real AI API. There are no requirements*.txt files
 # any more.
 #
 # GitHub shows the result directly on the commit and on any pull request
@@ -41,7 +41,7 @@ jobs:
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,ai]"
+          pip install -e ".[dev]"
 
       - name: Run the test suite
         working-directory: backend
