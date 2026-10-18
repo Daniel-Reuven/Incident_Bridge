@@ -608,6 +608,58 @@ body > main { flex: 1 0 auto; }
 .doc-toc ol { margin: 0; columns: 2; column-gap: 32px; }
 .doc-toc li { margin-bottom: 3px; break-inside: avoid; }
 
+/* Side contents (js/doc-nav.js): on a wide window the "On this page" list sits
+   beside the text and stays in view; the section being read is highlighted. */
+.doc-layout.has-side {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 900px);
+  justify-content: center;
+  gap: 8px;
+  padding-left: 24px;
+}
+.doc-layout.has-side .doc-page { margin: 0; }
+.doc-side { min-width: 0; }
+.doc-layout.has-side .doc-side { padding-top: 32px; }
+.doc-side .doc-toc {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 12px 10px 12px 14px;
+  margin: 0;
+}
+.doc-side .doc-toc ol { columns: 1; padding-inline-start: 20px; }
+.doc-toc a[aria-current="location"] { color: var(--accent); font-weight: 600; text-decoration: none; }
+.doc-side .doc-toc li { margin-bottom: 6px; }
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.doc-toc) { scroll-behavior: smooth; }
+}
+
+/* "Top" / "Bottom" buttons on the long public pages (js/doc-nav.js) */
+.jump-buttons {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 20;
+}
+.jump-btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 2px 8px var(--shadow);
+  cursor: pointer;
+}
+.jump-btn:hover { border-color: var(--accent); color: var(--accent); }
+.jump-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.jump-btn[hidden] { display: none; }
+
 /* a screenshot with its caption */
 .doc-figure { margin: 18px 0 8px; }
 .doc-figure a { display: block; }
@@ -678,6 +730,7 @@ body > main { flex: 1 0 auto; }
   .public-nav { flex-direction: column; align-items: flex-start; gap: 4px; }   /* links under the wordmark */
   .public-links { gap: 16px; }
   .doc-toc ol { columns: 1; }
+  .jump-buttons { right: 12px; bottom: 12px; }
   .fact-list { grid-template-columns: 1fr; gap: 2px 0; }
   .fact-list dd { margin-bottom: 8px; }
 }
