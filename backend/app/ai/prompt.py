@@ -14,6 +14,11 @@ waited are included.
 
 Size: if the JSON would be longer than MAX_INCIDENT_DATA_CHARS, the OLDEST
 comments are left out first and "omitted_older_comments" says how many.
+
+The model is also asked to end its answer with one line of structured JSON
+(a severity suggestion, affected site ids and a confidence score) - see
+app/ai/result.py, which pulls that line off before the text is split into
+comments (app/ai/splitter.py) and validates it.
 """
 
 import json
@@ -66,7 +71,9 @@ How to answer:
 - In "Severity assessment" say whether the current severity looks right, and why.
 - If the data is not enough to be confident, say so instead of guessing.
 - Do not add a greeting, a title or a sign-off. Write in English.
-- Keep the whole answer under {max_answer_chars} characters."""
+- Keep the sections above (everything before the JSON line below) under {max_answer_chars} characters.
+- After the sections, leave one blank line and then exactly one line of JSON (no other JSON anywhere else in the answer):
+{{"suggested_severity": "critical|major|minor|cosmetic", "affected_site_ids": [the numeric ids of any "Site <id>" mentioned, else []], "confidence": a number from 0.0 to 1.0}}"""
 
 
 def build_incident_data(fault: Fault, ai_username: str) -> str:

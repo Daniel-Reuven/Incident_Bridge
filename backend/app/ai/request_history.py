@@ -10,11 +10,12 @@ same pattern as SqliteAnalysisJobStore.
 A row is inserted when a job is requested (AnalysisWorker.request();
 outcome and finished_at are still NULL) and filled in once the worker is
 done with it (AnalysisWorker.cancel() / _finish()):
-  success                the answer was posted and followed the expected
-                          section headings (app/ai/prompt.py's
-                          ANSWER_SECTIONS) - findings_json holds them.
-  success_unstructured   the answer was posted but did not use those
-                          headings - findings_json is NULL.
+  success                the answer was posted and its trailing JSON block
+                          (app/ai/result.py's AnalysisFindings) was present
+                          and valid - findings_json holds it.
+  success_unstructured   the answer was posted but that block was missing
+                          or invalid - findings_json is NULL (never a
+                          reason to fail the analysis - see app/ai/result.py).
   failed                 the provider call failed, or could not be made.
   cancelled               cancelled before an answer was posted.
   dropped                 the fault was closed or gone when the job's turn came.
@@ -27,7 +28,6 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.ai.jobs import AnalysisJob
-from app.ai.prompt import ANSWER_SECTIONS
 
 OUTCOME_SUCCESS = "success"
 OUTCOME_SUCCESS_UNSTRUCTURED = "success_unstructured"
@@ -86,24 +86,5 @@ class SqliteRequestHistoryStore:
         return f"SqliteRequestHistoryStore(db_path={self.db_path!r})"
 
 
-def parse_findings(answer: str) -> Optional[dict]:
-    """
-    `answer`'s sections as {heading: [lines]} if it used every heading in
-    ANSWER_SECTIONS exactly as instructed (app/ai/prompt.py), else None - an
-    "unstructured" answer.
-    """
-    headings = {f"{name}:": name for name in ANSWER_SECTIONS}
-    sections: dict = {}
-    current = None
-    for line in answer.replace("\r\n", "\n").split("\n"):
-        stripped = line.strip()
-        if stripped in headings:
-            current = headings[stripped]
-            sections[current] = []
-        elif current is not None and stripped:
-            sections[current].append(stripped)
-    return sections if set(sections) == set(ANSWER_SECTIONS) else None
-
-
-__all__ = ["SqliteRequestHistoryStore", "parse_findings", "OUTCOME_SUCCESS", "OUTCOME_SUCCESS_UNSTRUCTURED",
+__all__ = ["SqliteRequestHistoryStore", "OUTCOME_SUCCESS", "OUTCOME_SUCCESS_UNSTRUCTURED",
            "OUTCOME_FAILED", "OUTCOME_CANCELLED", "OUTCOME_DROPPED"]

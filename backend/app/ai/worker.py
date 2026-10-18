@@ -83,6 +83,7 @@ import threading
 import time
 import traceback
 from collections import deque
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Deque, List, Optional, Tuple, Union
 
@@ -94,7 +95,8 @@ from app.ai.providers.base import AnalysisError, AnalysisProvider
 from app.ai.providers.loader import ProviderLoader
 from app.ai.reanalysis import DEFAULT_COOLDOWN_SECONDS, Decision, LastAnalysis, analysis_fingerprint, decide, wait_text
 from app.ai.request_history import (OUTCOME_CANCELLED, OUTCOME_DROPPED, OUTCOME_FAILED, OUTCOME_SUCCESS,
-                                    OUTCOME_SUCCESS_UNSTRUCTURED, SqliteRequestHistoryStore, parse_findings)
+                                    OUTCOME_SUCCESS_UNSTRUCTURED, SqliteRequestHistoryStore)
+from app.ai.result import AnalysisFindings, extract_findings
 from app.ai.splitter import error_comment, split_answer, total_answer_budget
 from app.events import EventBroadcaster, incident_event
 from app.models import Fault, IncidentStatus, Role, User
@@ -434,27 +436,29 @@ class AnalysisWorker:
                  f"waited {waited:.1f}s) - {len(fault.comments)} comments, "
                  f"{len(incident_data):,} characters of data | {self.queue_summary()}")
         result = None
+        findings = None
         try:
             provider = self._loader.get()     # already created by _run(); tried again here if that failed
         except Exception as exc:
             log.error(f"Could not create the {self.provider_name} provider ({type(exc).__name__}: {exc})")
             texts = [error_comment(label, f"the {self.provider_name} provider could not be started "
                                           f"({type(exc).__name__}) - see the server log")]
-            return self._post(job, fault, texts, "ai_analysis_failed", fingerprint, None, called_api=False)
+            return self._post(job, fault, texts, "ai_analysis_failed", fingerprint, None, None, called_api=False)
         try:
             # Tries the provider's models in order, falling back when one is busy (providers/base.py).
             result = provider.analyze(instructions, incident_data)
-            texts, action = split_answer(result.text, provider.label(result.model)), "ai_analysis_posted"
+            text, findings = extract_findings(result.text)   # strips the trailing JSON block, if any (app/ai/result.py)
+            texts, action = split_answer(text, provider.label(result.model)), "ai_analysis_posted"
         except AnalysisError as exc:
             texts, action = [error_comment(label, str(exc))], "ai_analysis_failed"
         except Exception as exc:              # an unexpected error: still tell the users
             traceback.print_exc()
             texts, action = [error_comment(label, f"unexpected error ({type(exc).__name__})")], "ai_analysis_failed"
 
-        return self._post(job, fault, texts, action, fingerprint, result, called_api=True)
+        return self._post(job, fault, texts, action, fingerprint, result, findings, called_api=True)
 
     def _post(self, job: AnalysisJob, fault: Fault, texts: List[str], action: str, fingerprint: str,
-              result, called_api: bool) -> Tuple[bool, str]:
+              result, findings: Optional[AnalysisFindings], called_api: bool) -> Tuple[bool, str]:
         """
         Post the answer (or error) comments - unless the job was cancelled
         meanwhile - remember a success, and publish ONE incident event.
@@ -472,9 +476,9 @@ class AnalysisWorker:
         if action == "ai_analysis_posted":     # only a posted answer counts for the re-analysis rule
             self._store.record_success(fault.id, LastAnalysis(
                 self.provider_name, result.model, fingerprint, datetime.now(timezone.utc)))
-            findings = parse_findings(result.text)
-            self._history.record_finished(job.id, OUTCOME_SUCCESS if findings is not None else
-                                           OUTCOME_SUCCESS_UNSTRUCTURED, model=result.model, findings=findings)
+            outcome = OUTCOME_SUCCESS if findings is not None else OUTCOME_SUCCESS_UNSTRUCTURED
+            self._history.record_finished(job.id, outcome, model=result.model,
+                                           findings=asdict(findings) if findings is not None else None)
         else:
             self._history.record_finished(job.id, OUTCOME_FAILED)
         self._broadcaster.publish(incident_event(fault, action, AI_USERNAME))
