@@ -68,6 +68,12 @@ the job is queued, filled in with its outcome (success, success_unstructured,
 failed, cancelled or dropped), the model, and any parsed findings once the
 worker is done with it.
 
+Listeners (app/analysis_service.py, the Observer pattern): after an answer
+with valid structured findings is posted (outcome success, never
+success_unstructured or failed), every listener passed in at construction
+is called with one AnalysisCompleted. A listener that raises is logged and
+never stops the others, or the comments already posted.
+
 Console log: every step above is logged (app/ai/log.py) - each request,
 refusal, cancel, job start and end, model attempt and pause - and every
 queue change ends with the queue's state, e.g. "| queue: running seed-075,
@@ -85,8 +91,9 @@ import traceback
 from collections import deque
 from dataclasses import asdict
 from datetime import datetime, timezone
-from typing import Deque, List, Optional, Tuple, Union
+from typing import Deque, Iterable, List, Optional, Tuple, Union
 
+from app.analysis_service import AnalysisCompleted, AnalysisListener, notify_listeners
 from app.ai.jobs import AnalysisJob
 from app.ai.job_store import SqliteAnalysisJobStore
 from app.ai.log import log, short_title
@@ -112,12 +119,16 @@ QUEUE_EVENT_SCOPE = "ai_analysis"
 class AnalysisWorker:
     def __init__(self, state, provider: Union[ProviderLoader, AnalysisProvider], store: SqliteAnalysisJobStore,
                  broadcaster: EventBroadcaster, delay_seconds: float,
-                 cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS, start_on_request: bool = True):
+                 cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS, start_on_request: bool = True,
+                 listeners: Iterable[AnalysisListener] = ()):
         """
         `provider`: a ProviderLoader (the app - the provider is created on the
         first analysis) or a ready AnalysisProvider (tests).
         `start_on_request`: start the thread on the first request (the app);
         False leaves starting to start() - tests use it to inspect the queue.
+        `listeners`: notified (app/analysis_service.py) after an answer with
+        valid structured findings is posted; empty by default, so every
+        existing caller is unaffected.
         Starts no thread itself; restores saved jobs (see start_if_restored()).
         """
         self._state = state                   # AppState: incidents + users
@@ -125,6 +136,7 @@ class AnalysisWorker:
         self._start_on_request = start_on_request
         self._store = store
         self._history = SqliteRequestHistoryStore(store.db_path)
+        self._listeners = list(listeners)
         self._broadcaster = broadcaster
         self.delay_seconds = delay_seconds
         self.cooldown_seconds = cooldown_seconds   # before an admin may force a re-analysis
@@ -479,6 +491,8 @@ class AnalysisWorker:
             outcome = OUTCOME_SUCCESS if findings is not None else OUTCOME_SUCCESS_UNSTRUCTURED
             self._history.record_finished(job.id, outcome, model=result.model,
                                            findings=asdict(findings) if findings is not None else None)
+            if findings is not None:           # only a valid, structured answer is worth telling listeners about
+                notify_listeners(self._listeners, AnalysisCompleted(fault, findings, self.provider_name, result.model))
         else:
             self._history.record_finished(job.id, OUTCOME_FAILED)
         self._broadcaster.publish(incident_event(fault, action, AI_USERNAME))
