@@ -28,7 +28,8 @@ def test_a_regular_user_cannot_manage_users(user_client):
     assert response.status_code == 403 and response.json()["detail"] == "User management is available to admins only."
 
 
-def test_a_new_user_must_change_the_password_before_anything_else(admin_client, second_client):
+def test_a_new_user_must_change_the_password_before_anything_else(admin_client, second_client, monkeypatch):
+    monkeypatch.setenv("REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN", "true")      # the default (conftest turns it off)
     assert create(admin_client).status_code == 201
     assert login(second_client, "tech9", "Start#Pass9").json()["must_change_password"] is True
     blocked = second_client.get("/incidents")
@@ -61,12 +62,25 @@ def test_disabling_a_user_ends_their_session_and_blocks_login(admin_client, user
     assert login(user_client, "tech1", "Demo#Pass2").status_code == 200
 
 
-def test_a_reset_password_ends_sessions_and_forces_a_change(admin_client, user_client):
+def test_a_reset_password_ends_sessions_and_forces_a_change(admin_client, user_client, monkeypatch):
+    monkeypatch.setenv("REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN", "true")
     response = admin_client.post("/users/tech1/reset-password",
                                  json={"new_password": "Reset#Pass1", "confirm_password": "Reset#Pass1"})
     assert response.json()["must_change_password"] is True
     assert user_client.get("/auth/me").status_code == 401
     assert login(user_client, "tech1", "Reset#Pass1").json()["must_change_password"] is True
+
+
+def test_with_the_setting_off_new_and_reset_passwords_need_no_change(admin_client, second_client, monkeypatch):
+    monkeypatch.setenv("REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN", "false")
+    assert create(admin_client).json()["must_change_password"] is False
+    assert login(second_client, "tech9", "Start#Pass9").json()["must_change_password"] is False
+    assert second_client.get("/incidents").status_code == 200
+    reset = admin_client.post("/users/tech9/reset-password",
+                              json={"new_password": "Reset#Pass9", "confirm_password": "Reset#Pass9"})
+    assert reset.json()["must_change_password"] is False
+    assert second_client.get("/auth/me").status_code == 401                # signed out all the same
+    assert login(second_client, "tech9", "Reset#Pass9").json()["must_change_password"] is False
 
 
 def test_role_change_takes_effect(admin_client, user_client):

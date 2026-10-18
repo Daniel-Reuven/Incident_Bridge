@@ -183,9 +183,13 @@ def _add_system_users(store: UserStore) -> None:
 
 def first_login_change_required() -> bool:
     """
-    REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN (default true): whether the users
-    created from INCIDENT_BRIDGE_USERS must change their password at their
-    first login. Raises ValueError for a value that is not true/false.
+    REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN (default true): whether a password
+    chosen by someone else must be changed at the next login - the users
+    created from INCIDENT_BRIDGE_USERS, accounts an admin creates on the
+    Users page, and passwords an admin resets there (app/api/users.py).
+    Read when the password is set: changing it later does not change
+    accounts that already have the flag. Raises ValueError for a value that
+    is not true/false.
     """
     raw = (os.environ.get("REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN") or "true").strip().lower()
     if raw not in ("true", "false", "1", "0", "yes", "no"):

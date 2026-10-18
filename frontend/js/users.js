@@ -100,7 +100,8 @@ async function wireNewUserDialog() {
       const created = await api.createUser(form.username.value.trim(), form.role.value,
                                            form.new_password.value, form.confirm_password.value);
       dialog.close();
-      showToast(`${created.username} created - they must change the password at their first login.`);
+      showToast(created.must_change_password ? `${created.username} created - they must change the password at their first login.`
+                                             : `${created.username} created.`);
       await load();
     } catch (err) {
       errorEl.textContent = err.message;
@@ -121,9 +122,10 @@ async function wireResetDialog() {
     e.preventDefault();
     errorEl.hidden = true;
     try {
-      await api.resetUserPassword(resetTarget, form.new_password.value, form.confirm_password.value);
+      const account = await api.resetUserPassword(resetTarget, form.new_password.value, form.confirm_password.value);
       dialog.close();
-      showToast(`Password of ${resetTarget} reset - they must change it at their next login.`);
+      showToast(account && account.must_change_password === false ? `Password of ${resetTarget} reset.`
+                : `Password of ${resetTarget} reset - they must change it at their next login.`);
       await load();
     } catch (err) {
       errorEl.textContent = err.message;

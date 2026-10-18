@@ -21,7 +21,7 @@
       <button class="btn btn-primary" id="new-user-btn">New user</button>
     </div>
     <p class="hint">Accounts are disabled, never deleted, so their incidents and comments keep their author.
-      A new account and a reset password must be changed at the next login. You cannot change your own role
+      A new account and a reset password must be changed at the next login, unless the operator turned this off. You cannot change your own role
       or disable yourself.</p>
     <div class="table-wrap">
       <table class="data-table users-table">
@@ -52,7 +52,7 @@
   <dialog id="reset-dialog" class="dialog dialog-wide">
     <form id="reset-form" class="dialog-form">
       <h2 id="reset-title">Reset password</h2>
-      <p class="hint">The user must change this password at their next login, and is signed out everywhere now.</p>
+      <p class="hint">The user is signed out everywhere now, and must change this password at their next login unless the operator turned this off.</p>
       <div class="pw-fields"></div>
       <p class="form-error" id="reset-error" hidden></p>
       <div class="dialog-actions">

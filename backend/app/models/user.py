@@ -120,16 +120,16 @@ class User:
         self.must_change_password = False
         self.session_version += 1
 
-    def reset_password(self, new_password: str) -> None:
+    def reset_password(self, new_password: str, require_change: bool = True) -> None:
         """
         An admin (or backend/manage_users.py) sets a new password without
-        knowing the old one. The user must change it at the next login, and
-        every existing session of theirs ends. Raises ValueError if it fails
-        PasswordPolicy.
+        knowing the old one. The user must change it at the next login
+        (unless `require_change` is False), and every existing session of
+        theirs ends. Raises ValueError if it fails PasswordPolicy.
         """
         _policy().validate(new_password, self.username)
         self._password_hash = self._hash(new_password)
-        self.must_change_password = True
+        self.must_change_password = require_change
         self.session_version += 1
 
     def check_password(self, plain_password: Optional[str]) -> bool:

@@ -28,6 +28,7 @@ from app.api.serializers import account_to_dict
 from app.audit import audit
 from app.models import Role, User
 from app.models.system_users import is_reserved_username
+from app.repository import first_login_change_required
 from app.state import AppState
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -70,7 +71,7 @@ def create_user(body: CreateUserRequest, state: AppState = Depends(get_state),
     if state.users.find_case_insensitive(username) is not None:
         raise RuntimeError(f"The username {username!r} is already taken.")          # 409
     _check_confirmation(body.password, body.confirm_password)
-    user = User(username, _role(body.role), body.password, must_change_password=True)
+    user = User(username, _role(body.role), body.password, must_change_password=first_login_change_required())
     state.users.add(user)
     audit("users.created", user=admin.username, target=user.username, role=user.role.value,
           message=f"{admin.username} created {user.role.value} account {user.username}")
@@ -103,10 +104,11 @@ def update_user(username: str, body: UpdateUserRequest, state: AppState = Depend
 @router.post("/{username}/reset-password")
 def reset_password(username: str, body: ResetPasswordRequest, state: AppState = Depends(get_state),
                    admin: User = Depends(get_user_admin)):
-    """Set a new password; the user must change it at their next login and their sessions end."""
+    """Set a new password; their sessions end, and they must change it at their next login
+    unless REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN=false."""
     user = _account(state, username)
     _check_confirmation(body.new_password, body.confirm_password)
-    user.reset_password(body.new_password)
+    user.reset_password(body.new_password, require_change=first_login_change_required())
     state.users.save(user)
     audit("users.password_reset", user=admin.username, target=user.username,
           message=f"{admin.username} reset the password of {user.username}")

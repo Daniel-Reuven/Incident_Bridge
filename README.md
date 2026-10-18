@@ -735,7 +735,7 @@ Incident_Bridge/
 
 ## 14. Automated testing
 
-`backend/tests/` holds **1252 tests** (pytest), all passing, with **98% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
+`backend/tests/` holds **1253 tests** (pytest), all passing, with **98% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
 
 - **Isolated from your settings** — `tests/conftest.py` clears every app setting from the environment and stops `backend/.env` from being loaded, so the suite gives the same result with or without your own `.env` (users, AI provider, database, log options).
 - **Unit tests** — the domain classes directly, no HTTP and no database: models (`tests/test_models/`), services (`tests/test_services/`), queues (`tests/test_queues/`), iterators, the generator, context managers, the scan, the report, the site directory, user provisioning and JSONL validation.
@@ -772,7 +772,7 @@ No extra package is needed for AI analysis: every provider is called through `re
 | Setting | Required? | Purpose |
 |---|---|---|
 | `INCIDENT_BRIDGE_USERS` | Yes, beyond local testing | The **first** users, created only when the database has no users yet: JSON array of `username`, `password` (must follow the password policy), `role` = `admin`/`user`. Unset → a demo pair `admin`/`Demo#Pass1` and `tech1`/`Demo#Pass2` with a warning. Ignored once users exist. |
-| `REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN` | No | `true` (default): those first users must change their password at first login |
+| `REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN` | No | `true` (default): a password chosen by someone else must be changed at the next login — the first users, accounts an admin creates and passwords an admin resets. `false` turns this off for passwords set from then on; accounts already flagged keep the flag |
 | `SESSION_MAX_AGE_HOURS`, `SESSION_COOKIE_SECURE` | No | Login lifetime (default 12 hours) and the cookie's `Secure` flag (default `false`; set `true` behind HTTPS) |
 | `SESSION_SECRET_KEY` | Yes, beyond local testing | Signs the session cookie; use a long random string |
 | `LOG_DIR`, `LOG_ARCHIVE_DIR` | No | Activity log folder (default `backend/logs`) and archive folder (default `<LOG_DIR>/archive`); relative paths are resolved against `backend/` |
