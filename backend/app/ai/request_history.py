@@ -25,7 +25,7 @@ import json
 import sqlite3
 import threading
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Dict, List, Optional, Set
 
 from app.ai.jobs import AnalysisJob
 
@@ -81,6 +81,25 @@ class SqliteRequestHistoryStore:
                  json.dumps(findings, ensure_ascii=False) if findings else None, job_id),
             )
             self._conn.commit()
+
+    def outcomes_by_incident(self) -> Dict[str, List[Optional[str]]]:
+        """Every stored request's outcome, grouped by incident id (None = a request still pending) - for app/reports.py."""
+        with self._lock:
+            rows = self._conn.execute("SELECT incident_id, outcome FROM analysis_requests").fetchall()
+        grouped: Dict[str, List[Optional[str]]] = {}
+        for row in rows:
+            grouped.setdefault(row["incident_id"], []).append(row["outcome"])
+        return grouped
+
+    def named_site_ids(self) -> Set[int]:
+        """Every site id any analysis's findings ever named as affected, across every request - for app/reports.py."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT findings_json FROM analysis_requests WHERE findings_json IS NOT NULL").fetchall()
+        ids: Set[int] = set()
+        for row in rows:
+            ids.update(json.loads(row["findings_json"]).get("affected_site_ids", []))
+        return ids
 
     def __repr__(self) -> str:
         return f"SqliteRequestHistoryStore(db_path={self.db_path!r})"

@@ -157,6 +157,11 @@ class AnalysisWorker:
             log.info(f"Restored {len(self._queue)} queued job(s) from the database: "
                      f"{', '.join(job.incident_id for job in self._queue)}")
 
+    @property
+    def history(self) -> SqliteRequestHistoryStore:
+        """The permanent request-history log (app/ai/request_history.py) - read by app/reports.py."""
+        return self._history
+
     # ------------------------------------------------------------------
     # The provider (created on the first analysis - see the module docstring)
     # ------------------------------------------------------------------
