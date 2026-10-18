@@ -24,6 +24,16 @@ Urgency order (attention_key): Down, Degraded, Unknown, Maintenance,
 Operational; within the same status, more active incidents first, then by
 site id.
 
+AI metrics (optional - 6.3): when `history` (the AnalysisWorker's
+SqliteRequestHistoryStore, app/ai/request_history.py) is given, each row
+also gets ai_analyses_requested/succeeded/failed, counted over the AI
+requests of the incidents app/site_scan.py links to that site. The report
+also gets ai_resolved_or_unnotified_sites: active sites the AI ever named
+as affected whose check now finds them Operational, or that have no SENT
+notification - cases worth a second look (a stale or mistaken AI reading,
+or a real one nobody has acted on yet). Without `history` (every existing
+caller), these are all zero/empty - every existing field is unchanged.
+
 The module is plain collection processing (dicts, sets, comprehensions,
 sorting) on top of the domain objects; it never changes anything.
 """
@@ -32,6 +42,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
+from app.ai.request_history import OUTCOME_FAILED, OUTCOME_SUCCESS, OUTCOME_SUCCESS_UNSTRUCTURED, SqliteRequestHistoryStore
 from app.models import Incident, NotificationState, SiteStatus
 from app.site_scan import SiteScanResult
 from app.sites import SiteDirectory
@@ -56,6 +67,10 @@ class SiteReportRow:
     incident_ids: Tuple[str, ...]
     list_ids: Tuple[str, ...]
     last_checked_at: Optional[datetime]
+    # AI metrics (6.3) - counted over this site's linked incidents' AI requests; 0 without `history`.
+    ai_analyses_requested: int = 0
+    ai_analyses_succeeded: int = 0
+    ai_analyses_failed: int = 0
 
     @property
     def incident_count(self) -> int:
@@ -65,7 +80,10 @@ class SiteReportRow:
         return {"site_id": self.site_id, "site_name": self.site_name, "status": self.status.value,
                 "incident_ids": list(self.incident_ids), "incident_count": self.incident_count,
                 "list_ids": list(self.list_ids),
-                "last_checked_at": self.last_checked_at.isoformat() if self.last_checked_at else None}
+                "last_checked_at": self.last_checked_at.isoformat() if self.last_checked_at else None,
+                "ai_analyses_requested": self.ai_analyses_requested,
+                "ai_analyses_succeeded": self.ai_analyses_succeeded,
+                "ai_analyses_failed": self.ai_analyses_failed}
 
 
 def attention_key(row: SiteReportRow) -> Tuple[int, int, int]:
@@ -90,6 +108,8 @@ class SiteReport:
     notification_counts: Dict[str, int]
     archived_references: Dict[int, List[str]] = field(default_factory=dict)
     unknown_references: Dict[int, List[str]] = field(default_factory=dict)
+    # AI decision metric (6.3) - see the module docstring; empty without `history`.
+    ai_resolved_or_unnotified_sites: List[int] = field(default_factory=list)
 
     @property
     def most_urgent(self) -> Optional[SiteReportRow]:
@@ -113,6 +133,7 @@ class SiteReport:
             "archived_references": {str(k): v for k, v in self.archived_references.items()},
             "unknown_references": {str(k): v for k, v in self.unknown_references.items()},
             "most_urgent": self.most_urgent.site_id if self.most_urgent else None,
+            "ai_resolved_or_unnotified_sites": self.ai_resolved_or_unnotified_sites,
         }
 
     def lines(self) -> List[str]:
@@ -132,7 +153,8 @@ class SiteReport:
                   ("Lists with no sites", self.lists_without_sites),
                   ("Lists with no members", self.lists_without_members),
                   ("Incidents mentioning archived sites", sorted(self.archived_references)),
-                  ("Incidents mentioning unknown sites", sorted(self.unknown_references))]
+                  ("Incidents mentioning unknown sites", sorted(self.unknown_references)),
+                  ("AI-flagged sites resolved or not yet notified", self.ai_resolved_or_unnotified_sites)]
         for title, items in checks:
             out.append(f"{title}: {', '.join(map(str, items)) if items else 'none'}")
         drafts = self.notification_counts.get(NotificationState.DRAFT.value, 0)
@@ -155,16 +177,30 @@ def count_by(values: Iterable[str], keys: Iterable[str]) -> Dict[str, int]:
     return counts
 
 
-def build_site_report(directory: SiteDirectory, incidents: Iterable[Incident]) -> SiteReport:
+def _ai_counts(incident_ids: Iterable[str], outcomes_by_incident: Dict[str, List[Optional[str]]]) -> Tuple[int, int, int]:
+    """(requested, succeeded, failed) over every AI request of these incidents (app/ai/request_history.py)."""
+    outcomes = [outcome for incident_id in incident_ids for outcome in outcomes_by_incident.get(incident_id, [])]
+    succeeded = sum(1 for o in outcomes if o in (OUTCOME_SUCCESS, OUTCOME_SUCCESS_UNSTRUCTURED))
+    failed = sum(1 for o in outcomes if o == OUTCOME_FAILED)
+    return len(outcomes), succeeded, failed
+
+
+def build_site_report(directory: SiteDirectory, incidents: Iterable[Incident],
+                      history: Optional[SqliteRequestHistoryStore] = None) -> SiteReport:
     """
     Build the site health report from the directory and the incidents
     (normally IncidentRepository.list_all()). Runs the incident scan itself,
     through SiteDirectory.scan_incidents() (ids and full site names).
+
+    `history` (AnalysisWorker.history, app/ai/request_history.py) adds the AI
+    metrics described in the module docstring; omitted (every existing
+    caller), they are all zero/empty and every other field is unchanged.
     """
     sites = list(directory.sites())                                  # active only
     active_lists = list(directory.mailing_lists())
     # The directory's own wrapper matches by id AND by full site name (see app/site_scan.py).
     scan: SiteScanResult = directory.scan_incidents(incidents)
+    outcomes_by_incident = history.outcomes_by_incident() if history else {}
 
     # Which lists cover which site: a grouping dict (site id -> list ids).
     lists_by_site: Dict[int, List[str]] = {}
@@ -172,14 +208,16 @@ def build_site_report(directory: SiteDirectory, incidents: Iterable[Incident]) -
         for site_id in mailing_list.site_ids:
             lists_by_site.setdefault(site_id, []).append(mailing_list.list_id)
 
-    rows = sorted(
-        (SiteReportRow(site_id=s.site_id, site_name=s.site_name, status=s.status,
-                       incident_ids=scan.incidents_for(s.site_id),
-                       list_ids=tuple(lists_by_site.get(s.site_id, [])),
-                       last_checked_at=s.last_check.checked_at if s.last_check else None)
-         for s in sites),
-        key=attention_key,
-    )
+    rows = []
+    for s in sites:
+        incident_ids = scan.incidents_for(s.site_id)
+        requested, succeeded, failed = _ai_counts(incident_ids, outcomes_by_incident)
+        rows.append(SiteReportRow(site_id=s.site_id, site_name=s.site_name, status=s.status,
+                                  incident_ids=incident_ids, list_ids=tuple(lists_by_site.get(s.site_id, [])),
+                                  last_checked_at=s.last_check.checked_at if s.last_check else None,
+                                  ai_analyses_requested=requested, ai_analyses_succeeded=succeeded,
+                                  ai_analyses_failed=failed))
+    rows.sort(key=attention_key)
 
     # Set algebra over site ids.
     active_ids: Set[int] = {s.site_id for s in sites}
@@ -187,6 +225,13 @@ def build_site_report(directory: SiteDirectory, incidents: Iterable[Incident]) -
     operational_ids = {s.site_id for s in sites if s.status == SiteStatus.OPERATIONAL}
     covered_ids: Set[int] = set().union(*(ml.site_ids for ml in active_lists))
     with_incidents = scan.sites_with_incidents
+
+    # AI decision metric: active sites the AI ever named as affected that are
+    # now Operational, or that no SENT notification covers (see the module docstring).
+    ai_named_ids = history.named_site_ids() & active_ids if history else set()
+    sent_site_ids = {n.site_id for n in directory.notifications() if n.state == NotificationState.SENT}
+    ai_resolved_or_unnotified = sorted(
+        site_id for site_id in ai_named_ids if site_id in operational_ids or site_id not in sent_site_ids)
 
     return SiteReport(
         rows=rows,
@@ -202,4 +247,5 @@ def build_site_report(directory: SiteDirectory, incidents: Iterable[Incident]) -
                                      (state.value for state in NotificationState)),
         archived_references={site_id: sorted(ids) for site_id, ids in scan.archived.items()},
         unknown_references={site_id: sorted(ids) for site_id, ids in scan.unknown.items()},
+        ai_resolved_or_unnotified_sites=ai_resolved_or_unnotified,
     )

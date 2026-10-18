@@ -55,7 +55,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import get_broadcaster, get_client_id, get_current_admin, get_state
+from app.ai.worker import AnalysisWorker
+from app.api.deps import get_analysis_worker, get_broadcaster, get_client_id, get_current_admin, get_state
 from app.api.site_schemas import (
     ChangeSiteStatusRequest,
     CreateMailingListRequest,
@@ -122,9 +123,11 @@ def create_site(body: CreateSiteRequest, state: AppState = Depends(get_state),
 
 
 @router.get("/report")
-def site_report(state: AppState = Depends(get_state), _admin: User = Depends(get_current_admin)) -> dict:
-    """The site health report (app/reports.py) as a dict."""
-    return build_site_report(state.sites, state.incidents.list_all()).to_dict()
+def site_report(state: AppState = Depends(get_state), _admin: User = Depends(get_current_admin),
+                worker: Optional[AnalysisWorker] = Depends(get_analysis_worker)) -> dict:
+    """The site health report (app/reports.py), with AI metrics when the AI feature is on, as a dict."""
+    history = worker.history if worker else None
+    return build_site_report(state.sites, state.incidents.list_all(), history).to_dict()
 
 
 @router.post("/check-all")
