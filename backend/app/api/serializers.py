@@ -5,7 +5,7 @@ from app.models import Comment, Incident, User
 
 def user_to_dict(user: User) -> dict:
     return {"id": user.id, "username": user.username, "role": user.role.value,
-            "must_change_password": user.must_change_password}
+            "must_change_password": user.must_change_password, "preferences": dict(user.preferences)}
 
 
 def account_to_dict(user: User) -> dict:

@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+from app.models import preferences as prefs_rules
 from app.models.enums import Role
 
 
@@ -35,6 +36,8 @@ class User:
         session_version       stored in the login cookie; bumped by a
                               password change/reset or disabling, which
                               ends every other session of this user
+        preferences           interface settings (theme, text size, updates
+                              order) - see app/models/preferences.py
     """
 
     # PBKDF2 iterations for NEW hashes (OWASP's 2023 recommendation for
@@ -74,7 +77,7 @@ class User:
     @classmethod
     def from_record(cls, username: str, role: Role, password_hash: str, must_change_password: bool = False,
                     disabled: bool = False, session_version: int = 1,
-                    created_at: Optional[datetime] = None) -> "User":
+                    created_at: Optional[datetime] = None, preferences: Optional[dict] = None) -> "User":
         """A user read back from the database (app/persistence_users.py): the stored hash, no policy check."""
         user = cls.__new__(cls)
         user.id = str(uuid.uuid4())
@@ -85,6 +88,7 @@ class User:
         user.disabled = disabled
         user.session_version = session_version
         user.created_at = created_at or datetime.now(timezone.utc)
+        user.preferences = prefs_rules.from_stored(preferences)
         return user
 
     def __init__(self, username: str, role: Role, password: str, must_change_password: bool = False):
@@ -96,6 +100,7 @@ class User:
         self.disabled = False
         self.session_version = 1
         self.created_at = datetime.now(timezone.utc)
+        self.preferences = dict(prefs_rules.DEFAULTS)
         _policy().validate(password, username)
         self._password_hash = self._hash(password)
 
@@ -119,6 +124,12 @@ class User:
         self._password_hash = self._hash(new_password)
         self.must_change_password = False
         self.session_version += 1
+
+    def update_preferences(self, changes: dict) -> dict:
+        """Apply interface preferences (ValueError for an unknown key or value). Returns what actually changed."""
+        changed = {k: v for k, v in prefs_rules.validated(changes).items() if self.preferences.get(k) != v}
+        self.preferences.update(changed)
+        return changed
 
     def reset_password(self, new_password: str, require_change: bool = True) -> None:
         """

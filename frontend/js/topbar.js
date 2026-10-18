@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { applyAccountPreferences, forgetSession } from "./preferences.js";
 import { openSettings } from "./settings.js";
 
 /**
@@ -12,6 +13,10 @@ import { openSettings } from "./settings.js";
  * (password and interface - js/settings.js); and "Log out" on its own, as
  * a frequent, low-risk action that shouldn't require opening a dialog.
  * The admin button for the current page is marked as such.
+ *
+ * Interface preferences: the account's (from /auth/me) replace the
+ * browser's copy on every page load; "Log out" deletes the copy
+ * (js/preferences.js).
  *
  * Forced password change: when the server says this user must change their
  * password (first login, or after an admin reset), the Settings dialog
@@ -27,6 +32,7 @@ export async function mountTopbar() {
     window.location.href = "/";
     return null;
   }
+  applyAccountPreferences(user.preferences);       // changed on another computer? follow it
 
   const here = window.location.pathname;
   const adminButton = (href, label) =>
@@ -51,8 +57,12 @@ export async function mountTopbar() {
 
   el.querySelector('[data-action="settings"]').addEventListener("click", () => openSettings(user));
   el.querySelector('[data-action="logout"]').addEventListener("click", async () => {
-    await api.logout();
-    window.location.href = "/";
+    try {
+      await api.logout();
+    } finally {
+      forgetSession();                               // the next person starts from a clean screen
+      window.location.href = "/";
+    }
   });
 
   if (user.must_change_password) {

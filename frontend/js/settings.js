@@ -6,7 +6,7 @@
  *              Saving ends this user's other sessions (the server bumps
  *              their session version) - this one stays logged in.
  *   Interface  color scheme (System / Light / Dark) and text size, applied
- *              at once and kept in this browser (js/theme.js).
+ *              at once and saved with the account (js/preferences.js).
  *
  * Forced mode (openSettings({ forced: true })): when the server says the
  * user must change their password (first login, or after an admin reset),
@@ -16,6 +16,7 @@
 import { api } from "./api.js";
 import { passwordFieldsHtml, wirePasswordFields } from "./password-fields.js";
 import { showToast } from "./toast.js";
+import { savePreferences } from "./preferences.js";
 
 const THEME_LABELS = { system: "System", light: "Light", dark: "Dark" };
 const SCALE_LABELS = { "0.9": "Small (90%)", "1": "Normal (100%)", "1.15": "Large (115%)", "1.3": "Larger (130%)" };
@@ -94,9 +95,9 @@ async function build(user) {
   dialog.addEventListener("cancel", (e) => { if (dialog.dataset.forced) e.preventDefault(); });
 
   dialog.querySelectorAll('input[name="theme"]').forEach((input) =>
-    input.addEventListener("change", () => window.ibPrefs.set({ theme: input.value })));
+    input.addEventListener("change", () => savePreferences({ theme: input.value })));
   dialog.querySelectorAll('input[name="text-scale"]').forEach((input) =>
-    input.addEventListener("change", () => window.ibPrefs.set({ textScale: input.value })));
+    input.addEventListener("change", () => savePreferences({ textScale: input.value })));
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();

@@ -19,8 +19,8 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.api.deps import get_session_user, get_state, start_session
-from app.api.schemas import ChangePasswordRequest, LoginRequest
+from app.api.deps import get_current_user, get_session_user, get_state, start_session
+from app.api.schemas import ChangePasswordRequest, LoginRequest, PreferencesRequest
 from app.api.serializers import user_to_dict
 from app.audit import audit
 from app.models import User
@@ -83,6 +83,24 @@ def logout(request: Request):
 def me(current_user: User = Depends(get_session_user)):
     """The logged-in user, including must_change_password (the frontend then forces the Password tab)."""
     return user_to_dict(current_user)
+
+
+@router.patch("/preferences")
+def update_preferences(body: PreferencesRequest, state: AppState = Depends(get_state),
+                       current_user: User = Depends(get_current_user)):
+    """
+    Save your interface preferences (theme, text_scale, updates_order - see
+    app/models/preferences.py) with your account; only the given ones change.
+    Returns all of them. An unknown value is 400.
+    """
+    changes = {k: v for k, v in body.model_dump().items() if v is not None}
+    changed = current_user.update_preferences(changes)
+    if changed:
+        state.users.save(current_user)
+        described = ", ".join(f"{key} -> {value}" for key, value in changed.items())
+        audit("auth.preferences_changed", user=current_user.username, **changed,
+              message=f"{current_user.username} changed their interface settings: {described}")
+    return dict(current_user.preferences)
 
 
 @router.get("/password-policy")

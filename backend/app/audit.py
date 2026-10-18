@@ -22,7 +22,7 @@ spreadsheet). What is recorded:
     http      every API call and page load: method, path, status, duration
               (static files and the /health polling are left out - noise)
     auth      logins (success, failure with the attempted username, lockout),
-              logouts, own password changes
+              logouts, own password changes and interface settings
     users     the admin's user management: created, role/disabled changed,
               password reset
     incident  every incident action: created, commented, claimed, started,

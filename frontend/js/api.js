@@ -45,6 +45,7 @@ export const api = {
   login: (username, password) => request("/auth/login", { method: "POST", body: { username, password } }),
   logout: () => request("/auth/logout", { method: "POST" }),
   me: () => request("/auth/me"),
+  savePreferences: (changes) => request("/auth/preferences", { method: "PATCH", body: changes }),
   changePassword: (current_password, new_password, confirm_password) =>
     request("/auth/change-password", { method: "POST", body: { current_password, new_password, confirm_password } }),
   passwordPolicy: () => request("/auth/password-policy"),

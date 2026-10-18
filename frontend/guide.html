@@ -67,7 +67,7 @@
     </figure>
     <ul>
       <li><strong>Password</strong> — type your current password, the new one, and the new one again. A checklist under the new password shows which rules it already meets; the <strong>i</strong> button next to it shows the <a href="#password-policy">password policy</a>. Changing your password signs you out on every other computer or browser.</li>
-      <li><strong>Interface</strong> — the color scheme (<em>Light</em>, <em>Dark</em>, or <em>System</em>, which follows your computer's setting) and the text size (90% to 130%). They apply at once, to every page, and are remembered in this browser.</li>
+      <li><strong>Interface</strong> — the color scheme (<em>Light</em>, <em>Dark</em>, or <em>System</em>, which follows your computer's setting) and the text size (90% to 130%). They apply at once, to every page, and are saved with your account, so they follow you to any computer — as does your choice of updates order on an incident page. The login page always uses your computer's color scheme; your own settings return as soon as you log in.</li>
     </ul>
     <figure class="doc-figure narrow">
       <a href="/screenshots/07-settings-interface.png"><img src="/screenshots/07-settings-interface.png" alt="Settings, Interface tab: color scheme System, Light or Dark, and text size" width="640" height="386" loading="lazy"></a>
@@ -253,8 +253,8 @@
       <li>for a call to an outside service (AI provider, site check): the service, model, address, status, outcome and duration.</li>
     </ul>
     <p>It <strong>never</strong> records passwords (not even wrong ones), API keys, cookies, request or reply bodies, incident descriptions, the text of updates, or what was sent to the AI provider.</p>
-    <p><strong>The database</strong> (one file on the server) stores accounts (username, role, a salted hash of the password — never the password — and whether the account is disabled or must change its password), incidents with their details, updates and history, sites, mailing lists (with email addresses) and notifications, the AI analysis queue and its results, and the activity log's checkpoint.</p>
-    <p><strong>Your browser</strong> keeps the session cookie that keeps you logged in, your appearance settings and update order (on your device), and, until you close the tab, the tab's id and your dashboard and log filters. See also the <a href="/terms.html#storage">Terms</a>.</p>
+    <p><strong>The database</strong> (one file on the server) stores accounts (username, role, a salted hash of the password — never the password — and its interface settings (color scheme, text size, updates order), whether the account is disabled or must change its password), incidents with their details, updates and history, sites, mailing lists (with email addresses) and notifications, the AI analysis queue and its results, and the activity log's checkpoint.</p>
+    <p><strong>Your browser</strong> keeps the session cookie that keeps you logged in, a copy of your interface settings while you are logged in (deleted when you log out), and, until you close the tab, the tab's id and your dashboard and log filters. See also the <a href="/terms.html#storage">Terms</a>.</p>
 
     <!-- 10 -->
     <h2 id="good-to-know">Good to know</h2>
