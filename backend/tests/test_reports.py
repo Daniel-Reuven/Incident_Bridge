@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 
 import pytest
 
+from app.ai.jobs import AnalysisJob
+from app.ai.request_history import OUTCOME_FAILED, OUTCOME_SUCCESS, OUTCOME_SUCCESS_UNSTRUCTURED, SqliteRequestHistoryStore
 from app.models import AvailabilityCheck, MailingList, MaintenanceTask, Site, SiteStatus
 from app.reports import SiteReportRow, attention_key, build_site_report, count_by
 from app.sites import SiteDirectory
@@ -115,6 +117,42 @@ def test_text_rendering(directory, incidents):
     assert "Most urgent: Site 1001 (Portal, down)" in text
     assert "Unreported outages: 1002" in text
     assert "Incidents mentioning unknown sites: 4242" in text
+
+
+def test_ai_metrics_on_prepared_data(directory, incidents):
+    """
+    brief 6.4, case 4: the AI metrics (6.3) on data prepared by hand, with
+    the expected numbers worked out by hand - never by calling _ai_counts()
+    or re-deriving the same formula build_site_report() uses.
+
+    Setup: incident `a` ("Site 1001 outage follow-up") gets two AI requests
+    (one success naming site 1001 as affected, one failed); incident `b`
+    ("Site 1001 again") gets one success_unstructured (no findings). Both
+    incidents mention Site 1001 (see the `incidents` fixture), which the
+    `directory` fixture leaves Down, with no notification ever sent.
+
+    By hand: site 1001 is linked to incidents a and b (2 + 1 = 3 requests);
+    1 success + 1 success_unstructured count as succeeded (2); 1 is failed.
+    Site 1001 is the only one any findings ever named, it is not
+    Operational, and nothing was ever sent about it - so it is flagged.
+    """
+    a, b, _c = incidents
+    history = SqliteRequestHistoryStore(":memory:")
+    first, second, third = (AnalysisJob(incident_id=a.id, requested_by="tech1"),
+                            AnalysisJob(incident_id=a.id, requested_by="tech1"),
+                            AnalysisJob(incident_id=b.id, requested_by="tech1"))
+    for job in (first, second, third):
+        history.record_requested(job, "Fake AI")
+    history.record_finished(first.id, OUTCOME_SUCCESS, model="m",
+                            findings={"suggested_severity": "major", "affected_site_ids": [1001], "confidence": 0.9})
+    history.record_finished(second.id, OUTCOME_FAILED)
+    history.record_finished(third.id, OUTCOME_SUCCESS_UNSTRUCTURED, model="m")
+
+    report = build_site_report(directory, incidents, history)
+    row = {r.site_id: r for r in report.rows}[1001]
+
+    assert (row.ai_analyses_requested, row.ai_analyses_succeeded, row.ai_analyses_failed) == (3, 2, 1)
+    assert report.ai_resolved_or_unnotified_sites == [1001]
 
 
 def test_attention_key_and_count_by():
