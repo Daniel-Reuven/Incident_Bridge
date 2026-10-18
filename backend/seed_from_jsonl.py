@@ -43,15 +43,17 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
-load_dotenv()
 
-_HOST = os.environ.get("HOST", "127.0.0.1")
-# The server can (and often should) bind to 0.0.0.0, but a client can't
-# connect TO 0.0.0.0 - talk to localhost instead in that case (same fix
-# already used by the project's old seed_demo_data.py).
-_CONNECT_HOST = "127.0.0.1" if _HOST == "0.0.0.0" else _HOST
-_PORT = os.environ.get("PORT", "8000")
-BASE_URL = f"http://{_CONNECT_HOST}:{_PORT}"
+def _base_url() -> str:
+    """
+    The running server's address, from HOST and PORT (.env is loaded by
+    main() - never at import, so importing this module, e.g. in the tests,
+    does not pull backend/.env into the environment). The server can bind to
+    0.0.0.0, but a client can't connect TO 0.0.0.0 - localhost is used then.
+    """
+    host = os.environ.get("HOST", "127.0.0.1")
+    host = "127.0.0.1" if host == "0.0.0.0" else host
+    return f"http://{host}:{os.environ.get('PORT', '8000')}"
 
 
 def _find_admin_credentials():
@@ -121,7 +123,7 @@ def _login(client: httpx.Client, username: str, password, ask_first: bool) -> No
         if response.status_code == 200:
             if response.json().get("must_change_password"):
                 sys.exit(f"{username!r} must change the password first - log in to the app once "
-                         f"(http://{_CONNECT_HOST}:{_PORT}/), then run this again.")
+                         f"({client.base_url}), then run this again.")
             return
         if response.status_code == 429:
             sys.exit(response.json().get("detail", "Too many failed logins - try again later."))
@@ -142,6 +144,8 @@ def main(argv=None) -> None:
     parser.add_argument("path", nargs="?", help="the .jsonl file (default: ../data/sample_data.jsonl)")
     parser.add_argument("--username", help="log in as this admin (the password is asked for)")
     args = parser.parse_args(argv)
+    load_dotenv()
+    base_url = _base_url()
 
     default_path = Path(__file__).resolve().parents[1] / "data" / "sample_data.jsonl"
     jsonl_path = Path(args.path) if args.path else default_path
@@ -158,18 +162,18 @@ def main(argv=None) -> None:
     else:
         username, password = _find_admin_credentials()
 
-    print(f"Connecting to {BASE_URL} ...")
+    print(f"Connecting to {base_url} ...")
     try:
-        httpx.get(f"{BASE_URL}/health", timeout=3).raise_for_status()
+        httpx.get(f"{base_url}/health", timeout=3).raise_for_status()
     except httpx.ConnectError:
         sys.exit(
-            f"Could not reach {BASE_URL}.\n"
+            f"Could not reach {base_url}.\n"
             f"Start the server first, in another terminal:\n"
             f"    python serve_app.py\n"
             f"then run this script again."
         )
 
-    with httpx.Client(base_url=BASE_URL) as client:
+    with httpx.Client(base_url=base_url) as client:
         _login(client, username, password, ask_first=bool(args.username))
 
         print(f"Importing {jsonl_path} as {username!r} ...")

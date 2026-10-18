@@ -49,6 +49,14 @@ export const api = {
     request("/auth/change-password", { method: "POST", body: { current_password, new_password, confirm_password } }),
   passwordPolicy: () => request("/auth/password-policy"),
 
+  // --- activity log (admin only - backend/app/api/logs.py) ---
+  logMonths: () => request("/logs/months"),
+  verifyLog: () => request("/logs/verify"),
+  readLog: (params = {}) => {
+    const query = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null)));
+    return request("/logs" + (query.toString() ? `?${query}` : ""));
+  },
+
   // --- user management (admin only - backend/app/api/users.py) ---
   listUsers: () => request("/users"),
   createUser: (username, role, password, confirm_password) =>

@@ -130,7 +130,8 @@ def test_warning_can_be_silenced(monkeypatch, app_log):
 
 def test_serve_app_exits_with_the_message_and_no_traceback(tmp_path):
     backend = Path(__file__).resolve().parents[1]
-    env = {**os.environ, "INCIDENT_BRIDGE_USERS": json.dumps([ADMIN, ADMIN])}   # a real value beats backend/.env
+    # Real values beat backend/.env (load_dotenv never overrides); a fresh database so the users are checked.
+    env = {**os.environ, "INCIDENT_BRIDGE_USERS": json.dumps([ADMIN, ADMIN]), "DATABASE_PATH": str(tmp_path / "t.db")}
     result = subprocess.run([sys.executable, "serve_app.py"], cwd=backend, env=env,
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 1

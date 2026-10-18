@@ -40,7 +40,9 @@
         <li><a href="#ai">AI analysis of a fault</a></li>
         <li><a href="#admin">Admin tools</a></li>
         <li><a href="#users">Users</a></li>
+        <li><a href="#logs">Activity log</a></li>
         <li><a href="#sites">The site portal</a></li>
+        <li><a href="#data">What is recorded and stored</a></li>
         <li><a href="#good-to-know">Good to know</a></li>
       </ol>
     </nav>
@@ -106,6 +108,7 @@
           <tr><td>Import seed data</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Site portal: sites, mailing lists, notifications</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Users: create accounts, change roles, disable, reset passwords</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Activity log: read it and check its integrity (nobody can edit or delete it)</td><td class="no">—</td><td class="yes">✓</td></tr>
         </tbody>
       </table>
     </div>
@@ -212,6 +215,19 @@
       <li>You cannot change your own role or disable yourself — use <em>Settings</em> for your own password.</li>
     </ul>
 
+    <h2 id="logs">Activity log <span class="role-tag admin">Admin</span></h2>
+    <p><strong>Logs</strong> in the top bar shows what happened in the app: every action (logins, incidents created, claimed, commented, closed, AI analyses, users changed, site-portal changes…), every request to the server, and every call to an outside service such as the AI provider. The newest records come first, one month at a time.</p>
+    <figure class="doc-figure">
+      <a href="/screenshots/10-logs.png"><img src="/screenshots/10-logs.png" alt="The Activity log page: a No tampering found banner, filters for month, category, event, user, level and text, and a table of records with one opened to show all its fields" width="1440" height="900" loading="lazy"></a>
+      <figcaption>The Activity log after <em>Check integrity</em>, with one record opened.</figcaption>
+    </figure>
+    <ul>
+      <li><strong>Filters</strong> — <em>Month</em>, <em>Category</em> (auth, users, incident, site, external, http, app), <em>Event</em> (for example <code>incident.claimed</code>), <em>User</em>, <em>Level</em> (Warning shows failed logins, refused requests and failed outside calls) and <em>Search</em> over the whole record. The category starts at <em>All except HTTP requests</em>, because requests outnumber actions many times over; choose <em>All, with HTTP requests</em> or <em>http</em> to see them. The page remembers your filters until you close the tab.</li>
+      <li><strong>Click a row</strong> to see every field of the record. <strong>Show older records</strong> loads more of the month.</li>
+      <li><strong>Check integrity</strong> checks every record of every month. Each record is signed and points to the one before it, and the database remembers how far the log has reached, so a record that was edited, removed, reordered or added by hand — or a whole month that was deleted — is reported, with where it happened. <em>No tampering found</em> means the log is complete and unchanged.</li>
+      <li>There is no way to edit or delete records in the app, for admins too. Times are shown in your time zone.</li>
+    </ul>
+
     <!-- 9 -->
     <h2 id="sites">The site portal <span class="role-tag admin">Admin</span></h2>
     <figure class="doc-figure">
@@ -227,6 +243,18 @@
       <li><strong>Archive</strong> removes a site or list from use; the <em>Archive</em> tab can <strong>Restore</strong> it.</li>
       <li>Sent, dismissed and skipped notifications move to the <em>Archive</em> tab after a set time (30 days unless the operator changed it), where they can only be viewed. Notifications waiting for a decision stay in <em>Notifications</em>.</li>
     </ul>
+
+    <h2 id="data">What is recorded and stored</h2>
+    <p><strong>The activity log</strong> (files on the server, one per month; finished months are compressed into a zip archive and kept until the operator deletes them) records, for each event:</p>
+    <ul>
+      <li>the time, the event and its level, the username, and the network address it came from — by default only as a code that cannot be turned back into the address (the same address always gets the same code), or as the operator chose: its last part only (<code>***.***.***.1</code>), in full, or not at all;</li>
+      <li>what was done, the ids of what it concerns (incident, user, site, list…) and incident and site <strong>titles</strong>;</li>
+      <li>for a request to the server: the method, path, query, status code and how long it took;</li>
+      <li>for a call to an outside service (AI provider, site check): the service, model, address, status, outcome and duration.</li>
+    </ul>
+    <p>It <strong>never</strong> records passwords (not even wrong ones), API keys, cookies, request or reply bodies, incident descriptions, the text of updates, or what was sent to the AI provider.</p>
+    <p><strong>The database</strong> (one file on the server) stores accounts (username, role, a salted hash of the password — never the password — and whether the account is disabled or must change its password), incidents with their details, updates and history, sites, mailing lists (with email addresses) and notifications, the AI analysis queue and its results, and the activity log's checkpoint.</p>
+    <p><strong>Your browser</strong> keeps the session cookie that keeps you logged in, your appearance settings and update order (on your device), and, until you close the tab, the tab's id and your dashboard and log filters. See also the <a href="/terms.html#storage">Terms</a>.</p>
 
     <!-- 10 -->
     <h2 id="good-to-know">Good to know</h2>

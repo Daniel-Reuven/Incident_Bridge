@@ -87,7 +87,8 @@ class GeminiProvider(HttpProvider):
         token = None
         for _ in range(MAX_LIST_PAGES):
             params = {"pageSize": LIST_PAGE_SIZE, **({"pageToken": token} if token else {})}
-            page = self._client.get_json("/models", params=params, timeout_seconds=LIST_TIMEOUT_SECONDS)
+            page = self._client.get_json("/models", params=params, timeout_seconds=LIST_TIMEOUT_SECONDS,
+                                         log_fields={"provider": self.display_name, "purpose": "model listing"})
             for entry in page.get("models") or []:
                 name = require(entry, "name", str, where="a listed model")
                 if "generateContent" in (entry.get("supportedGenerationMethods") or []):

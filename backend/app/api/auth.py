@@ -15,11 +15,14 @@ Login hardening:
     re-hashed on a successful login (User.needs_rehash()).
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.deps import get_session_user, get_state, start_session
 from app.api.schemas import ChangePasswordRequest, LoginRequest
 from app.api.serializers import user_to_dict
+from app.audit import audit
 from app.models import User
 from app.models.user import dummy_password_check
 from app.services.password_policy import PasswordPolicy
@@ -40,6 +43,8 @@ def login(body: LoginRequest, request: Request, state: AppState = Depends(get_st
     wait = guard.retry_after(body.username, address)
     if wait:
         minutes = max(1, round(wait / 60))
+        audit("auth.login_locked", level=logging.WARNING, user=body.username, ip=address,
+              message=f"Login refused for {body.username!r}: locked for {wait} more seconds")
         raise HTTPException(status_code=429, headers={"Retry-After": str(wait)},
                             detail=f"Too many failed logins - try again in about {minutes} minute(s).")
 
@@ -51,6 +56,9 @@ def login(body: LoginRequest, request: Request, state: AppState = Depends(get_st
         ok = user.check_password(body.password)
     if not ok:
         guard.record_failure(body.username, address)
+        # The attempted username is recorded (it may not exist); the password never is.
+        audit("auth.login_failed", level=logging.WARNING, user=body.username, ip=address,
+              message=f"Failed login for {body.username!r}")
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
     guard.record_success(body.username, address)
@@ -58,12 +66,16 @@ def login(body: LoginRequest, request: Request, state: AppState = Depends(get_st
         user.rehash(body.password)
         state.users.save(user)
     start_session(request, user)
+    audit("auth.login", user=user.username, ip=address, message=f"{user.username} logged in")
     return user_to_dict(user)
 
 
 @router.post("/logout")
 def logout(request: Request):
+    username = request.session.get("username")
     request.session.clear()
+    if username:
+        audit("auth.logout", user=username, ip=_client_address(request), message=f"{username} logged out")
     return {"detail": "Logged out."}
 
 
@@ -96,4 +108,6 @@ def change_password(body: ChangePasswordRequest, request: Request, state: AppSta
     current_user.set_password(body.current_password, body.new_password)
     state.users.save(current_user)
     start_session(request, current_user)
+    audit("auth.password_changed", user=current_user.username, ip=_client_address(request),
+          message=f"{current_user.username} changed their password")
     return {"detail": "Password updated."}

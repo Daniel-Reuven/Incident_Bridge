@@ -71,7 +71,8 @@ class HttpProvider(AnalysisProvider):
     def _ask(self, model: str, instructions: str, incident_data: str) -> str:
         api = f"the {self.display_name} API"
         try:
-            reply = self._client.post_json(self._path(model), self._body(model, instructions, incident_data))
+            reply = self._client.post_json(self._path(model), self._body(model, instructions, incident_data),
+                                           log_fields={"provider": self.display_name, "model": model})
             text = self._answer_text(model, reply)
         except ApiTimeout:
             raise AnalysisError(self.timeout_message()) from None

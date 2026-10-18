@@ -37,6 +37,7 @@ queue. Worth the trade-off at this project's size.
 """
 
 import os
+import tempfile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -48,10 +49,30 @@ from app.models import Role, User
 # tests/test_models/test_user.py checks the real setting and the re-hash.
 User.HASH_ITERATIONS = 1_000
 
+# The suite must not depend on the developer's own settings: backend/.env
+# (loaded by serve_app.py / seed_from_jsonl.py when they run) or variables in
+# the shell would otherwise replace the demo users, turn on a real AI
+# provider or point at a real database. Clear every app setting first, and
+# make python-dotenv a no-op so nothing imported later can load .env again.
+import dotenv  # noqa: E402
+
+dotenv.load_dotenv = lambda *args, **kwargs: False
+_APP_SETTINGS = ("INCIDENT_BRIDGE_USERS", "DATABASE_PATH", "ALLOWED_ORIGINS", "HOST", "PORT", "RELOAD")
+_APP_SETTING_PREFIXES = ("AI_", "GEMINI_", "ANTHROPIC_", "OPENAI_", "SESSION_", "LOG_", "SITE_", "SITES_",
+                         "MAILING_LISTS_", "NOTIFICATION_", "REQUIRE_PASSWORD_")
+for _name in list(os.environ):
+    if _name in _APP_SETTINGS or _name.startswith(_APP_SETTING_PREFIXES):
+        del os.environ[_name]
+
 # The demo users must change their password at first login in the real app;
 # the API tests log straight in with them, so that is switched off here
 # (tests/test_api/test_users.py covers the forced change).
 os.environ["REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN"] = "false"
+
+# The activity log (app/audit.py) is written to a throwaway folder, never to
+# backend/logs; tests that read it point LOG_DIR at their own tmp_path.
+os.environ["LOG_DIR"] = tempfile.mkdtemp(prefix="incident-bridge-test-logs-")
+os.environ.pop("LOG_ARCHIVE_DIR", None)
 
 
 # --------------------------------------------------------------------

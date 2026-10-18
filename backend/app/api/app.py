@@ -32,7 +32,9 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.ai.setup import create_analysis_worker
-from app.api import analysis, auth, events, incidents, sites, users
+from app.api import analysis, auth, events, incidents, logs, sites, users
+from app.api.request_log import RequestLogMiddleware
+from app.audit import audit, configure_audit_log, record_published_event
 from app.api.security import SecurityHeadersMiddleware, session_settings_from_env
 from app.events import EventBroadcaster, install_shutdown_hook
 from app.logs import app_log, apply_console_format
@@ -45,6 +47,9 @@ async def lifespan(app: FastAPI):
     # Built once per process, on startup - see app/state.py for why this
     # must stay a single process (in-memory queues aren't shared across
     # workers).
+    # The activity log files (app/audit.py) - configured first, so everything
+    # after this is recorded. A bad LOG_FILE_ENABLED stops startup.
+    configure_audit_log()
     app.state.incident_bridge = AppState.create()
 
     # The broadcaster is created here (not in AppState) because it needs
@@ -52,6 +57,8 @@ async def lifespan(app: FastAPI):
     # is plain sync code with no loop available yet at that point.
     app.state.broadcaster = EventBroadcaster()
     app.state.broadcaster.bind_loop(asyncio.get_running_loop())
+    # Every published event is an action someone took: record it (app/audit.py).
+    app.state.broadcaster.add_listener(record_published_event)
     # Ctrl+C / SIGTERM first ends every open live-update stream, so the
     # server stops at once without a CancelledError traceback (see
     # app/events.py's install_shutdown_hook).
@@ -65,7 +72,9 @@ async def lifespan(app: FastAPI):
         app.state.incident_bridge, app.state.broadcaster, database_path()
     )
 
+    audit("app.started", version=app_version(), message=f"Incident Bridge {app_version()} started")
     yield
+    audit("app.stopped", message="Incident Bridge stopped")
 
     if app.state.analysis_worker is not None:
         app.state.analysis_worker.stop()
@@ -90,6 +99,9 @@ if not _secret_key:
 # SESSION_COOKIE_SECURE (default false - set it to true behind HTTPS); see
 # app/api/security.py. A bad value stops startup with a clear message.
 _session_max_age, _session_secure = session_settings_from_env()
+# Added BEFORE the session middleware, so it runs inside it and can read who
+# made each request: one activity-log record per request (app/api/request_log.py).
+app.add_middleware(RequestLogMiddleware)
 app.add_middleware(SessionMiddleware, secret_key=_secret_key, same_site="lax",
                    max_age=_session_max_age, https_only=_session_secure)
 
@@ -112,6 +124,7 @@ if _cors_origins:
 
 app.include_router(auth.router)
 app.include_router(users.router)   # admin-only user management
+app.include_router(logs.router)    # admin-only activity log viewer
 app.include_router(incidents.router)
 app.include_router(events.router)
 app.include_router(sites.router)   # admin-only site portal (Sites & Mailing Lists)

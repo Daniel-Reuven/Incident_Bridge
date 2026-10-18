@@ -9,6 +9,9 @@ __pycache__/
 # SQLite database (created automatically - see backend/README.md's Persistence section)
 *.db
 
+# Activity log files and their monthly archives (backend/app/audit.py)
+backend/logs/
+
 .idea/
 
 *.egg-info/

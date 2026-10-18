@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.deps import get_state, get_user_admin
 from app.api.schemas import CreateUserRequest, ResetPasswordRequest, UpdateUserRequest
 from app.api.serializers import account_to_dict
+from app.audit import audit
 from app.models import Role, User
 from app.models.system_users import is_reserved_username
 from app.state import AppState
@@ -60,7 +61,7 @@ def list_users(state: AppState = Depends(get_state), _admin: User = Depends(get_
 
 @router.post("", status_code=201)
 def create_user(body: CreateUserRequest, state: AppState = Depends(get_state),
-                _admin: User = Depends(get_user_admin)):
+                admin: User = Depends(get_user_admin)):
     username = body.username.strip()
     if not USERNAME_PATTERN.match(username):
         raise ValueError("Username must be 3-32 characters: letters, digits, '.', '_' or '-'.")
@@ -71,6 +72,8 @@ def create_user(body: CreateUserRequest, state: AppState = Depends(get_state),
     _check_confirmation(body.password, body.confirm_password)
     user = User(username, _role(body.role), body.password, must_change_password=True)
     state.users.add(user)
+    audit("users.created", user=admin.username, target=user.username, role=user.role.value,
+          message=f"{admin.username} created {user.role.value} account {user.username}")
     return account_to_dict(user)
 
 
@@ -82,18 +85,29 @@ def update_user(username: str, body: UpdateUserRequest, state: AppState = Depend
     disable = body.disabled if body.disabled is not None else user.disabled
     if user is admin and (new_role != user.role or disable):
         raise PermissionError("You cannot change your own role or disable your own account.")
+    changes = {}
+    if new_role != user.role:
+        changes["role"] = new_role.value
+    if disable != user.disabled:
+        changes["disabled"] = disable
     user.role = new_role
     user.set_disabled(disable)
     state.users.save(user)
+    if changes:
+        described = ", ".join(f"{key} -> {value}" for key, value in changes.items())
+        audit("users.updated", user=admin.username, target=user.username, **changes,
+              message=f"{admin.username} changed {user.username}: {described}")
     return account_to_dict(user)
 
 
 @router.post("/{username}/reset-password")
 def reset_password(username: str, body: ResetPasswordRequest, state: AppState = Depends(get_state),
-                   _admin: User = Depends(get_user_admin)):
+                   admin: User = Depends(get_user_admin)):
     """Set a new password; the user must change it at their next login and their sessions end."""
     user = _account(state, username)
     _check_confirmation(body.new_password, body.confirm_password)
     user.reset_password(body.new_password)
     state.users.save(user)
+    audit("users.password_reset", user=admin.username, target=user.username,
+          message=f"{admin.username} reset the password of {user.username}")
     return account_to_dict(user)
