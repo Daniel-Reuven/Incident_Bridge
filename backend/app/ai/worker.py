@@ -62,6 +62,12 @@ Cancelling a queued job removes it at once. Cancelling the running job marks
 it cancelled: its API call finishes (or times out) in the background and the
 answer is thrown away. Either way the fault's buttons reset immediately.
 
+Request history (app/ai/request_history.py): every request gets a permanent
+row (unlike analysis_jobs, which only holds pending jobs) - requested when
+the job is queued, filled in with its outcome (success, success_unstructured,
+failed, cancelled or dropped), the model, and any parsed findings once the
+worker is done with it.
+
 Console log: every step above is logged (app/ai/log.py) - each request,
 refusal, cancel, job start and end, model attempt and pause - and every
 queue change ends with the queue's state, e.g. "| queue: running seed-075,
@@ -87,6 +93,8 @@ from app.ai.prompt import build_incident_data, build_instructions
 from app.ai.providers.base import AnalysisError, AnalysisProvider
 from app.ai.providers.loader import ProviderLoader
 from app.ai.reanalysis import DEFAULT_COOLDOWN_SECONDS, Decision, LastAnalysis, analysis_fingerprint, decide, wait_text
+from app.ai.request_history import (OUTCOME_CANCELLED, OUTCOME_DROPPED, OUTCOME_FAILED, OUTCOME_SUCCESS,
+                                    OUTCOME_SUCCESS_UNSTRUCTURED, SqliteRequestHistoryStore, parse_findings)
 from app.ai.splitter import error_comment, split_answer, total_answer_budget
 from app.events import EventBroadcaster, incident_event
 from app.models import Fault, IncidentStatus, Role, User
@@ -114,6 +122,7 @@ class AnalysisWorker:
         self._loader = provider if isinstance(provider, ProviderLoader) else ProviderLoader.ready(provider)
         self._start_on_request = start_on_request
         self._store = store
+        self._history = SqliteRequestHistoryStore(store.db_path)
         self._broadcaster = broadcaster
         self.delay_seconds = delay_seconds
         self.cooldown_seconds = cooldown_seconds   # before an admin may force a re-analysis
@@ -201,6 +210,7 @@ class AnalysisWorker:
             job = AnalysisJob(incident_id=fault.id, requested_by=user.username)
             fault.add_comment(user, request_comment(user.username, self.provider_name, forced))
             self._store.add(job)
+            self._history.record_requested(job, self.provider_name)
             self._queue.append(job)
             position = len(self._queue)
             self._condition.notify()          # wake the worker if it is waiting
@@ -228,6 +238,7 @@ class AnalysisWorker:
             else:
                 what = f"it was waiting at position {list(self._queue).index(job) + 1}"
                 self._queue.remove(job)
+                self._history.record_finished(job.id, OUTCOME_CANCELLED)
             fault.add_comment(user, cancel_comment(user.username, self.provider_name))
             self._store.remove(job.id)
         log.info(f"Cancelled fault {fault.id} by {user.username} - {what} | {self.queue_summary()}")
@@ -350,6 +361,7 @@ class AnalysisWorker:
             except Exception:                 # a bug must never kill the worker thread
                 traceback.print_exc()
                 called_api, outcome = False, "crashed - see the traceback above"
+                self._history.record_finished(job.id, OUTCOME_FAILED)
             self._finish(job, outcome, time.monotonic() - started)
             if called_api:
                 log.debug(f"Pausing {self.delay_seconds:g}s before the next job")
@@ -410,6 +422,7 @@ class AnalysisWorker:
         fault = self._open_fault(job.incident_id)
         if fault is None:
             log.warning(f"Dropped the job for fault {job.incident_id} - it is closed or no longer exists")
+            self._history.record_finished(job.id, OUTCOME_DROPPED)
             return False, "dropped (closed or gone)"
 
         label = self._loader.label()           # all configured models - used if none answers
@@ -449,6 +462,7 @@ class AnalysisWorker:
         """
         with self._condition:
             if job.cancelled:                 # cancelled while running: throw the answer away
+                self._history.record_finished(job.id, OUTCOME_CANCELLED)
                 return called_api, "answer discarded (cancelled while running)"
 
         ai_user = self._state.users.get(AI_USERNAME)
@@ -458,6 +472,11 @@ class AnalysisWorker:
         if action == "ai_analysis_posted":     # only a posted answer counts for the re-analysis rule
             self._store.record_success(fault.id, LastAnalysis(
                 self.provider_name, result.model, fingerprint, datetime.now(timezone.utc)))
+            findings = parse_findings(result.text)
+            self._history.record_finished(job.id, OUTCOME_SUCCESS if findings is not None else
+                                           OUTCOME_SUCCESS_UNSTRUCTURED, model=result.model, findings=findings)
+        else:
+            self._history.record_finished(job.id, OUTCOME_FAILED)
         self._broadcaster.publish(incident_event(fault, action, AI_USERNAME))
         if action == "ai_analysis_failed":
             return called_api, "posted an error comment"
