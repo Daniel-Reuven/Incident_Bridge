@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from app.models.comment import Comment
+from app.models.comment import MAX_COMMENT_LENGTH, Comment
 from app.models.enums import IncidentStatus, ResolutionType, Role
 from app.models.user import User
 
@@ -24,6 +24,15 @@ _REOPEN_TARGETS = {IncidentStatus.OPEN, IncidentStatus.IN_PROGRESS}
 _MAX_TITLE_LENGTH = 200
 _MAX_DESCRIPTION_LENGTH = 10_000
 
+# The longest a closing message or reopen reason may be. These texts end up
+# INSIDE a log comment (together with a fixed prefix and, on reopen, the
+# previous resolution message), so they must stay well below
+# MAX_COMMENT_LENGTH (app/models/comment.py) - otherwise the status change
+# could succeed and then fail while writing its log comment. Checked up
+# front in close() and reopen(), before anything is changed. The frontend
+# mirrors this value in frontend/js/text-limits.js.
+MAX_REASON_LENGTH = 1000
+
 
 def _validated_text(value, field_name: str, max_length: int) -> str:
     """
@@ -38,6 +47,13 @@ def _validated_text(value, field_name: str, max_length: int) -> str:
     if len(value) > max_length:
         raise ValueError(f"An incident {field_name} must be at most {max_length} characters (got {len(value)}).")
     return value
+
+
+def _check_reason_length(text: str, what: str) -> None:
+    """Raise ValueError (HTTP 400) if `text` (already known to be non-blank) is longer than MAX_REASON_LENGTH."""
+    length = len(text.strip())
+    if length > MAX_REASON_LENGTH:
+        raise ValueError(f"{what} must be at most {MAX_REASON_LENGTH} characters (got {length}).")
 
 
 def _label(member) -> str:
@@ -200,7 +216,18 @@ class Incident(ABC):
         self._description = _validated_text(value, "description", _MAX_DESCRIPTION_LENGTH)
 
     def add_comment(self, author: User, text: str) -> Comment:
-        """Any authenticated user may add a comment/update."""
+        """
+        Any authenticated user may add a comment/update. This is the single
+        entry point for every NEW comment (user comments, log comments,
+        system-user comments), so it is where the length limit is enforced.
+
+        Raises:
+            ValueError: if text is empty/blank (from Comment), or longer
+                than MAX_COMMENT_LENGTH characters after trimming.
+        """
+        if text and len(text.strip()) > MAX_COMMENT_LENGTH:
+            raise ValueError(f"A comment must be at most {MAX_COMMENT_LENGTH} characters "
+                             f"(got {len(text.strip())}).")
         comment = Comment(author=author, text=text)
         self.comments.append(comment)
         self.updated_at = datetime.now(timezone.utc)
@@ -261,7 +288,8 @@ class Incident(ABC):
         them fails): message, then permission, then current state.
 
         Raises:
-            ValueError: if message is empty/blank.
+            ValueError: if message is empty/blank, or longer than
+                MAX_REASON_LENGTH characters.
             PermissionError: if resolution_type is admin-only
                 (Not an Incident / By Design) and actor is not an admin.
             RuntimeError: if the incident is already Closed (the API layer
@@ -270,6 +298,7 @@ class Incident(ABC):
         """
         if not message or not message.strip():
             raise ValueError("A closing message is required for every resolution type.")
+        _check_reason_length(message, "A closing message")
         if resolution_type in _ADMIN_ONLY_RESOLUTIONS and actor.role != Role.ADMIN:
             raise PermissionError(f"Only an admin may close an incident as {resolution_type.name}.")
         if self.status == IncidentStatus.CLOSED:
@@ -311,7 +340,8 @@ class Incident(ABC):
         then the incident's current state.
 
         Raises:
-            ValueError: if reason is empty/blank, or new_status is not
+            ValueError: if reason is empty/blank or longer than
+                MAX_REASON_LENGTH characters, or new_status is not
                 Open / In progress.
             PermissionError: if actor is not an admin.
             RuntimeError: if the incident is not currently Closed (the
@@ -319,6 +349,7 @@ class Incident(ABC):
         """
         if not reason or not reason.strip():
             raise ValueError("A reason is required to reopen an incident.")
+        _check_reason_length(reason, "A reopen reason")
         if new_status not in _REOPEN_TARGETS:
             raise ValueError("A reopened incident must become Open or In progress.")
         if actor.role != Role.ADMIN:

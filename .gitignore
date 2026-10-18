@@ -13,5 +13,11 @@ __pycache__/
 
 *.egg-info/
 
+# Test and coverage output (python -m pytest --cov ...)
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
 .venv/
 .vscode/

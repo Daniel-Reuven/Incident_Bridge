@@ -63,6 +63,14 @@ export function describeEvent(event) {
       return `${event.actor} reopened ${subject}${shifted}`;
     case "severity_changed":
       return `${event.actor} changed the severity of ${subject}`;
+    case "ai_analysis_requested":
+      return `${event.actor} requested an AI analysis of ${subject}`;
+    case "ai_analysis_cancelled":
+      return `${event.actor} cancelled the AI analysis of ${subject}`;
+    case "ai_analysis_posted":
+      return `AI analysis posted on ${subject}`;
+    case "ai_analysis_failed":
+      return `AI analysis of ${subject} failed`;
     default:
       return `${subject} was updated`;
   }

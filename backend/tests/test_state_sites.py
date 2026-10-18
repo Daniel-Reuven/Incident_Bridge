@@ -73,9 +73,9 @@ def test_restart_keeps_app_edits_and_never_resurrects_archived_sites(tmp_path, m
     assert [s.site_id for s in second.sites.sites()] == [1001]
 
 
-def test_startup_without_seed_variables_imports_and_prints_nothing(monkeypatch, capsys):
+def test_startup_without_seed_variables_imports_and_prints_nothing(monkeypatch, app_log):
     monkeypatch.delenv("SITES_SEED_PATH", raising=False)
     monkeypatch.delenv("MAILING_LISTS_SEED_PATH", raising=False)
     state = AppState.create()
     assert list(state.sites.sites(include_archived=True)) == []
-    assert "Seed import" not in capsys.readouterr().out
+    assert "Seed import" not in app_log.text

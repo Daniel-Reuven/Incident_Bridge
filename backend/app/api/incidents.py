@@ -44,7 +44,7 @@ from app.api.schemas import (
     ReopenMaintenanceRequest,
 )
 from app.api.serializers import incident_to_dict
-from app.events import EventBroadcaster
+from app.events import EventBroadcaster, incident_event
 from app.models import Fault, IncidentStatus, MaintenanceTask, Role, User
 from app.services import SeverityScorer
 from app.state import AppState
@@ -56,22 +56,14 @@ router = APIRouter(prefix="/incidents", tags=["incidents"])
 def _publish(broadcaster: EventBroadcaster, client_id: Optional[str], incident, action: str, actor: User,
              affected_ids: Optional[List[str]] = None) -> None:
     """
-    Shared shape for every live-update event - see frontend/js/toast.js's
-    describeEvent for the consumer. `affected_ids` is optional: the ids of
-    OTHER incidents whose state this action changed (e.g. maintenance tasks
-    whose queue position shifted when one ahead of them was closed), so a
-    browser tab showing one of those can offer a refresh. Left out of the
-    event entirely when empty.
+    Publish one incident live-update event (shape: app/events.py's
+    incident_event) to every tab except the one that made the change.
+    `affected_ids` is optional: the ids of OTHER incidents whose state this
+    action changed (e.g. maintenance tasks whose queue position shifted when
+    one ahead of them was closed), so a browser tab showing one of those can
+    offer a refresh.
     """
-    event = {
-        "type": incident.kind,
-        "id": incident.id,
-        "action": action,
-        "actor": actor.username,
-        "title": incident.title,
-    }
-    if affected_ids:
-        event["affected_ids"] = affected_ids
+    event = incident_event(incident, action, actor.username, affected_ids)
     broadcaster.publish(event, exclude_client_id=client_id)
 
 

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terms of Use — Incident Bridge</title>
+<meta name="description" content="The terms for using Incident Bridge: accounts, acceptable use, what happens to your data, AI analysis and site checks.">
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<!--
+  The Terms of Use - a public page (no login needed), linked from the footer
+  of every page, including the login page. Header: js/public-page.js;
+  footer: js/footer.js. When the app changes what it stores or sends
+  elsewhere (AI providers, site checks, cookies), update the matching
+  section here and the "Last updated" date.
+-->
+<body>
+  <header id="public-header"></header>
+  <main class="doc-page">
+    <h1>Terms of Use</h1>
+    <p class="doc-updated">Last updated: 12 October 2026</p>
+    <p class="doc-lead">
+      These terms apply to everyone who uses this installation of Incident Bridge.
+      By logging in, you agree to them. They are written to be short and plain — please read them once.
+    </p>
+
+    <nav class="doc-toc" aria-label="On this page">
+      <strong>On this page</strong>
+      <ol>
+        <li><a href="#scope">Who runs this, and what it is for</a></li>
+        <li><a href="#accounts">Accounts</a></li>
+        <li><a href="#use">Acceptable use</a></li>
+        <li><a href="#content">What you enter, and who sees it</a></li>
+        <li><a href="#ai">AI analysis</a></li>
+        <li><a href="#sites">Site checks and notifications</a></li>
+        <li><a href="#storage">Storage and cookies</a></li>
+        <li><a href="#warranty">No warranty</a></li>
+        <li><a href="#changes">Changes and contact</a></li>
+      </ol>
+    </nav>
+
+    <h2 id="scope">1. Who runs this, and what it is for</h2>
+    <p>Incident Bridge is an internal tool for logging and tracking IT maintenance tasks and faults. Each installation is run by the organization that set it up (the <strong>operator</strong>), and its administrators manage the accounts and the data.</p>
+    <p>The software was written by a project team (<span data-site="course"></span>) and is published as open source under the <a data-site="license" target="_blank" rel="noopener"></a>. It is provided for teaching and demonstration; an operator who uses it for real work does so under its own responsibility.</p>
+
+    <h2 id="accounts">2. Accounts</h2>
+    <ul>
+      <li>Accounts are created by the operator; there is no self-registration. Each account is either a <em>user</em> or an <em>admin</em> (see the <a href="/guide.html#roles">Guide</a>).</li>
+      <li>Your account is personal. Keep your password secret, do not share it, and change it with <em>Account</em> if you think someone else knows it.</li>
+      <li>Everything done while logged in as you is recorded under your name.</li>
+      <li>The operator may change or remove an account at any time.</li>
+    </ul>
+
+    <h2 id="use">3. Acceptable use</h2>
+    <p>Use Incident Bridge only for your organization's work. You agree not to:</p>
+    <ul>
+      <li>enter content that is unlawful, abusive, or that you have no right to share;</li>
+      <li>enter passwords, access keys, payment data, or personal data beyond what the work needs (such as a contact name);</li>
+      <li>try to get around the permissions of your role, or use another person's account;</li>
+      <li>overload, probe or attack the system, or the websites the site portal checks;</li>
+      <li>use the AI analysis for anything other than understanding a fault.</li>
+    </ul>
+
+    <h2 id="content">4. What you enter, and who sees it</h2>
+    <ul>
+      <li>Incidents and their updates are visible to <strong>every logged-in user</strong> of this installation. The site portal and its mailing lists are visible to admins only.</li>
+      <li>Updates and incidents are a permanent record: they <strong>cannot be edited or deleted</strong> once posted, and closing or reopening an incident is logged with who did it and why.</li>
+      <li>The operator decides how long the data is kept and who may read it outside the app.</li>
+    </ul>
+
+    <h2 id="ai">5. AI analysis</h2>
+    <p>If the operator has set up an AI provider, any user can ask for an AI analysis of an open or in-progress fault. When you do:</p>
+    <ul>
+      <li>the fault — its title, description, details, status, severity and assignee — and <strong>all its updates, with their authors' usernames and times</strong>, are sent to the AI provider the operator chose: Google (Gemini), Anthropic (Claude) or OpenAI. That provider's own terms and privacy policy apply to what it receives.</li>
+      <li>the answer is posted in the fault's updates for everyone to see, by the <em>ai-assistant</em> account.</li>
+      <li>AI answers can be <strong>wrong or incomplete</strong>. They are suggestions for the person working the fault, not decisions: check them before acting on them.</li>
+    </ul>
+    <p>This is why section 3 asks you to keep secrets and personal data out of incidents.</p>
+
+    <h2 id="sites">6. Site checks and notifications</h2>
+    <ul>
+      <li>When an admin checks a site, the server sends it an ordinary web request. Only add sites your organization owns or may monitor.</li>
+      <li>Mailing lists store email addresses. Notifications are only sent when an admin chooses <em>Send to lists</em>.</li>
+    </ul>
+
+    <h2 id="storage">7. Storage and cookies</h2>
+    <ul>
+      <li>All data is stored on the operator's server, in a single database file.</li>
+      <li>Logging in sets one <strong>session cookie</strong>, signed by the server so it cannot be forged. It keeps you logged in for up to two weeks, or until you log out. There are no advertising or tracking cookies.</li>
+      <li>Your browser also remembers two small things, on your device only: an ID for each open tab (so live updates are not sent back to the tab that made the change), and whether you prefer updates oldest or newest first.</li>
+    </ul>
+
+    <h2 id="warranty">8. No warranty</h2>
+    <p>Incident Bridge is provided <strong>"as is"</strong>, without any warranty, as stated in its license. Its authors are not liable for any damage, loss of data or downtime that results from using it. The operator is responsible for running it, backing up its data, and deciding what it is used for.</p>
+
+    <h2 id="changes">9. Changes and contact</h2>
+    <p>These terms may change; the date at the top shows the latest version, and continuing to use the app means accepting it. Questions about your account or your data go to your administrator. Questions about the software itself can be raised on its <a data-site="repository" target="_blank" rel="noopener">GitHub repository</a>.</p>
+  </main>
+  <script type="module" src="/js/public-page.js"></script>
+  <script type="module" src="/js/footer.js"></script>
+</body>
+</html>

@@ -31,9 +31,12 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import auth, events, incidents, sites
-from app.events import EventBroadcaster
-from app.state import AppState
+from app.ai.setup import create_analysis_worker
+from app.api import analysis, auth, events, incidents, sites
+from app.events import EventBroadcaster, install_shutdown_hook
+from app.logs import app_log, apply_console_format
+from app.version import app_version
+from app.state import AppState, database_path
 
 
 @asynccontextmanager
@@ -48,17 +51,37 @@ async def lifespan(app: FastAPI):
     # is plain sync code with no loop available yet at that point.
     app.state.broadcaster = EventBroadcaster()
     app.state.broadcaster.bind_loop(asyncio.get_running_loop())
+    # Ctrl+C / SIGTERM first ends every open live-update stream, so the
+    # server stops at once without a CancelledError traceback (see
+    # app/events.py's install_shutdown_hook).
+    install_shutdown_hook(app.state.broadcaster)
+
+    # AI analysis (app/ai/): the one named worker thread and its persisted
+    # queue, or None when the feature is off (no API key for the selected
+    # provider - see app/ai/config.py). Created after the broadcaster, which
+    # it publishes live updates through.
+    app.state.analysis_worker = create_analysis_worker(
+        app.state.incident_bridge, app.state.broadcaster, database_path()
+    )
 
     yield
 
+    if app.state.analysis_worker is not None:
+        app.state.analysis_worker.stop()
+    app.state.broadcaster.close()   # any stream still open ends now
 
-app = FastAPI(title="Incident Bridge API", version="0.1.0", lifespan=lifespan)
+
+# One console format for every line (app/logs.py). serve_app.py already starts
+# Uvicorn with it; this also covers the bare `uvicorn app.api.app:app` command.
+apply_console_format()
+
+app = FastAPI(title="Incident Bridge API", version=app_version(), lifespan=lifespan)
 
 # --- session cookie (signed, not encrypted - don't put secrets in it) ---
 _secret_key = os.environ.get("SESSION_SECRET_KEY")
 if not _secret_key:
-    print(
-        "WARNING: SESSION_SECRET_KEY is not set - using an insecure default. "
+    app_log.warning(
+        "SESSION_SECRET_KEY is not set - using an insecure default. "
         "Set it before deploying anywhere reachable by anyone else."
     )
     _secret_key = "dev-only-insecure-secret-change-me"
@@ -82,6 +105,7 @@ app.include_router(auth.router)
 app.include_router(incidents.router)
 app.include_router(events.router)
 app.include_router(sites.router)   # admin-only site portal (Sites & Mailing Lists)
+app.include_router(analysis.router)   # AI analysis of faults (app/ai/)
 
 
 # --- centralized exception -> HTTP status mapping ---
@@ -122,7 +146,17 @@ def _handle_key_error(request: Request, exc: KeyError):
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    """Liveness check, plus the app's version (app/version.py) - the page footer and About page show it."""
+    return {"status": "ok", "version": app_version()}
+
+
+# --- the README's screenshots, also used by the Guide page (frontend/guide.html).
+# One copy, in docs/screenshots/ at the repository root, served at
+# /screenshots/<file>.png. Mounted before the frontend's "/" catch-all below;
+# skipped if the folder is not there.
+_screenshots_dir = Path(__file__).resolve().parents[3] / "docs" / "screenshots"
+if _screenshots_dir.is_dir():
+    app.mount("/screenshots", StaticFiles(directory=_screenshots_dir), name="screenshots")
 
 
 # --- serve the frontend, same-origin, so no CORS is needed in the normal
@@ -138,4 +172,4 @@ _frontend_dir = Path(__file__).resolve().parents[3] / "frontend"
 if _frontend_dir.is_dir():
     app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
 else:
-    print(f"NOTE: no frontend/ directory found at {_frontend_dir} - serving the API only.")
+    app_log.info(f"No frontend/ directory found at {_frontend_dir} - serving the API only.")

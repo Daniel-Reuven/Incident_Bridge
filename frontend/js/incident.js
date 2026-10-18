@@ -3,6 +3,7 @@ import { mountTopbar } from "./topbar.js";
 import { connectLiveUpdates } from "./events.js";
 import { showToast, describeEvent } from "./toast.js";
 import { getUpdatesOrder, setUpdatesOrder, sortComments, onUpdatesOrderChanged } from "./updates-order.js";
+import { MAX_COMMENT_LENGTH, MAX_REASON_LENGTH, wireCharCounters } from "./text-limits.js";
 
 const user = await mountTopbar();
 const root = document.getElementById("incident-root");
@@ -21,9 +22,31 @@ let locked = false;
 // re-ordering the Updates list in place - see applyUpdatesOrder().
 let currentIncident = null;
 
+// AI analysis state of the fault shown (GET /incidents/faults/{id}/analysis):
+// { enabled, provider, model, models, state: "idle" | "queued" | "running", position }.
+// `models` is the provider's fallback list, best first (shown in the tooltip).
+// null for maintenance tasks, or if the lookup failed (the buttons are then hidden).
+let currentAnalysis = null;
+
+// The countdown timer of the Re-analyze button (see applyAnalysisState).
+// Declared up here with the other page state: load() below runs at the top
+// level and renders before the rest of this file has been evaluated.
+let reanalyzeTimer = null;
+
+// Username of the built-in AI system user that authors AI analysis comments
+// (backend/app/models/system_users.py) - its comments get their own style.
+const AI_USERNAME = "ai-assistant";
+
 if (user) {
   await load();
   connectLiveUpdates((event) => {
+    // The AI analysis queue changed: only the Analyze/Cancel buttons follow
+    // it, in place - no toast, no refresh prompt (nothing on the incident
+    // itself changed; any comment comes with its own normal event).
+    if (event.scope === "ai_analysis") {
+      applyQueueSnapshot(event);
+      return;
+    }
     showToast(describeEvent(event));
     // An event concerns THIS page if it is about this incident itself, or
     // lists this incident in affected_ids (e.g. a maintenance task whose
@@ -40,7 +63,7 @@ if (user) {
       // affect priority, so they're skipped.
       refreshClaimState();
     }
-  });
+  }, { scopes: ["incidents", "ai_analysis"] });
   // If another tab of this browser changes the saved Updates order, follow it
   // right away (in place - nothing typed on this page is lost).
   onUpdatesOrderChanged(applyUpdatesOrder);
@@ -78,6 +101,17 @@ async function load() {
     }
   }
 
+  // A fault's AI analysis state decides the Analyze/Cancel buttons. If the
+  // lookup fails, the buttons are simply not shown.
+  currentAnalysis = null;
+  if (incident.type === "fault") {
+    try {
+      currentAnalysis = await api.analysisStatus(incident.id);
+    } catch {
+      currentAnalysis = null;
+    }
+  }
+
   currentIncident = incident;
   render(incident, claimStatus);
 }
@@ -91,7 +125,7 @@ async function load() {
  */
 function commentsListHtml(comments, order) {
   return sortComments(comments, order).map((c) => `
-    <div class="comment">
+    <div class="comment${c.author === AI_USERNAME ? " comment-ai" : ""}">
       <span class="comment-author">${escapeHtml(c.author)}</span>
       <span class="comment-time">${formatDate(c.created_at)}</span>
       <p>${escapeHtml(c.text)}</p>
@@ -112,6 +146,120 @@ function applyUpdatesOrder(order) {
   list.innerHTML = commentsListHtml(currentIncident.comments, order);
   const select = document.querySelector('[data-role="updates-order"]');
   if (select) select.value = order;
+}
+
+// --- AI analysis controls (open / in-progress faults): markup and in-place updates ---
+//
+// "Analyze using <provider>" queues an analysis (any logged-in user). While
+// one is pending, that button is greyed out and shows the state ("Queued
+// (position 2)" / "Analyzing…"), and a "Cancel analysis" button appears next
+// to it. The state follows the server's queue live (applyQueueSnapshot), so
+// the label and the position stay right without reloading the page.
+//
+// Re-analysis rule (backend/app/ai/reanalysis.py): after a successful
+// analysis, the same fault can't be analyzed again with the same provider
+// until someone changes it. Then Analyze is greyed out with a short note
+// (the full reason is its tooltip). An admin also sees "Re-analyze", which
+// forces it - after a cooldown since that analysis, counted down live on the
+// button ("Re-analyze in 3:12").
+
+
+/** The Analyze button's label for the current state. */
+function analysisLabel(analysis) {
+  if (analysis.state === "running") return "Analyzing…";
+  if (analysis.state === "queued") return `Queued (position ${analysis.position})`;
+  return `Analyze using ${analysis.provider}`;
+}
+
+/** The controls' markup (all of them; applyAnalysisState() decides what shows), or "" when AI analysis is off. */
+function analysisControlsHtml(analysis) {
+  if (!analysis || !analysis.enabled) return "";
+  return `
+    <span class="ai-controls" data-role="ai-controls">
+      <span class="ai-note" data-role="ai-note" hidden>No changes since the last analysis</span>
+      <button class="btn btn-ai" data-action="analyze"></button>
+      <button class="btn btn-ghost" data-action="reanalyze" hidden>Re-analyze</button>
+      <button class="btn btn-ghost" data-action="cancel-analysis" hidden>Cancel analysis</button>
+    </span>`;
+}
+
+/** "m:ss" for a number of seconds, e.g. 192 -> "3:12". */
+function minutesSeconds(seconds) {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** Patches the existing controls to match currentAnalysis (no re-render, so nothing typed elsewhere is lost). */
+function applyAnalysisState() {
+  const wrap = document.querySelector('[data-role="ai-controls"]');
+  if (!wrap || !currentAnalysis) return;
+  const a = currentAnalysis;
+  const pending = a.state !== "idle";
+  const blocked = !pending && a.blocked;           // analyzed before, nothing changed since
+  const isAdmin = user.role === "admin";
+  const analyzeBtn = wrap.querySelector('[data-action="analyze"]');
+  const reanalyzeBtn = wrap.querySelector('[data-action="reanalyze"]');
+  const cancelBtn = wrap.querySelector('[data-action="cancel-analysis"]');
+
+  wrap.title = blocked ? a.reason : `${a.provider} - models, best first: ${(a.models || [a.model]).join(" > ")}`;
+  wrap.querySelector('[data-role="ai-note"]').hidden = !blocked;
+  analyzeBtn.textContent = analysisLabel(a);
+  analyzeBtn.disabled = locked || pending || blocked;
+  cancelBtn.hidden = !pending;
+  cancelBtn.disabled = locked;
+
+  reanalyzeBtn.hidden = !(blocked && isAdmin);
+  clearInterval(reanalyzeTimer);
+  if (blocked && isAdmin && !a.can_force && a.force_wait_seconds > 0) {
+    // Count the cooldown down on the button, then ask the server again.
+    const readyAt = Date.now() + a.force_wait_seconds * 1000;
+    const tick = () => {
+      const left = Math.ceil((readyAt - Date.now()) / 1000);
+      if (left <= 0) {
+        clearInterval(reanalyzeTimer);
+        refreshAnalysisStatus();
+        return;
+      }
+      reanalyzeBtn.textContent = `Re-analyze in ${minutesSeconds(left)}`;
+    };
+    tick();
+    reanalyzeTimer = setInterval(tick, 1000);
+    reanalyzeBtn.disabled = true;
+  } else {
+    reanalyzeBtn.textContent = "Re-analyze";
+    reanalyzeBtn.disabled = locked || !a.can_force;
+  }
+}
+
+/** Re-reads this fault's analysis state from the server and patches the controls in place. */
+async function refreshAnalysisStatus() {
+  if (!currentIncident || !currentAnalysis) return;
+  try {
+    currentAnalysis = await api.analysisStatus(currentIncident.id);
+  } catch {
+    return; // transient failure: keep what is shown; the next event or reload re-checks
+  }
+  applyAnalysisState();
+}
+
+/**
+ * Applies a live "ai_analysis" queue event - { running: id | null, queued: [ids, next first] } -
+ * to this page's fault (see backend/app/ai/worker.py's queue_snapshot).
+ */
+function applyQueueSnapshot(snapshot) {
+  if (!currentIncident || !currentAnalysis || !currentAnalysis.enabled) return;
+  const index = (snapshot.queued || []).indexOf(currentIncident.id);
+  const wasPending = currentAnalysis.state !== "idle";
+  if (snapshot.running === currentIncident.id) {
+    currentAnalysis = { ...currentAnalysis, state: "running", position: null };
+  } else if (index >= 0) {
+    currentAnalysis = { ...currentAnalysis, state: "queued", position: index + 1 };
+  } else {
+    currentAnalysis = { ...currentAnalysis, state: "idle", position: null };
+  }
+  applyAnalysisState();
+  // This fault's analysis just ended (answered, failed or cancelled): whether it
+  // may be analyzed again depends on how it ended, so ask the server.
+  if (wasPending && currentAnalysis.state === "idle") refreshAnalysisStatus();
 }
 
 // --- claim control (open faults): tooltip text, markup, and in-place refresh ---
@@ -291,10 +439,12 @@ function render(incident, claimStatus) {
     actionsHtml = `
       <p class="hint" style="flex-basis:100%;margin:0">Waiting in the fault queue, unclaimed. Claim it here when it is the highest priority, or close it without claiming.</p>
       ${claimControlHtml(claimStatus)}
-      ${faultCloseButtons}`;
+      ${faultCloseButtons}
+      ${analysisControlsHtml(currentAnalysis)}`;
   } else {
     actionsHtml = `
       ${faultCloseButtons}
+      ${analysisControlsHtml(currentAnalysis)}
       ${isAdmin ? `
         <label class="inline-select">Severity
           <select data-role="severity-select">
@@ -316,7 +466,7 @@ function render(incident, claimStatus) {
             <option value="in_progress">In progress — assigned to you</option>
           </select>
         </label>
-        <label>Reason<textarea name="reason" rows="3" required placeholder="Why is this fault being reopened?"></textarea></label>
+        <label>Reason<textarea name="reason" rows="3" required maxlength="${MAX_REASON_LENGTH}" placeholder="Why is this fault being reopened?"></textarea></label>
         <p class="form-error" id="reopen-error" hidden></p>
         <div class="dialog-actions">
           <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
@@ -351,7 +501,7 @@ function render(incident, claimStatus) {
             <option value="in_progress">In progress — only at position 1</option>
           </select>
         </label>
-        <label>Reason<textarea name="reason" rows="3" required placeholder="Why is this task being reopened?"></textarea></label>
+        <label>Reason<textarea name="reason" rows="3" required maxlength="${MAX_REASON_LENGTH}" placeholder="Why is this task being reopened?"></textarea></label>
         <p class="form-error" id="reopen-task-error" hidden></p>
         <div class="dialog-actions">
           <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
@@ -387,7 +537,9 @@ function render(incident, claimStatus) {
           </label>
         </div>
         <form class="comment-form" id="comment-form">
-          <textarea name="text" rows="2" placeholder="Add an update…" required></textarea>
+          <div class="comment-input">
+            <textarea name="text" rows="2" placeholder="Add an update…" required maxlength="${MAX_COMMENT_LENGTH}"></textarea>
+          </div>
           <button type="submit" class="btn btn-primary">Post</button>
         </form>
         <div class="comments-list">${commentsListHtml(incident.comments, updatesOrder)}</div>
@@ -397,7 +549,7 @@ function render(incident, claimStatus) {
     <dialog id="close-dialog" class="dialog">
       <form id="close-form" class="dialog-form">
         <h2 id="close-dialog-title">Resolve incident</h2>
-        <label>Reason<textarea name="message" rows="3" required placeholder="Explain what happened and why you are closing this…"></textarea></label>
+        <label>Reason<textarea name="message" rows="3" required maxlength="${MAX_REASON_LENGTH}" placeholder="Explain what happened and why you are closing this…"></textarea></label>
         <p class="form-error" id="close-error" hidden></p>
         <div class="dialog-actions">
           <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
@@ -409,7 +561,10 @@ function render(incident, claimStatus) {
     ${reopenTaskDialogHtml}
   `;
 
+  // Live "used / max" counters under every length-limited textarea (see text-limits.js).
+  wireCharCounters(root);
   wireActions(incident, isFault);
+  applyAnalysisState();   // the AI controls' labels, notes and countdown (no-op without them)
 }
 
 function wireActions(incident, isFault) {
@@ -428,7 +583,13 @@ function wireActions(incident, isFault) {
     if (locked) return;
     const text = e.target.text.value.trim();
     if (!text) return;
-    await api.addComment(incident.id, text);
+    try {
+      await api.addComment(incident.id, text);
+    } catch (err) {
+      // e.g. the server's length check (HTTP 400) - keep the typed text so nothing is lost.
+      alert(err.message);
+      return;
+    }
     await load();
   });
 
@@ -467,6 +628,51 @@ function wireActions(incident, isFault) {
         alert(err.message);
         await refreshClaimState();
       }
+    });
+  }
+
+  // AI analysis buttons (open / in-progress faults, only when the feature is on).
+  // On success the page reloads, which shows the "requested" / "cancelled"
+  // comment this user just added. Errors (e.g. "already pending", "queue
+  // full") are shown and the buttons are re-synced with the server.
+  const analyzeBtn = document.querySelector('[data-action="analyze"]');
+  if (analyzeBtn) {
+    analyzeBtn.addEventListener("click", async () => {
+      if (locked) return;
+      analyzeBtn.disabled = true; // guard against a double click while the request is in flight
+      try {
+        await api.requestAnalysis(incident.id);
+      } catch (err) {
+        alert(err.message);
+      }
+      await load();
+    });
+  }
+  // Re-analyze (admins, when nothing changed since the last analysis): forces it.
+  const reanalyzeBtn = document.querySelector('[data-action="reanalyze"]');
+  if (reanalyzeBtn) {
+    reanalyzeBtn.addEventListener("click", async () => {
+      if (locked) return;
+      reanalyzeBtn.disabled = true;
+      try {
+        await api.requestAnalysis(incident.id, { force: true });
+      } catch (err) {
+        alert(err.message);
+      }
+      await load();
+    });
+  }
+  const cancelAnalysisBtn = document.querySelector('[data-action="cancel-analysis"]');
+  if (cancelAnalysisBtn) {
+    cancelAnalysisBtn.addEventListener("click", async () => {
+      if (locked) return;
+      cancelAnalysisBtn.disabled = true;
+      try {
+        await api.cancelAnalysis(incident.id);
+      } catch (err) {
+        alert(err.message);
+      }
+      await load();
     });
   }
 

@@ -29,10 +29,13 @@ export function getClientId() {
  *
  * `scopes` picks which kinds of events reach onEvent. Each event carries a
  * "scope": "sites" for the admin-only site portal (backend/app/api/sites.py),
+ * "ai_analysis" for the AI analysis queue state (backend/app/ai/worker.py),
  * none for incident events, which counts as "incidents". The default,
- * ["incidents"], is what every incident page wants, so the dashboard,
- * incident and pressing pages need no change and never react to site
- * events. The site portal passes { scopes: ["sites", "incidents"] }.
+ * ["incidents"], is what the dashboard and pressing pages want, so they never
+ * react to site or AI-queue events. The site portal passes
+ * { scopes: ["sites", "incidents"] }; the incident page passes
+ * { scopes: ["incidents", "ai_analysis"] } to keep its Analyze/Cancel
+ * buttons in step with the queue.
  * (Site events are only ever SENT to admin tabs in the first place - this
  * filter is about which page reacts, not about who may see them.)
  *

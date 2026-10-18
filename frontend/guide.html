@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guide — Incident Bridge</title>
+<meta name="description" content="How to use Incident Bridge: reporting and working incidents, AI analysis, and the admin-only tools.">
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<!--
+  The user guide - a public page (no login needed). Header: js/public-page.js;
+  footer: js/footer.js. Screenshots come from docs/screenshots/ (served at
+  /screenshots/ by backend/app/api/app.py) - the same files the README shows.
+  Keep it in step with the app: README.md sections 5, 6 and 17 hold the rules
+  this page explains in plain words.
+-->
+<body>
+  <header id="public-header"></header>
+  <main class="doc-page">
+    <h1>Using Incident Bridge</h1>
+    <p class="doc-lead">
+      Incident Bridge tracks your team's IT work in two queues: routine <strong>maintenance tasks</strong>,
+      done strictly in order, and <strong>faults</strong>, where the most severe one always comes first.
+      This guide covers everything a user can do, then the extra tools an admin has.
+      Admin-only steps are marked <span class="role-tag admin">Admin</span>.
+    </p>
+
+    <nav class="doc-toc" aria-label="On this page">
+      <strong>On this page</strong>
+      <ol>
+        <li><a href="#start">Getting started</a></li>
+        <li><a href="#roles">Who can do what</a></li>
+        <li><a href="#dashboard">The dashboard</a></li>
+        <li><a href="#report">Reporting an incident</a></li>
+        <li><a href="#maintenance">Working maintenance tasks</a></li>
+        <li><a href="#faults">Working faults</a></li>
+        <li><a href="#ai">AI analysis of a fault</a></li>
+        <li><a href="#admin">Admin tools</a></li>
+        <li><a href="#sites">The site portal</a></li>
+        <li><a href="#good-to-know">Good to know</a></li>
+      </ol>
+    </nav>
+
+    <!-- 1 -->
+    <h2 id="start">Getting started</h2>
+    <figure class="doc-figure narrow">
+      <img src="/screenshots/01-login.png" alt="The login form: username, password and a Log in button" width="580" height="477" loading="lazy">
+    </figure>
+    <ul>
+      <li><strong>Your account</strong> is created for you — there is no sign-up. Ask your administrator for a username and password.</li>
+      <li><strong>Log in</strong> on the start page. You stay logged in in that browser for up to two weeks, or until you press <em>Log out</em> in the top bar.</li>
+      <li><strong>Change your password</strong> with <em>Account</em> in the top bar: at least 8 characters, letters and numbers only.</li>
+      <li>Your username and role (<em>user</em> or <em>admin</em>) are shown in the top bar.</li>
+    </ul>
+
+    <!-- 2 -->
+    <h2 id="roles">Who can do what</h2>
+    <p>There are two roles. A <strong>user</strong> (technician) reports and works incidents; an <strong>admin</strong> (team lead) can do everything a user can, plus the tools in <a href="#admin">Admin tools</a>.</p>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Action</th><th>User</th><th>Admin</th></tr></thead>
+        <tbody>
+          <tr><td>Report an incident, add updates (comments)</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Start the next maintenance task, complete or close a task</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Claim a fault, resolve a fault</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Ask for an AI analysis of a fault, or cancel one</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Pressing maintenance calls, check stale incidents</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Close as <em>Not an incident</em> or <em>By design</em></td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Change a fault's severity</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Reopen a closed incident</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Run an AI analysis again with no changes (<em>Re-analyze</em>)</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Import seed data</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Site portal: sites, mailing lists, notifications</td><td class="no">—</td><td class="yes">✓</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 3 -->
+    <h2 id="dashboard">The dashboard</h2>
+    <figure class="doc-figure">
+      <a href="/screenshots/02-dashboard.png"><img src="/screenshots/02-dashboard.png" alt="The dashboard: filters and buttons above the maintenance queue" width="1440" height="900" loading="lazy"></a>
+      <figcaption>The dashboard, seen by an admin (<em>Import seed data</em> and <em>Site portal</em> are admin-only).</figcaption>
+    </figure>
+    <p>After logging in you land on the dashboard. From top to bottom:</p>
+    <ul>
+      <li><strong>Maintenance queue</strong> — first in, first out: tasks are done one at a time, in the order they were reported. <em>#1 in queue</em> is next.</li>
+      <li><strong>Fault queue</strong> — priority order: every <span style="color:var(--critical);font-weight:600">Critical</span> fault before any <span style="color:var(--major);font-weight:600">Major</span> one, and every Major before any Minor; within a severity, oldest first.</li>
+      <li><strong>All incidents</strong> — everything, including closed incidents. The <em>Type</em>, <em>Status</em> and <em>Sort by</em> filters at the top apply to this list.</li>
+    </ul>
+    <p>Click any row to open the incident. The dashboard updates by itself when anyone changes something — there is no need to refresh.</p>
+    <h3>Two helpers</h3>
+    <ul>
+      <li><strong>Check stale incidents</strong> highlights in-progress incidents with no update for the time chosen in <em>Stale after</em> (default 4 hours).</li>
+      <li><strong>Pressing maintenance calls</strong> lists open maintenance tasks that have waited more than 3 days, oldest first. <em>Show first</em> limits the list.</li>
+    </ul>
+    <figure class="doc-figure">
+      <a href="/screenshots/05-pressing-calls.png"><img src="/screenshots/05-pressing-calls.png" alt="Pressing maintenance calls: a table of tasks waiting 3 to 12 days" width="1440" height="720" loading="lazy"></a>
+      <figcaption>Pressing maintenance calls: tasks that have waited more than 3 days.</figcaption>
+    </figure>
+
+    <!-- 4 -->
+    <h2 id="report">Reporting an incident</h2>
+    <ol>
+      <li>On the dashboard, press <strong>New incident</strong>.</li>
+      <li>Choose the <strong>Kind</strong>: <em>Maintenance task</em> for planned, routine work, or <em>Fault / issue</em> for something that is broken.</li>
+      <li>Give it a short <strong>Title</strong> and a <strong>Description</strong> of what you see.</li>
+      <li>For a fault, answer the four <strong>severity questions</strong> — <em>System is unavailable</em>, <em>Security breach</em>, <em>Performance degraded</em> and <em>Affected users (%)</em>. The app sets the severity from your answers:
+        <ul>
+          <li>unavailable or a security breach → <strong>Critical</strong></li>
+          <li>performance degraded, or at least 25% of users affected → <strong>Major</strong></li>
+          <li>anything else → <strong>Minor</strong></li>
+        </ul>
+      </li>
+      <li>Press <strong>Create</strong>. A maintenance task joins the back of the maintenance queue; a fault takes its place in the fault queue by severity.</li>
+    </ol>
+
+    <!-- 5 -->
+    <h2 id="maintenance">Working maintenance tasks</h2>
+    <ul>
+      <li><strong>Start next</strong> (dashboard) or <strong>Start</strong> (on the task's page) begins the first task in line. Tasks start strictly in order, and only one can be in progress at a time.</li>
+      <li>When the work is done, open the task and press <strong>Complete</strong>, with a short closing message.</li>
+      <li>A task that is no longer needed can be closed from any place in the queue with <strong>Close task</strong> (a reason is required); the tasks behind it move up one place.</li>
+    </ul>
+
+    <!-- 6 -->
+    <h2 id="faults">Working faults</h2>
+    <ul>
+      <li><strong>Claim next</strong> (dashboard) takes the most severe fault that is waiting and assigns it to you.</li>
+      <li>On a fault's own page, <strong>Claim</strong> works for any fault in the most severe group that is waiting. If more severe faults are still waiting, the button is disabled and tells you how many.</li>
+      <li>Post what you find as <strong>updates</strong> in the box under <em>Updates</em> (up to 5,000 characters; the counter shows how many you have used). <em>Order</em> shows the newest or the oldest first — your browser remembers the choice.</li>
+      <li>When it is fixed, press <strong>Resolve</strong> and write what was done (up to 1,000 characters). A fault can also be resolved while it is still waiting, without claiming it.</li>
+    </ul>
+    <div class="doc-note">Every status change — claimed, closed, reopened — is written into the incident's updates automatically, with who did it and why, so the history is always complete.</div>
+
+    <!-- 7 -->
+    <h2 id="ai">AI analysis of a fault</h2>
+    <figure class="doc-figure tall">
+      <a href="/screenshots/03-fault-ai-analysis.png"><img src="/screenshots/03-fault-ai-analysis.png" alt="A fault page: the update thread, then an AI analysis posted by ai-assistant; Analyze is greyed out and Re-analyze counts down" width="1440" height="1877" loading="lazy"></a>
+      <figcaption>A fault after an AI analysis (click for the whole page). This screenshot was taken with the built-in test provider; with Gemini, the button reads <em>Analyze using Gemini</em>.</figcaption>
+    </figure>
+    <p>When the server has an AI provider set up, open and in-progress faults show an <strong>Analyze using &lt;provider&gt;</strong> button. The AI reads the fault and all its updates and posts its view — a summary, the likely cause, evidence, next steps, missing information and a severity check — as a comment by <strong>ai-assistant</strong>.</p>
+    <ol>
+      <li>Press <strong>Analyze using …</strong> — a comment records that you asked, and the button shows the request's place: <em>Queued (position 2)</em>, then <em>Analyzing…</em>. Analyses run one at a time, so this can take a few minutes.</li>
+      <li>While it waits, anyone can press <strong>Cancel analysis</strong>.</li>
+      <li>The answer appears in the updates. A long answer is split into up to three parts; if the AI could not answer, an error comment says why.</li>
+    </ol>
+    <ul>
+      <li>A fault can have only one analysis waiting at a time.</li>
+      <li>After a successful analysis, the button is greyed out (<em>No changes since the last analysis</em>) until someone changes the fault — a new update, a status or severity change — because the answer would be the same.</li>
+      <li><span class="role-tag admin">Admin</span> <strong>Re-analyze</strong> runs it again without changes, once a cooldown has passed since the last analysis (5 minutes by default); the button counts down until then.</li>
+    </ul>
+    <div class="doc-note">The fault and its updates are sent to the AI provider (Google, Anthropic or OpenAI, as configured). Do not put passwords, keys or personal data in incidents — see the <a href="/terms.html#ai">Terms</a>.</div>
+
+    <!-- 8 -->
+    <h2 id="admin">Admin tools <span class="role-tag admin">Admin</span></h2>
+    <ul>
+      <li><strong>Not an incident</strong> and <strong>By design</strong> close an incident with that reason, instead of <em>Resolve</em>. A closing message is still required.</li>
+      <li><strong>Severity</strong> — on an in-progress fault, the <em>Severity</em> menu changes it; the fault's place in the queue follows.</li>
+      <li><strong>Reopen…</strong> on a closed incident, with a reason. A maintenance task asks where in the queue it goes back; a fault goes back to the queue (Open) or to you (In progress). The earlier resolution stays in the history.</li>
+      <li><strong>Import seed data</strong> (dashboard) loads incidents from a <code>.jsonl</code> file; incidents already there are skipped, not duplicated.</li>
+      <li><strong>Re-analyze</strong> — see <a href="#ai">AI analysis</a>.</li>
+    </ul>
+
+    <!-- 9 -->
+    <h2 id="sites">The site portal <span class="role-tag admin">Admin</span></h2>
+    <figure class="doc-figure">
+      <a href="/screenshots/04-sites-portal.png"><img src="/screenshots/04-sites-portal.png" alt="The site portal: a status card for every site, the health summary and the Sites tab" width="1440" height="900" loading="lazy"></a>
+      <figcaption>The site portal after <em>Check all sites</em>.</figcaption>
+    </figure>
+    <p>The <strong>Site portal</strong> button in the top bar watches the organization's websites and tells the right people when one has a problem.</p>
+    <ul>
+      <li><strong>Check all sites</strong>, or <strong>Check</strong> on one site, tests whether each site answers. One failed check marks it <em>Degraded</em>; two in a row, <em>Down</em> — so a single dropped request never raises an outage. <strong>Status</strong> sets a status by hand, with a reason (<em>Maintenance</em> is only set this way).</li>
+      <li>The summary at the top shows the most urgent site and anything that needs attention: outages no incident mentions, sites that look fine although incidents mention them, sites no mailing list covers, lists with no members.</li>
+      <li><strong>Mailing lists</strong> say who is told about which sites.</li>
+      <li><strong>Notifications</strong>: each meaningful status change creates a draft to the lists covering that site. Open it with <strong>Review</strong>, edit the text if needed, then <strong>Send to lists</strong> or <strong>Dismiss</strong>.</li>
+      <li><strong>Archive</strong> removes a site or list from use; the <em>Archive</em> tab can <strong>Restore</strong> it.</li>
+      <li>Sent, dismissed and skipped notifications move to the <em>Archive</em> tab after a set time (30 days unless the operator changed it), where they can only be viewed. Notifications waiting for a decision stay in <em>Notifications</em>.</li>
+    </ul>
+
+    <!-- 10 -->
+    <h2 id="good-to-know">Good to know</h2>
+    <ul>
+      <li><strong>Live updates:</strong> lists update by themselves. If someone changes the incident you are looking at, a prompt offers to refresh it.</li>
+      <li><strong>Server restarts:</strong> open pages reconnect on their own within a few seconds, and you stay logged in.</li>
+      <li><strong>Something refused?</strong> The message says why — for example, a task that is not first in line cannot be started, and admin-only actions are not offered to users.</li>
+      <li>More detail, for developers: the <a data-site="repository">README on GitHub</a>.</li>
+    </ul>
+  </main>
+  <script type="module" src="/js/public-page.js"></script>
+  <script type="module" src="/js/footer.js"></script>
+</body>
+</html>

@@ -91,6 +91,15 @@ export const api = {
     request(`/incidents/faults/${id}/close`, { method: "POST", body: { resolution_type, message } }),
   reopenFault: (id, status, reason) =>
     request(`/incidents/faults/${id}/reopen`, { method: "POST", body: { status, reason } }),
+
+  // --- AI analysis of a fault (backend/app/api/analysis.py) ---
+  // Each returns { enabled, provider, model, models, state: "idle"|"queued"|"running", position,
+  //   last_analysis, blocked, reason, can_force, force_wait_seconds } (see backend/app/api/analysis.py).
+  analysisStatus: (id) => request(`/incidents/faults/${id}/analysis`),
+  // { force: true }: an admin's Re-analyze when nothing changed since the last analysis.
+  requestAnalysis: (id, { force = false } = {}) =>
+    request(`/incidents/faults/${id}/analysis${force ? "?force=true" : ""}`, { method: "POST" }),
+  cancelAnalysis: (id) => request(`/incidents/faults/${id}/analysis/cancel`, { method: "POST" }),
   // --- bulk import (admin only) ---
   importJsonl: (content) => request("/incidents/import-jsonl", { method: "POST", body: { content } }),
 
@@ -117,8 +126,14 @@ export const api = {
   archiveMailingList: (listId) => request(`/sites/mailing-lists/${encodeURIComponent(listId)}/archive`, { method: "POST" }),
   restoreMailingList: (listId) => request(`/sites/mailing-lists/${encodeURIComponent(listId)}/restore`, { method: "POST" }),
 
-  // state: "draft" | "sent" | "dismissed" | "skipped" | "" (all)
-  listNotifications: (state = "") => request("/sites/notifications" + (state ? `?state=${state}` : "")),
+  // state: "draft" | "sent" | "dismissed" | "skipped" | "" (all).
+  // archived: false = the current ones (default), true = only the archived ones (view only).
+  listNotifications: (state = "", { archived = false } = {}) => {
+    const query = new URLSearchParams();
+    if (state) query.set("state", state);
+    if (archived) query.set("archived", "true");
+    return request("/sites/notifications" + (query.toString() ? `?${query}` : ""));
+  },
   sendNotification: (id, message) =>
     request(`/sites/notifications/${id}/send`, { method: "POST", body: message ? { message } : {} }),
   dismissNotification: (id, reason) =>

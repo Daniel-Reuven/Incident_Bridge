@@ -22,6 +22,15 @@ def get_broadcaster(request: Request) -> EventBroadcaster:
     return request.app.state.broadcaster
 
 
+def get_analysis_worker(request: Request):
+    """
+    The single AnalysisWorker for this process (see app/ai/worker.py), or
+    None when AI analysis is off (no API key for the selected provider).
+    Set at startup by app/api/app.py's lifespan.
+    """
+    return getattr(request.app.state, "analysis_worker", None)
+
+
 def get_client_id(request: Request) -> Optional[str]:
     """
     The browser tab's self-chosen id (see frontend/js/events.js), sent as

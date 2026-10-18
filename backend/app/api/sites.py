@@ -198,15 +198,20 @@ def restore_mailing_list(list_id: str, state: AppState = Depends(get_state),
 
 @router.get("/notifications")
 def list_notifications(notification_state: Optional[NotificationState] = Query(None, alias="state"),
+                       archived: bool = Query(False),
                        state: AppState = Depends(get_state),
                        _admin: User = Depends(get_current_admin)) -> List[dict]:
     """
-    Notifications, newest first. ?state=draft (or sent / dismissed / skipped)
-    narrows the list; an unknown value is rejected with 422. (The Python
-    parameter is named notification_state only because `state` is already
-    the AppState dependency.)
+    Notifications, newest first. By default the CURRENT ones (drafts, and
+    finished ones not yet archived); ?archived=true gives only the archived
+    ones (finished longer ago than NOTIFICATION_ARCHIVE_DAYS - view only, as
+    only a draft can be sent or dismissed). ?state=draft (or sent / dismissed
+    / skipped) narrows either list; an unknown value is rejected with 422.
+    (The Python parameter is named notification_state only because `state`
+    is already the AppState dependency.)
     """
-    return [notification_to_dict(n) for n in state.sites.notifications()
+    after = state.sites.archive_notifications_after
+    return [notification_to_dict(n, after) for n in state.sites.notifications(archived=archived)
             if notification_state is None or n.state == notification_state]
 
 
@@ -219,7 +224,7 @@ def send_notification(notification_id: str, body: SendNotificationRequest, state
     _publish(broadcaster, client_id, "notification_sent", admin,
              f"the notification about Site {notification.site_id} ({notification.site_name})",
              notification_id=notification.id, site_id=notification.site_id)
-    return notification_to_dict(notification)
+    return notification_to_dict(notification, state.sites.archive_notifications_after)
 
 
 @router.post("/notifications/{notification_id}/dismiss")
@@ -231,7 +236,7 @@ def dismiss_notification(notification_id: str, body: DismissNotificationRequest,
     _publish(broadcaster, client_id, "notification_dismissed", admin,
              f"the notification about Site {notification.site_id} ({notification.site_name})",
              notification_id=notification.id, site_id=notification.site_id)
-    return notification_to_dict(notification)
+    return notification_to_dict(notification, state.sites.archive_notifications_after)
 
 
 # --- one site (after the static routes) ------------------------------------------

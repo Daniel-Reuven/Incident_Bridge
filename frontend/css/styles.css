@@ -99,6 +99,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 .btn-import { background: var(--admin-action); color: var(--accent-ink); }
 .btn-import:hover { background: var(--admin-action-hover); }
 .btn-sm { padding: 5px 10px; font-size: 13px; }
+a.btn { text-decoration: none; }   /* a link styled as a button (e.g. "Log in" on the public pages) */
 .btn-block { width: 100%; justify-content: center; }
 
 /* --- forms --- */
@@ -134,10 +135,11 @@ textarea { resize: vertical; }
 .login-body {
   min-height: 100vh;
   display: flex;
+  flex-direction: column;      /* the panel, then the site footer (footer.js) below it */
   align-items: center;
-  justify-content: center;
 }
 .login-panel {
+  margin: auto;                /* centres the panel in the space above the footer */
   width: 100%;
   max-width: 340px;
   padding: 32px;
@@ -480,4 +482,157 @@ input[type="date"], input[type="url"] {
   /* Stack the row: status, then name and details, then the counts, then the buttons. */
   .row .status-text, .row .row-main, .row-actions { flex-basis: 100%; }
   .status-text { min-width: 0; }
+}
+/* --- text-length limits (see js/text-limits.js) --- */
+/* The comment textarea sits in a wrapper so its counter stays under it, not beside the Post button. */
+.comment-input { flex: 1; display: flex; flex-direction: column; }
+.char-counter { display: block; text-align: right; margin-top: 4px; font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.char-counter.near-limit { color: var(--major); }
+
+/* --- AI analysis (see js/incident.js and backend/app/ai/) --- */
+/* The Analyze / Cancel buttons sit at the end of the fault's actions row. */
+.ai-controls { display: inline-flex; gap: 10px; margin-inline-start: auto; }
+.btn-ai { border-color: var(--accent); color: var(--accent); background: var(--surface); }
+.btn-ai:hover:not(:disabled) { background: var(--row-hover); }
+/* Comments by the "ai-assistant" system user: a tinted block with an accent bar,
+   and line breaks kept, since an answer is laid out in headed sections. */
+.comment-ai { background: var(--row-hover); border-left: 3px solid var(--accent); padding-inline: 12px; }
+.comment-ai .comment-author { color: var(--accent); }
+.comment-ai p { white-space: pre-wrap; }
+/* "No changes since the last analysis" beside a greyed-out Analyze button (re-analysis rule). */
+.ai-note { align-self: center; font-size: 13px; color: var(--ink-soft); }
+
+/* --- site footer (js/footer.js) - at the bottom of every page --- */
+/* The page is a column: header, main, footer. main grows to fill the window,
+   so on a short page the footer sits at the bottom of the screen instead of
+   floating halfway up; on a long page it simply follows the content.
+   (Only header/main/footer are sized here - dialogs and the fixed toast
+   stack are not affected.) */
+body { min-height: 100vh; display: flex; flex-direction: column; }
+body > header, body > main, body > .site-footer { width: 100%; }
+body > main { flex: 1 0 auto; }
+.login-body > main { flex: none; }   /* the login card keeps its size; margin:auto centres it */
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 18px;
+  padding: 18px 24px 22px;
+  margin-top: 40px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--ink-soft);
+  width: 100%;
+}
+.login-body .site-footer { margin-top: 0; border-top: none; }
+.site-footer-name { font-family: var(--font-display); font-weight: 600; color: var(--ink); }
+.site-footer-version { font-family: var(--font-body); font-weight: 400; color: var(--ink-soft); }
+.site-footer-links { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.site-footer a { color: var(--ink-soft); text-decoration: none; }
+.site-footer a:hover, .site-footer a[aria-current="page"] { color: var(--accent); text-decoration: underline; }
+
+/* --- public pages: guide.html, about.html, terms.html (js/public-page.js) --- */
+.public-nav { display: flex; align-items: center; gap: 28px; }
+.public-nav .wordmark, #public-account .btn { white-space: nowrap; }
+.public-links { display: flex; gap: 18px; font-size: 14px; }
+.public-links a { color: var(--ink-soft); text-decoration: none; padding: 4px 0; border-bottom: 2px solid transparent; }
+.public-links a:hover { color: var(--ink); }
+.public-links a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+
+.doc-page { max-width: 900px; margin: 0 auto; padding: 32px 32px 0; }
+.doc-page h1 { font-size: 30px; margin-bottom: 6px; }
+.doc-lead { color: var(--ink-soft); font-size: 16px; margin: 0 0 28px; max-width: 68ch; }
+.doc-page h2 { font-size: 21px; margin: 40px 0 12px; padding-top: 8px; scroll-margin-top: 16px; }
+.doc-page h3 { font-family: var(--font-display); font-weight: 600; font-size: 16px; margin: 24px 0 8px; }
+.doc-page p, .doc-page li { max-width: 72ch; }
+.doc-page li { margin-bottom: 6px; }
+.doc-page ul, .doc-page ol { padding-inline-start: 22px; }
+.doc-updated { font-size: 13px; color: var(--ink-soft); margin: 0 0 24px; }
+
+/* "On this page" list */
+.doc-toc {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 14px 20px;
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.doc-toc strong { display: block; font-family: var(--font-display); font-weight: 600; margin-bottom: 6px; }
+.doc-toc ol { margin: 0; columns: 2; column-gap: 32px; }
+.doc-toc li { margin-bottom: 3px; break-inside: avoid; }
+
+/* a screenshot with its caption */
+.doc-figure { margin: 18px 0 8px; }
+.doc-figure a { display: block; }
+.doc-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.doc-figure.narrow img { max-width: 420px; }
+.doc-figure.tall img { max-height: 720px; object-fit: cover; object-position: top; }
+.doc-figure figcaption { font-size: 13px; color: var(--ink-soft); margin-top: 8px; }
+
+/* a short note in the text; .admin marks admin-only content */
+.doc-note {
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  padding: 10px 14px;
+  margin: 14px 0;
+  font-size: 14px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.doc-note.admin { border-left-color: var(--admin-action); }
+.role-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+  vertical-align: 2px;
+  margin-inline-start: 6px;
+}
+.role-tag.admin { border-color: var(--admin-action); color: var(--admin-action); }
+
+/* who-can-do-what table */
+.doc-page .data-table { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); border-collapse: separate; border-spacing: 0; width: 100%; font-size: 14px; }
+.doc-page .data-table tbody tr { cursor: default; }
+.doc-page .data-table tbody tr:last-child td { border-bottom: none; }
+.doc-page .data-table td.yes { color: var(--accent); font-weight: 600; }
+.doc-page .data-table td.no { color: var(--ink-soft); }
+.doc-page .data-table th:not(:first-child), .doc-page .data-table td:not(:first-child) { text-align: center; width: 90px; }
+
+/* About page */
+.doc-page .team-list { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
+.team-list li { margin: 0; }
+.team-list a {
+  display: inline-block;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-decoration: none;
+  font-weight: 500;
+}
+.team-list a:hover { border-color: var(--accent); }
+.fact-list { display: grid; grid-template-columns: max-content 1fr; gap: 8px 24px; margin: 0; font-size: 15px; }
+.fact-list dt { color: var(--ink-soft); }
+.fact-list dd { margin: 0; }
+
+@media (max-width: 720px) {
+  .doc-page { padding: 24px 16px 0; }
+  .public-nav { flex-direction: column; align-items: flex-start; gap: 4px; }   /* links under the wordmark */
+  .public-links { gap: 16px; }
+  .doc-toc ol { columns: 1; }
+  .fact-list { grid-template-columns: 1fr; gap: 2px 0; }
+  .fact-list dd { margin-bottom: 8px; }
 }

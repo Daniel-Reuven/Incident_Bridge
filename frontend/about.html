@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About — Incident Bridge</title>
+<meta name="description" content="What Incident Bridge is, who built it, and how it is built.">
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<!--
+  The About page - public (no login needed). Header: js/public-page.js;
+  footer: js/footer.js. The version, team, repository and license links are
+  filled in from js/site-info.js (data-site="..." placeholders), so this
+  file never repeats them.
+-->
+<body>
+  <header id="public-header"></header>
+  <main class="doc-page">
+    <h1>About Incident Bridge</h1>
+    <p class="doc-lead">
+      An internal web system for logging, prioritizing and tracking an organization's IT incidents —
+      so routine maintenance is never skipped or done out of order, and the most severe faults are always handled first.
+    </p>
+
+    <dl class="fact-list">
+      <dt>Version</dt>        <dd><span data-site="version">…</span></dd>
+      <dt>Project</dt>        <dd><span data-site="course"></span></dd>
+      <dt>Source code</dt>    <dd><a data-site="repository" target="_blank" rel="noopener"></a></dd>
+      <dt>License</dt>        <dd><a data-site="license" target="_blank" rel="noopener"></a> — free to use, change and share, with the copyright notice kept</dd>
+    </dl>
+
+    <h2>The team</h2>
+    <ul class="team-list" data-site="team"></ul>
+
+    <h2>What it does</h2>
+    <ul>
+      <li><strong>Maintenance queue</strong> — routine tasks are done one at a time, strictly in the order they were reported.</li>
+      <li><strong>Fault queue</strong> — faults of every severity share one priority queue, so a Critical fault is always taken before a Major or Minor one. The severity is worked out from four questions asked when the fault is reported.</li>
+      <li><strong>A full history</strong> — every update and every status change is kept with who made it and why, including why an incident was closed.</li>
+      <li><strong>AI analysis</strong> — anyone can ask an AI model (Gemini, Claude or OpenAI) to read a fault and its updates; the answer is posted back as a comment.</li>
+      <li><strong>Site portal</strong> — admins monitor the organization's websites, see which open incidents concern which site, and notify the right mailing lists when a site has a problem.</li>
+      <li><strong>Live updates</strong> — every open page updates the moment anyone changes something.</li>
+    </ul>
+    <p>New here? The <a href="/guide.html">Guide</a> explains how to use it, for users and admins.</p>
+
+    <h2>How it is built</h2>
+    <ul>
+      <li><strong>Backend:</strong> Python with FastAPI; data kept in SQLite.</li>
+      <li><strong>Frontend:</strong> plain HTML, CSS and JavaScript, served by the same app.</li>
+      <li><strong>Queues:</strong> a <code>deque</code> for the maintenance queue (first in, first out) and a <code>heapq</code> priority queue for faults.</li>
+      <li><strong>Live updates:</strong> Server-Sent Events.</li>
+      <li><strong>AI analysis:</strong> one dedicated background thread works through the requests one at a time, using each company's official Python SDK.</li>
+      <li><strong>Quality:</strong> an automated test suite runs on every change (GitHub Actions).</li>
+    </ul>
+    <p>The full design — the object model, the data structures and why each was chosen — is in the <a data-site="repository" target="_blank" rel="noopener">project's README</a>.</p>
+
+    <h2>Use of AI in building it</h2>
+    <p>The team designed and built Incident Bridge. An AI assistant (Claude, by Anthropic) helped review the code, write documentation and generate the sample data; every suggestion was tested and reviewed before it was kept. The details are in <code>AI_USAGE.md</code> in the repository.</p>
+  </main>
+  <script type="module" src="/js/public-page.js"></script>
+  <script type="module" src="/js/footer.js"></script>
+</body>
+</html>

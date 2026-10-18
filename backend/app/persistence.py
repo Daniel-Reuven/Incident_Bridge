@@ -31,6 +31,8 @@ import threading
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
+from app.logs import app_log
+
 from app.models import (
     Comment,
     Fault,
@@ -92,8 +94,8 @@ def _unknown_user(original_username: str) -> User:
     labeled rather than silently reassigned to a real account.
     """
     if original_username not in _unknown_user_cache:
-        print(f"WARNING: persisted data references unknown user {original_username!r} "
-              f"(not in current INCIDENT_BRIDGE_USERS) - using a placeholder account for it.")
+        app_log.warning(f"Persisted data references unknown user {original_username!r} "
+                        f"(not in current INCIDENT_BRIDGE_USERS) - using a placeholder account for it.")
         _unknown_user_cache[original_username] = User(
             username=f"{original_username} (removed)", role=Role.USER, password="PlaceholderPassw0rd"
         )
