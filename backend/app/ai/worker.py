@@ -87,6 +87,7 @@ from app.ai.prompt import build_incident_data, build_instructions
 from app.ai.providers.base import AnalysisError, AnalysisProvider
 from app.ai.providers.loader import ProviderLoader
 from app.ai.reanalysis import DEFAULT_COOLDOWN_SECONDS, Decision, LastAnalysis, analysis_fingerprint, decide, wait_text
+from app.ai.request_history import RequestHistoryStore
 from app.ai.splitter import error_comment, split_answer, total_answer_budget
 from app.events import EventBroadcaster, incident_event
 from app.models import Fault, IncidentStatus, Role, User
@@ -102,18 +103,22 @@ QUEUE_EVENT_SCOPE = "ai_analysis"
 class AnalysisWorker:
     def __init__(self, state, provider: Union[ProviderLoader, AnalysisProvider], store: SqliteAnalysisJobStore,
                  broadcaster: EventBroadcaster, delay_seconds: float,
-                 cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS, start_on_request: bool = True):
+                 cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS, start_on_request: bool = True,
+                 request_history: Optional[RequestHistoryStore] = None):
         """
         `provider`: a ProviderLoader (the app - the provider is created on the
         first analysis) or a ready AnalysisProvider (tests).
         `start_on_request`: start the thread on the first request (the app);
         False leaves starting to start() - tests use it to inspect the queue.
+        `request_history`: the durable analysis_requests log (app/ai/request_history.py);
+        None (default, and every existing test) just skips recording.
         Starts no thread itself; restores saved jobs (see start_if_restored()).
         """
         self._state = state                   # AppState: incidents + users
         self._loader = provider if isinstance(provider, ProviderLoader) else ProviderLoader.ready(provider)
         self._start_on_request = start_on_request
         self._store = store
+        self._request_history = request_history
         self._broadcaster = broadcaster
         self.delay_seconds = delay_seconds
         self.cooldown_seconds = cooldown_seconds   # before an admin may force a re-analysis
@@ -201,6 +206,8 @@ class AnalysisWorker:
             job = AnalysisJob(incident_id=fault.id, requested_by=user.username)
             fault.add_comment(user, request_comment(user.username, self.provider_name, forced))
             self._store.add(job)
+            if self._request_history is not None:
+                self._request_history.record_requested(job.id, job.incident_id, job.requested_by, job.requested_at)
             self._queue.append(job)
             position = len(self._queue)
             self._condition.notify()          # wake the worker if it is waiting
@@ -225,9 +232,12 @@ class AnalysisWorker:
             if job is self._running:
                 job.cancelled = True          # the running call finishes; its answer is discarded
                 what = "it was running - the call will finish and its answer will be discarded"
+                # _finish() records the "cancelled" outcome once the call ends (see _post()).
             else:
                 what = f"it was waiting at position {list(self._queue).index(job) + 1}"
                 self._queue.remove(job)
+                if self._request_history is not None:
+                    self._request_history.record_finished(job.id, "cancelled", provider=self.provider_name)
             fault.add_comment(user, cancel_comment(user.username, self.provider_name))
             self._store.remove(job.id)
         log.info(f"Cancelled fault {fault.id} by {user.username} - {what} | {self.queue_summary()}")
@@ -346,11 +356,11 @@ class AnalysisWorker:
                 return
             started = time.monotonic()
             try:
-                called_api, outcome = self._process(job)
+                called_api, outcome, history_outcome, model = self._process(job)
             except Exception:                 # a bug must never kill the worker thread
                 traceback.print_exc()
-                called_api, outcome = False, "crashed - see the traceback above"
-            self._finish(job, outcome, time.monotonic() - started)
+                called_api, outcome, history_outcome, model = False, "crashed - see the traceback above", "failed", None
+            self._finish(job, outcome, time.monotonic() - started, history_outcome, model)
             if called_api:
                 log.debug(f"Pausing {self.delay_seconds:g}s before the next job")
                 if self._stop_event.wait(self.delay_seconds):
@@ -402,15 +412,17 @@ class AnalysisWorker:
         self._publish_queue()
         return job
 
-    def _process(self, job: AnalysisJob) -> Tuple[bool, str]:
+    def _process(self, job: AnalysisJob) -> Tuple[bool, str, str, Optional[str]]:
         """
         Analyze one job's fault and post the result. Returns (whether the API
-        was called, a short outcome for the log line).
+        was called, a short outcome for the log line, the outcome recorded in
+        analysis_requests - one of app.ai.request_history.OUTCOMES, the model
+        that answered, if any).
         """
         fault = self._open_fault(job.incident_id)
         if fault is None:
             log.warning(f"Dropped the job for fault {job.incident_id} - it is closed or no longer exists")
-            return False, "dropped (closed or gone)"
+            return False, "dropped (closed or gone)", "dropped", None
 
         label = self._loader.label()           # all configured models - used if none answers
         instructions = build_instructions(total_answer_budget())
@@ -441,15 +453,15 @@ class AnalysisWorker:
         return self._post(job, fault, texts, action, fingerprint, result, called_api=True)
 
     def _post(self, job: AnalysisJob, fault: Fault, texts: List[str], action: str, fingerprint: str,
-              result, called_api: bool) -> Tuple[bool, str]:
+              result, called_api: bool) -> Tuple[bool, str, str, Optional[str]]:
         """
         Post the answer (or error) comments - unless the job was cancelled
         meanwhile - remember a success, and publish ONE incident event.
-        Returns (called_api, outcome) for _process().
+        Returns (called_api, outcome, history_outcome, model) for _process().
         """
         with self._condition:
             if job.cancelled:                 # cancelled while running: throw the answer away
-                return called_api, "answer discarded (cancelled while running)"
+                return called_api, "answer discarded (cancelled while running)", "cancelled", None
 
         ai_user = self._state.users.get(AI_USERNAME)
         for text in texts:
@@ -460,14 +472,17 @@ class AnalysisWorker:
                 self.provider_name, result.model, fingerprint, datetime.now(timezone.utc)))
         self._broadcaster.publish(incident_event(fault, action, AI_USERNAME))
         if action == "ai_analysis_failed":
-            return called_api, "posted an error comment"
-        return called_api, f"posted {len(texts)} comment{'s' if len(texts) > 1 else ''}"
+            return called_api, "posted an error comment", "failed", None
+        return called_api, f"posted {len(texts)} comment{'s' if len(texts) > 1 else ''}", "success", result.model
 
-    def _finish(self, job: AnalysisJob, outcome: str, seconds: float) -> None:
+    def _finish(self, job: AnalysisJob, outcome: str, seconds: float, history_outcome: str,
+                model: Optional[str]) -> None:
         """Clear the running job, remove it from SQLite, log how it ended, and publish the queue."""
         with self._condition:
             self._running = None
         self._store.remove(job.id)
+        if self._request_history is not None:
+            self._request_history.record_finished(job.id, history_outcome, provider=self.provider_name, model=model)
         log.info(f"Finished fault {job.incident_id}: {outcome} ({seconds:.1f}s) | {self.queue_summary()}")
         self._publish_queue()
 

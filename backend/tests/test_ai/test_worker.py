@@ -270,3 +270,83 @@ def test_when_every_model_is_busy_one_error_comment_lists_them(state, make_fault
     assert ai_comments(fault) == ["AI analysis by Fake AI (models: a > b) failed: all 2 models were unavailable - "
                                   "a is overloaded (503); b is overloaded (503)."]
     assert len(broadcaster.incident_events("ai_analysis_failed")) == 1
+
+
+# ----------------------------------------------------------------------
+# Request history (app/ai/request_history.py, task A1): every request() is
+# recorded at once, and updated with how it ended.
+# ----------------------------------------------------------------------
+
+def test_a_request_is_recorded_as_success(state, make_fault, make_worker, request_history):
+    fault = make_fault()
+    worker = make_worker(request_history=request_history)
+    worker.request(fault, state.users.get("tech1"))
+    wait_for_analysis(worker, fault)
+    wait_until(lambda: request_history.all_requests()[0]["outcome"] is not None)
+
+    [row] = request_history.all_requests()
+    assert row["incident_id"] == fault.id
+    assert row["requested_by"] == "tech1"
+    assert row["outcome"] == "success"
+    assert row["provider"] == "Fake AI"
+    assert row["model"] == "fake-model"
+    assert row["finished_at"] is not None
+
+
+def test_a_failure_is_recorded_as_failed(state, make_fault, make_worker, request_history):
+    fault = make_fault()
+    worker = make_worker(FakeProvider(error="boom"), request_history=request_history)
+    worker.request(fault, state.users.get("tech1"))
+    wait_for_analysis(worker, fault)
+    wait_until(lambda: request_history.all_requests()[0]["outcome"] is not None)
+
+    [row] = request_history.all_requests()
+    assert row["outcome"] == "failed"
+    assert row["model"] is None
+
+
+def test_a_dropped_job_is_recorded_as_dropped(state, make_fault, make_worker, request_history):
+    provider = GateProvider()
+    provider.gate.set()
+    closed = make_fault("Closed later")
+    worker = make_worker(provider, start=False, request_history=request_history)
+    worker.request(closed, state.users.get("tech1"))
+    closed.close(state.users.get("tech1"), ResolutionType.RESOLVED, "Fixed meanwhile.")
+    worker.start()
+    wait_until(lambda: len(request_history.all_requests()) == 1 and request_history.all_requests()[0]["outcome"])
+
+    [row] = request_history.all_requests()
+    assert row["outcome"] == "dropped"
+
+
+def test_cancelling_a_queued_job_is_recorded_as_cancelled(state, make_fault, make_worker, request_history):
+    fault = make_fault()
+    worker = make_worker(start=False, request_history=request_history)
+    worker.request(fault, state.users.get("tech1"))
+    worker.cancel(fault, state.users.get("admin"))
+
+    [row] = request_history.all_requests()
+    assert row["outcome"] == "cancelled"
+
+
+def test_cancelling_the_running_job_is_recorded_as_cancelled(state, make_fault, make_worker, request_history):
+    provider = GateProvider()
+    fault = make_fault()
+    worker = make_worker(provider, request_history=request_history)
+    worker.request(fault, state.users.get("tech1"))
+    provider.started.wait(5)
+    worker.cancel(fault, state.users.get("tech1"))
+    provider.gate.set()
+    wait_until(lambda: request_history.all_requests()[0]["outcome"] is not None)
+
+    [row] = request_history.all_requests()
+    assert row["outcome"] == "cancelled"
+
+
+def test_no_request_history_store_means_recording_is_skipped(state, make_fault, make_worker):
+    """The default (request_history=None) - every existing test uses this - still works end to end."""
+    fault = make_fault()
+    worker = make_worker()
+    worker.request(fault, state.users.get("tech1"))
+    wait_for_analysis(worker, fault)
+    assert ai_comments(fault) != []

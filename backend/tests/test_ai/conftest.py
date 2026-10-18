@@ -10,6 +10,7 @@ import pytest
 
 from app.ai.job_store import SqliteAnalysisJobStore
 from app.ai.providers.fake_provider import FakeProvider
+from app.ai.request_history import RequestHistoryStore
 from app.ai.worker import AnalysisWorker
 from app.events import EventBroadcaster
 from app.models import Fault, SeverityCategory
@@ -104,6 +105,12 @@ def broadcaster():
 
 
 @pytest.fixture
+def request_history(db_path):
+    """A RequestHistoryStore on the same throwaway SQLite file as `state` and `db_path`."""
+    return RequestHistoryStore(db_path)
+
+
+@pytest.fixture
 def make_worker(state, db_path, broadcaster):
     """
     Build a worker; every worker built here is stopped after the test.
@@ -114,9 +121,10 @@ def make_worker(state, db_path, broadcaster):
     """
     workers = []
 
-    def make(provider=None, delay_seconds=0.0, start=True, cooldown_seconds=300.0, lazy=False):
+    def make(provider=None, delay_seconds=0.0, start=True, cooldown_seconds=300.0, lazy=False, request_history=None):
         worker = AnalysisWorker(state, provider or FakeProvider(), SqliteAnalysisJobStore(db_path),
-                                broadcaster, delay_seconds, cooldown_seconds, start_on_request=lazy)
+                                broadcaster, delay_seconds, cooldown_seconds, start_on_request=lazy,
+                                request_history=request_history)
         start = start and not lazy
         workers.append(worker)
         if start:
