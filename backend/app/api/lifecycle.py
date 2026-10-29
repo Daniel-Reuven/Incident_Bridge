@@ -6,6 +6,8 @@ works.
 """
 
 import asyncio
+import uuid
+from datetime import datetime, timezone
 
 from app import app_secrets
 from app.ai import stored_settings
@@ -21,12 +23,20 @@ async def start_services(app, settings: SqliteSettingsStore) -> None:
     # Stored settings first: the AI settings saved at setup, and the app's own
     # secrets (session cookie, log signing key - app/app_secrets.py).
     stored_settings.use(settings.get("ai"))
-    app_secrets.load_or_create(settings)
+    first_start = app_secrets.load_or_create(settings)
+    # The installation's own id: its log files live in a folder of their own
+    # (<LOG_DIR>/<id>/), so an earlier installation's log never shows here.
+    installation = settings.get("installation")
+    if not installation:
+        installation = {"id": uuid.uuid4().hex, "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        settings.set("installation", installation)
     app.state.settings = settings
 
     # The activity log files (app/audit.py) - configured first, so everything
     # after this is recorded. A bad LOG_FILE_ENABLED stops startup.
-    configure_audit_log()
+    configure_audit_log(installation["id"])
+    if first_start:
+        settings.record_all()        # the settings saved before the log ran: fingerprinted now (app/data_integrity.py)
     # Built once per process - see app/state.py for why this must stay a
     # single process (in-memory queues aren't shared across workers).
     app.state.incident_bridge = AppState.create()

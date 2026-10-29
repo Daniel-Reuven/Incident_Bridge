@@ -574,9 +574,8 @@ class IncidentRepository:
     @staticmethod
     def _resolve_seed_user(username: Optional[str], users: "UserStore", field_name: str) -> User:
         """
-        Looks up a seed record's username against the real UserStore
-        (built from INCIDENT_BRIDGE_USERS - see seed_users_from_env
-        above). Deliberately stricter than app/persistence.py's restore
+        Looks up a seed record's username against the real UserStore (the
+        accounts in the database). Deliberately stricter than app/persistence.py's restore
         path, which substitutes a "(removed)" placeholder for a username
         that no longer exists: that path is restoring data that was
         already valid when first written, while this one is validating
@@ -587,5 +586,6 @@ class IncidentRepository:
             raise ValueError(f"missing required field '{field_name}'")
         user = users.get(username)
         if user is None:
-            raise ValueError(f"{field_name} {username!r} is not a known user (check INCIDENT_BRIDGE_USERS)")
+            raise ValueError(f"{field_name} {username!r} is not an account here - create it on the Users page "
+                             f"(or choose that username at the setup), then import again")
         return user

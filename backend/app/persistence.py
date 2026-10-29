@@ -26,7 +26,7 @@ not a contrived example.
 """
 
 import json
-from app import database
+from app import data_integrity, database
 import threading
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
@@ -165,6 +165,7 @@ class SqliteIncidentStore:
                     (comment.id, incident.id, comment.author.username, comment.text, comment.created_at.isoformat()),
                 )
             self._conn.commit()
+            data_integrity.saved(self._conn, "incident", incident.id)     # tamper evidence (app/data_integrity.py)
 
     def load_all(self, user_store: "UserStore") -> List[Incident]:
         """

@@ -52,6 +52,12 @@ def is_unlocked() -> bool:
     return _key is not None
 
 
+def current_key() -> Optional[bytes]:
+    """The unlocked database key (other keys are derived from it - e.g. the log key, app/log_crypto.py)."""
+    with _lock:
+        return _key
+
+
 def connect(db_path: str, check_same_thread: bool = False):
     """
     An open connection to `db_path` with the database key applied. Raises

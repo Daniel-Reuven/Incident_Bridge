@@ -16,8 +16,8 @@ Format - JSON Lines: one JSON object per line, always with these keys:
      "message": "tech1 claimed fault seed-003 \"Payment API is down\"",
      ...}                                event-specific fields: ids, status, durations...
 
-so the file can be filtered by any field (the Logs page, `jq`, a
-spreadsheet). What is recorded:
+so it can be filtered by any field (the Logs page; `jq` or a spreadsheet on
+an export - the files are encrypted). What is recorded:
 
     http      every API call and page load: method, path, status, duration
               (static files and the /health polling are left out - noise)
@@ -32,23 +32,34 @@ spreadsheet). What is recorded:
     external  every call this server makes to another service: the AI
               providers (provider, model, status, duration, outcome) and the
               site availability checks
+    data      a fingerprint of every database record the app saves or
+              deletes (kind, key, HMAC) - never its content (app/data_integrity.py)
+    setup     the first-start setup being completed
     app       the server starting and stopping
 
 What is NEVER recorded: passwords (typed, new or hashed), API keys, session
 cookies, request or response bodies, incident descriptions and comment texts.
 Incident and site titles are recorded, to make records readable.
 
-Files (see MonthlyJsonlHandler): the current month is written to
-    <LOG_DIR>/incident_bridge-YYYY-MM.jsonl          (months in UTC)
+Files (see MonthlyJsonlHandler), in a folder per installation (its id is
+created at setup), so an earlier installation's log never shows: the
+current month is written to
+    <LOG_DIR>/<installation id>/incident_bridge-YYYY-MM.jsonl   (months in UTC)
 and when the month changes - or at startup, for any older month still lying
 there - the finished month is zipped (ZIP_DEFLATED, best compression; JSON
-logs typically shrink to ~10%) into
-    <LOG_ARCHIVE_DIR>/incident_bridge-YYYY-MM.zip
-and the plain file is removed. Archives are kept until someone deletes them.
+logs typically shrink to ~10%) and encrypted into
+    <LOG_DIR>/<installation id>/archive/incident_bridge-YYYY-MM.zip.enc
+and the month file is removed. Archives are kept until someone deletes them.
+
+Encryption (app/log_crypto.py): every line of the current month is encrypted
+on its own, archives as one blob, with a key derived from the database key.
+`python manage_logs.py export` writes a readable copy.
 
 Tamper evidence: every record is chained and signed (seq, prev, kid, hash)
 and a checkpoint is kept in the database - see app/audit_integrity.py; the
-Logs page's "Check integrity" runs the check.
+stores also record a fingerprint of every record they save (category
+"data" - app/data_integrity.py). The Logs page's "Check integrity" runs both
+checks.
 
 Settings (backend/.env):
     LOG_DIR            default backend/logs   (relative paths are resolved against backend/)
@@ -81,16 +92,17 @@ from typing import Callable, List, Optional
 
 from app import app_secrets, ip_privacy
 from app.audit_integrity import AuditChain
+from app.log_crypto import LogCipher
 
 AUDIT_LOGGER = "incident_bridge.audit"
 FILE_PREFIX = "incident_bridge"
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_LOG_DIR = BACKEND_DIR / "logs"
 
-CATEGORIES = ("http", "auth", "users", "incident", "site", "external", "app")
+CATEGORIES = ("http", "auth", "users", "incident", "site", "external", "data", "setup", "app")
 _FIELD_ORDER = ("ts", "level", "category", "event", "user", "ip", "message")
 MONTH_FILE = re.compile(rf"^{FILE_PREFIX}-(\d{{4}}-\d{{2}})\.jsonl$")
-MONTH_ARCHIVE = re.compile(rf"^{FILE_PREFIX}-(\d{{4}}-\d{{2}})\.zip$")
+MONTH_ARCHIVE = re.compile(rf"^{FILE_PREFIX}-(\d{{4}}-\d{{2}})\.zip(\.enc)?$")
 
 # The address and user of the HTTP request being handled (set by
 # app/api/request_log.py), so records made deep inside an action - which do
@@ -150,13 +162,18 @@ class MonthlyJsonlHandler(logging.Handler):
 
     def __init__(self, directory: Path, archive_dir: Path,
                  clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-                 chain: Optional[AuditChain] = None):
-        """`chain`: signs every record and keeps the checkpoint (app/audit_integrity.py); None = unsigned."""
+                 chain: Optional[AuditChain] = None, cipher: Optional[LogCipher] = None):
+        """
+        `chain`: signs every record and keeps the checkpoint (app/audit_integrity.py); None = unsigned.
+        `cipher`: encrypts every line and archive (app/log_crypto.py) - always set by the running app;
+        None = plain text (unit tests of the file handling).
+        """
         super().__init__()
         self.directory = Path(directory)
         self.archive_dir = Path(archive_dir)
         self._clock = clock
         self.chain = chain
+        self.cipher = cipher
         self._month: Optional[str] = None
         self._stream = None
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -168,7 +185,7 @@ class MonthlyJsonlHandler(logging.Handler):
         return self.directory / f"{FILE_PREFIX}-{month}.jsonl"
 
     def archive_path_for(self, month: str) -> Path:
-        return self.archive_dir / f"{FILE_PREFIX}-{month}.zip"
+        return self.archive_dir / f"{FILE_PREFIX}-{month}.zip{'.enc' if self.cipher else ''}"
 
     def current_month(self) -> str:
         return self._clock().strftime("%Y-%m")
@@ -181,7 +198,10 @@ class MonthlyJsonlHandler(logging.Handler):
                 self._switch_to(month)
             if self.chain is not None:
                 self.chain.sign_record(data, month)
-            self._stream.write(json.dumps(data, ensure_ascii=False) + "\n")
+            line = json.dumps(data, ensure_ascii=False)
+            if self.cipher is not None:
+                line = self.cipher.encrypt_line(line, month)
+            self._stream.write(line + "\n")
             self._stream.flush()
         except Exception:                # noqa: BLE001 - logging's own convention
             self.handleError(record)
@@ -209,6 +229,12 @@ class MonthlyJsonlHandler(logging.Handler):
                 continue
             month = match.group(1)
             target = self.archive_path_for(month)
+            if self.cipher is not None:
+                if not self._archive_encrypted(path, target, month):
+                    continue                 # keep the month file if the archive could not be checked
+                path.unlink()
+                archived.append(month)
+                continue
             with zipfile.ZipFile(target, "a", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
                 member = path.name if path.name not in archive.namelist() else f"{path.stem}-{len(archive.namelist())}.jsonl"
                 archive.write(path, arcname=member)
@@ -218,6 +244,46 @@ class MonthlyJsonlHandler(logging.Handler):
             path.unlink()
             archived.append(month)
         return archived
+
+    def _archive_encrypted(self, path: Path, target: Path, month: str) -> bool:
+        """
+        Decrypt the month's lines, zip them (best compression), encrypt the zip
+        as one blob, write it beside, check it opens again, then replace the
+        archive. A line that does not decrypt is kept as it is (the integrity
+        check reports it). Existing archive content is kept as earlier members.
+        """
+        import io
+        members = []
+        if target.exists():
+            with zipfile.ZipFile(io.BytesIO(self.cipher.decrypt_archive(target.read_bytes(), month))) as old:
+                members = [(name, old.read(name)) for name in old.namelist()]
+        plain = []
+        with open(path, encoding="utf-8") as handle:
+            for raw in handle:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    plain.append(self.cipher.decrypt_line(raw, month))
+                except ValueError:
+                    plain.append(raw)
+        name = path.name if all(n != path.name for n, _ in members) else f"{path.stem}-{len(members)}.jsonl"
+        members.append((name, ("\n".join(plain) + "\n").encode("utf-8")))
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+            for member, data in members:
+                archive.writestr(member, data)
+        blob = self.cipher.encrypt_archive(buffer.getvalue(), month)
+        temporary = target.with_name(target.name + ".tmp")
+        temporary.write_bytes(blob)
+        try:
+            with zipfile.ZipFile(io.BytesIO(self.cipher.decrypt_archive(temporary.read_bytes(), month))) as check:
+                if check.testzip() is not None:
+                    return False
+        except (ValueError, zipfile.BadZipFile):
+            return False
+        os.replace(temporary, target)
+        return True
 
     def close(self) -> None:
         self.acquire()
@@ -266,28 +332,80 @@ def signing_key() -> bytes:
     return app_secrets.log_signing_key() or _DEV_SIGNING_KEY.encode("utf-8")
 
 
-def configure_audit_log() -> Optional[MonthlyJsonlHandler]:
+def configure_audit_log(installation_id: Optional[str] = None) -> Optional[MonthlyJsonlHandler]:
     """
     (Re)attach the file handler from the settings - called at every app
-    startup (app/api/app.py's lifespan). Replaces a handler attached before,
-    so tests that start the app many times never stack handlers. Every record
+    startup (app/api/lifecycle.py). Replaces a handler attached before, so
+    tests that start the app many times never stack handlers. Every record
     is signed and chained (app/audit_integrity.py), with the checkpoint in
-    the app's database (DATABASE_PATH). Returns the handler, or None when
+    the app's database (DATABASE_PATH), and encrypted (app/log_crypto.py).
+    The files go to a folder of their own per installation -
+    <LOG_DIR>/<installation id>/ - so a new installation never shows (or
+    mixes with) the log of an earlier one. Returns the handler, or None when
     LOG_FILE_ENABLED=false.
     """
     from app.state import database_path          # here: app.state imports much of the app
 
     log_dir, archive_dir, enabled = log_dirs_from_env()
     ip_privacy.configure(ip_privacy.mode_from_env(), signing_key())    # a bad LOG_IP_MODE stops startup
+    if installation_id:
+        log_dir, archive_dir = installation_log_dirs(installation_id)
     with _configure_lock:
         for handler in list(log.handlers):
             log.removeHandler(handler)
             handler.close()
         if not enabled:
             return None
-        handler = MonthlyJsonlHandler(log_dir, archive_dir, chain=AuditChain(signing_key(), database_path()))
+        handler = MonthlyJsonlHandler(log_dir, archive_dir, chain=AuditChain(signing_key(), database_path()),
+                                      cipher=LogCipher.for_database())
         log.addHandler(handler)
         return handler
+
+
+def installation_log_dirs(installation_id: str):
+    """
+    (folder, archive folder) of an installation's log (see configure_audit_log):
+    <LOG_DIR>/<id>/ and <LOG_DIR>/<id>/archive/ - or <LOG_ARCHIVE_DIR>/<id>/ when that is set.
+    """
+    log_dir, archive_dir, _ = log_dirs_from_env()
+    own = log_dir / installation_id
+    configured = (os.environ.get("LOG_ARCHIVE_DIR") or "").strip()
+    return own, (archive_dir / installation_id if configured else own / "archive")
+
+
+def reencrypt_logs(directory: Path, archive_dir: Path, old: LogCipher, new: LogCipher) -> int:
+    """
+    Re-encrypt every log line and archive with `new` (after the database got
+    a new key - manage_keys.py new-recovery-key). Returns how many files
+    were rewritten. Lines that do not decrypt are kept as they are.
+    """
+    rewritten = 0
+    for folder in (Path(directory), Path(archive_dir)):
+        if not folder.is_dir():
+            continue
+        for path in sorted(folder.iterdir()):
+            month_file, month_archive = MONTH_FILE.match(path.name), MONTH_ARCHIVE.match(path.name)
+            if month_file:
+                month, lines = month_file.group(1), []
+                for raw in path.read_text(encoding="utf-8").splitlines():
+                    try:
+                        lines.append(new.encrypt_line(old.decrypt_line(raw, month), month) if raw.strip() else raw)
+                    except ValueError:
+                        lines.append(raw)
+                content = "\n".join(lines) + ("\n" if lines else "")
+            elif month_archive and month_archive.group(2):
+                month = month_archive.group(1)
+                content = new.encrypt_archive(old.decrypt_archive(path.read_bytes(), month), month)
+            else:
+                continue
+            temporary = path.with_name(path.name + ".tmp")
+            if isinstance(content, str):
+                temporary.write_text(content, encoding="utf-8")
+            else:
+                temporary.write_bytes(content)
+            os.replace(temporary, path)
+            rewritten += 1
+    return rewritten
 
 
 def current_handler() -> Optional[MonthlyJsonlHandler]:

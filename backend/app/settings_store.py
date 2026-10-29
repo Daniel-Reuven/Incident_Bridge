@@ -17,7 +17,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from app import database
+from app import data_integrity, database
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -49,6 +49,14 @@ class SqliteSettingsStore:
                 "ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
                 (name, json.dumps(value, sort_keys=True), datetime.now(timezone.utc).isoformat()))
             self._conn.commit()
+            data_integrity.saved(self._conn, "setting", name)
+
+    def record_all(self) -> None:
+        """Fingerprint every setting now - for those saved before the activity log was running (the setup)."""
+        with self._lock:
+            names = [row[0] for row in self._conn.execute("SELECT name FROM app_settings")]
+            for name in names:
+                data_integrity.saved(self._conn, "setting", name)
 
     def close(self) -> None:
         with self._lock:

@@ -63,7 +63,7 @@ def test_without_minutes_ago_it_is_closed_at_import_time(users):
 
 @pytest.mark.parametrize("closed, reason", [
     ("yes", "'closed' must be an object"),
-    ({"by": "ghost", "resolution": "resolved", "message": "m"}, "closed 'by' 'ghost' is not a known user"),
+    ({"by": "ghost", "resolution": "resolved", "message": "m"}, "closed 'by' 'ghost' is not an account here"),
     ({"by": "admin", "resolution": "done", "message": "m"}, "closed 'resolution' must be one of"),
     ({"by": "admin", "resolution": "resolved"}, "closed needs a 'message' string"),
     ({"by": "admin", "resolution": "resolved", "message": "   "}, "A closing message is required"),

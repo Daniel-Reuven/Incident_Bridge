@@ -71,7 +71,7 @@ def test_records_without_the_new_fields_load_as_before(users):
 @pytest.mark.parametrize("extra, reason", [
     ({"comments": "not a list"}, "must be a list"),
     ({"comments": ["text"]}, "comment 1 must be a JSON object"),
-    ({"comments": [{"author": "ghost", "text": "x"}]}, "comment 1 'author' 'ghost' is not a known user"),
+    ({"comments": [{"author": "ghost", "text": "x"}]}, "comment 1 'author' 'ghost' is not an account here"),
     ({"comments": [{"text": "x"}]}, "comment 1 'author'"),
     ({"comments": [{"author": "tech1", "text": "  "}]}, "comment 1: Comment text cannot be empty"),
     ({"comments": [{"author": "tech1", "text": 5}]}, "needs a 'text' string"),

@@ -19,7 +19,7 @@ are not stored here - they are defined in code.
 """
 
 import json
-from app import database
+from app import data_integrity, database
 import threading
 from datetime import datetime
 from typing import List
@@ -97,6 +97,8 @@ class SqliteUserStore:
                   u.session_version, u.created_at.isoformat(), now, json.dumps(u.preferences, sort_keys=True))
                  for u in users])
             self._conn.commit()
+            for user in users:                     # tamper evidence (app/data_integrity.py)
+                data_integrity.saved(self._conn, "user", user.username)
 
     def close(self) -> None:
         with self._lock:

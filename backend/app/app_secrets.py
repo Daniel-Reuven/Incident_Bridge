@@ -17,8 +17,8 @@ _session_secret: Optional[str] = None
 _log_signing_key: Optional[bytes] = None
 
 
-def load_or_create(store) -> None:
-    """Read the secrets from `store`, creating (and saving) any that are missing."""
+def load_or_create(store) -> bool:
+    """Read the secrets from `store`, creating (and saving) any that are missing. True if any were created."""
     global _session_secret, _log_signing_key
     saved = store.get("secrets") or {}
     changed = False
@@ -30,6 +30,7 @@ def load_or_create(store) -> None:
         store.set("secrets", saved)
     _session_secret = saved["session_secret"]
     _log_signing_key = saved["log_signing_key"].encode("ascii")
+    return changed
 
 
 def session_secret() -> Optional[str]:

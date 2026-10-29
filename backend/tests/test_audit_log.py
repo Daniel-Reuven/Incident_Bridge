@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import zipfile
+from pathlib import Path
 from datetime import datetime, timezone
 from unittest.mock import Mock
 
@@ -24,8 +25,27 @@ from app.audit import MonthlyJsonlHandler, audit, configure_audit_log, log, log_
 from app.log_reader import available_months, query
 
 
+def _cipher_for(path):
+    """The running app's log cipher when `path` is its (encrypted) log file, else None (a plain test file)."""
+    from app.audit import current_handler
+    handler = current_handler()
+    return handler.cipher if handler is not None and Path(path).parent == handler.directory else None
+
+
+def _month(path):
+    return Path(path).stem.rsplit("-", 2)[-2] + "-" + Path(path).stem.rsplit("-", 1)[-1]
+
+
 def lines(path):
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    """The records of a log file - decrypted when it is the running app's encrypted file."""
+    cipher = _cipher_for(path)
+    raw = [line for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [json.loads(cipher.decrypt_line(line, _month(path)) if cipher else line) for line in raw]
+
+
+def plain_text(path):
+    """The whole file as plain text (decrypted when needed)."""
+    return "\n".join(json.dumps(r) for r in lines(path))
 
 
 class Clock:
@@ -154,7 +174,8 @@ def logged_app(tmp_path, monkeypatch):
     with TestClient(app) as client:
         finish_setup(client)
         month = datetime.now(timezone.utc).strftime("%Y-%m")
-        yield client, tmp_path / "logs" / f"incident_bridge-{month}.jsonl"
+        from app.audit import current_handler
+        yield client, current_handler().path_for(month)          # <LOG_DIR>/<installation id>/...
 
 
 def events_in(path):
@@ -171,7 +192,8 @@ def test_logins_actions_and_requests_are_recorded(logged_app):
     client.get("/health")
     records = lines(path)
     events = [r["event"] for r in records]
-    assert events[0] == "app.started"
+    assert [e for e in events if not e.startswith("data.")][0] == "app.started"
+    assert events[0] == "data.saved"                       # the setup's settings, fingerprinted first
     assert "auth.login_failed" in events and "auth.login" in events and "incident.created" in events
     created = next(r for r in records if r["event"] == "incident.created")
     assert created["user"] == "admin" and created["title"] == "Disk full" and created["incident_type"] == "fault"
@@ -190,7 +212,7 @@ def test_passwords_never_reach_the_log(logged_app):
                                                "confirm_password": "Brand#New99"})
     client.post("/users", json={"username": "nora", "role": "user", "password": "Aboard-Today#7",
                                 "confirm_password": "Aboard-Today#7"})
-    text = path.read_text(encoding="utf-8")
+    text = plain_text(path)
     for secret in ("Demo#Pass1", "Brand#New99", "Aboard-Today#7", "pbkdf2_sha256"):
         assert secret not in text
     assert {"auth.password_changed", "users.created"} <= set(events_in(path))
@@ -280,7 +302,9 @@ def rewrite(path, change):
     """Apply `change` to the list of JSON lines of a plain log file."""
     records = lines(path)
     change(records)
-    path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    cipher = _cipher_for(path)          # an attacker who even has the key: the signatures still catch it
+    encode = (lambda text: cipher.encrypt_line(text, _month(path))) if cipher else (lambda text: text)
+    path.write_text("".join(encode(json.dumps(r)) + "\n" for r in records), encoding="utf-8")
 
 
 def test_records_are_chained_and_signed(signed):
@@ -387,8 +411,8 @@ def test_the_mode_applies_to_every_record(tmp_path, monkeypatch, mode, expected)
         finish_setup(client)
         client.post("/auth/login", json={"username": "admin", "password": "wrong"})
         client.get("/auth/me")
-    month = datetime.now(timezone.utc).strftime("%Y-%m")
-    records = lines(tmp_path / "logs" / f"incident_bridge-{month}.jsonl")
+        from app.audit import current_handler
+        records = lines(current_handler().path_for(datetime.now(timezone.utc).strftime("%Y-%m")))
     with_requests = [r for r in records if r["category"] in ("http", "auth")]
     assert with_requests and all(r.get("ip") == expected for r in with_requests)
     monkeypatch.delenv("LOG_IP_MODE")

@@ -13,7 +13,8 @@ __pycache__/
 
 # Activity log files and their monthly archives (backend/app/audit.py)
 backend/logs/
-
+# Database Files & Keys
+backend/database/
 .idea/
 
 *.egg-info/

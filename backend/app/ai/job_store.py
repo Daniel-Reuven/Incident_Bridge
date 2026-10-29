@@ -19,7 +19,7 @@ needs (app/ai/reanalysis.py). One row per fault, replaced on each success,
 so it survives restarts and never grows beyond the number of faults.
 """
 
-from app import database
+from app import data_integrity, database
 import threading
 from datetime import datetime
 from typing import List, Optional
@@ -62,12 +62,15 @@ class SqliteAnalysisJobStore:
                 (job.id, job.incident_id, job.requested_by, job.requested_at.isoformat()),
             )
             self._conn.commit()
+            data_integrity.saved(self._conn, "ai_job", job.id)
 
     def remove(self, job_id: str) -> None:
         """Delete a job. Removing a job that is already gone is not an error."""
         with self._lock:
-            self._conn.execute("DELETE FROM analysis_jobs WHERE id = ?", (job_id,))
+            gone = self._conn.execute("DELETE FROM analysis_jobs WHERE id = ?", (job_id,)).rowcount
             self._conn.commit()
+        if gone:
+            data_integrity.deleted("ai_job", job_id)
 
     def load_all(self) -> List[AnalysisJob]:
         """Every stored job, oldest first (= queue order)."""
@@ -85,6 +88,7 @@ class SqliteAnalysisJobStore:
                 (incident_id, last.provider, last.model, last.fingerprint, last.finished_at.isoformat()),
             )
             self._conn.commit()
+            data_integrity.saved(self._conn, "ai_history", incident_id)
 
     def last_success(self, incident_id: str) -> Optional[LastAnalysis]:
         """The fault's last successful analysis, or None if it never had one."""

@@ -7,12 +7,18 @@
  * browser tab's session.
  *
  * "Check integrity" asks the server to re-check every record's signature and
- * the chain against the checkpoint in the database (GET /logs/verify,
- * backend/app/audit_integrity.py) and shows the result above the filters.
+ * the chain against the checkpoint in the database, and every database
+ * record against its last fingerprint in the log (GET /logs/verify -
+ * backend/app/audit_integrity.py, app/data_integrity.py); the result shows
+ * above the filters.
  */
 import { api } from "./api.js";
 import { mountTopbar } from "./topbar.js";
 import { formatWhen } from "./datetime.js";
+
+// The default category choice: everything but the HTTP requests and the data fingerprints.
+const ACTIONS_ONLY = "!http,data";
+const ACTIONS_LABEL = "Actions (no HTTP requests or data records)";
 
 const PAGE = 200;
 const FILTERS = ["f-month", "f-category", "f-event", "f-user", "f-level", "f-text"];
@@ -59,8 +65,8 @@ function restoreFilters() {
 
 function setDefaultCategory() {
   const select = document.getElementById("f-category");
-  if (!select.options.length) select.add(new Option("All except HTTP requests", "!http"));
-  select.value = "!http";
+  if (!select.options.length) select.add(new Option(ACTIONS_LABEL, ACTIONS_ONLY));
+  select.value = ACTIONS_ONLY;
 }
 
 async function initMonths() {
@@ -99,12 +105,13 @@ async function load(append = false) {
   }
   if (lastQuery !== query) return;                      // a newer request was made meanwhile
   const category = document.getElementById("f-category").value;
+  const excluded = category.startsWith("!") ? category.slice(1).split(",") : [];
   const events = Object.fromEntries(Object.entries(body.facets.event)
-    .filter(([name]) => !category || (category.startsWith("!") ? !name.startsWith(`${category.slice(1)}.`)
-                                                               : name.startsWith(`${category}.`))));
-  // Default: everything except the HTTP requests, which outnumber the actions many times over.
-  fillFacet("f-category", body.facets.category, "All, with HTTP requests",
-            `<option value="!http">All except HTTP requests</option>`);
+    .filter(([name]) => !category || (excluded.length ? !excluded.some((c) => name.startsWith(`${c}.`))
+                                                      : name.startsWith(`${category}.`))));
+  // Default: the actions - not the HTTP requests and data fingerprints, which outnumber them many times over.
+  fillFacet("f-category", body.facets.category, "Everything, with HTTP requests and data records",
+            `<option value="${ACTIONS_ONLY}">${ACTIONS_LABEL}</option>`);
   fillFacet("f-event", events, "All");
   fillFacet("f-user", body.facets.user, "Anyone");
 
@@ -189,20 +196,31 @@ async function checkIntegrity() {
   box.textContent = "Checking every record…";
   try {
     const result = await api.verifyLog();
-    if (result.ok) {
-      box.classList.add("log-integrity-ok");
-      box.innerHTML = `<strong>No tampering found.</strong> ${result.records.toLocaleString()} records checked: every `
+    const data = result.data;
+    const logOk = result.problem_count === 0;
+    const dataOk = !data || data.ok;
+    box.classList.add(logOk && dataOk ? "log-integrity-ok" : "log-integrity-bad");
+    const more = (shown, total) => (total > shown ? `<p>…and ${total - shown} more.</p>` : "");
+    let html = logOk
+      ? `<strong>Log: no tampering found.</strong> ${result.records.toLocaleString()} records checked: every `
         + `signature matches and the chain is complete up to record ${result.last_seq.toLocaleString()} `
-        + `(the checkpoint in the database).`;
-    } else {
-      box.classList.add("log-integrity-bad");
-      const items = result.problems.map((p) =>
-        `<li>${p.month ? `${escapeHtml(p.month)}, ` : ""}${p.seq != null ? `record ${p.seq}: ` : ""}${escapeHtml(p.problem)}</li>`).join("");
-      const more = result.problem_count > result.problems.length
-        ? `<p>…and ${result.problem_count - result.problems.length} more.</p>` : "";
-      box.innerHTML = `<strong>The log was changed after it was written.</strong> ${result.problem_count} `
-        + `problem${result.problem_count === 1 ? "" : "s"} in ${result.records.toLocaleString()} records:<ul>${items}</ul>${more}`;
+        + `(the checkpoint in the database).`
+      : `<strong>The log was changed after it was written.</strong> ${result.problem_count} `
+        + `problem${result.problem_count === 1 ? "" : "s"} in ${result.records.toLocaleString()} records:<ul>`
+        + result.problems.map((p) => `<li>${p.month ? `${escapeHtml(p.month)}, ` : ""}`
+          + `${p.seq != null ? `record ${p.seq}: ` : ""}${escapeHtml(p.problem)}</li>`).join("")
+        + `</ul>${more(result.problems.length, result.problem_count)}`;
+    if (data) {
+      html += dataOk
+        ? `<br><strong>Database: no tampering found.</strong> ${data.records.toLocaleString()} records match `
+          + `what the app last saved.`
+        : `<br><strong>The database was changed outside the app.</strong> ${data.problem_count} `
+          + `problem${data.problem_count === 1 ? "" : "s"}:<ul>`
+          + data.problems.map((p) => `<li>${escapeHtml(p.kind)} ${escapeHtml(p.key)}: <em>${escapeHtml(p.problem)}</em> `
+            + `- ${escapeHtml(p.detail)}</li>`).join("")
+          + `</ul>${more(data.problems.length, data.problem_count)}`;
     }
+    box.innerHTML = html;
   } catch (err) {
     box.textContent = err.message;
   } finally {

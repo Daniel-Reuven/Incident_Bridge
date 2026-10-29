@@ -7,9 +7,9 @@ Run from backend/, with the server STOPPED:
                                              machine (or user account) a new machine key - after
                                              moving to another computer, or when the key store or
                                              the keys file was lost
-    python manage_keys.py new-recovery-key   a new recovery key, and the whole database re-encrypted
-                                             with the new database key (for a recovery key that may
-                                             have leaked); the old recovery key stops working
+    python manage_keys.py new-recovery-key   a new recovery key, and the whole database and activity log
+                                             re-encrypted with the new keys (for a recovery key that
+                                             may have leaked); the old recovery key stops working
 
 The database is DATABASE_PATH from backend/.env (default backend/incident_bridge.db);
 KEY_PROVIDER / MACHINE_KEY_DIR choose where restore puts the new machine key.
@@ -71,12 +71,22 @@ def cmd_new_recovery_key(installation, _args) -> None:
     typed = _ask("Type its last two groups to confirm you saved it (anything else cancels): ")
     if "".join(typed.upper().split()).replace("-", "") != "".join(recovery.split("-")[-2:]):
         sys.exit("Cancelled - nothing changed; the old recovery key still works.")
+    from app.audit import installation_log_dirs, reencrypt_logs
+    from app.log_crypto import LogCipher
+    from app.settings_store import SqliteSettingsStore
+    old_cipher = LogCipher.for_database()
+    settings = SqliteSettingsStore(installation.db_path)
+    log_id = (settings.get("installation") or {}).get("id")
+    settings.close()
     conn = database.connect(installation.db_path)
     try:
         conn.execute(f"PRAGMA rekey = \"x'{new_key.hex()}'\"")       # re-encrypts every page of the file
     finally:
         conn.close()
     database.use_key(new_key)
+    if log_id:                                                       # the activity log's key derives from it too
+        count = reencrypt_logs(*installation_log_dirs(log_id), old_cipher, LogCipher.for_database())
+        print(f"Activity log re-encrypted ({count} file(s)).")
     try:
         same_store = provider_named(installation.read()["machine"]["provider"])
         installation.restore(recovery, same_store, new_key=True)     # a new machine slot for the new key

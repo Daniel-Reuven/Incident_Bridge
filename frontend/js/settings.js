@@ -24,7 +24,7 @@ const SCALE_LABELS = { "0.9": "Small (90%)", "1": "Normal (100%)", "1.15": "Larg
 let dialog = null;
 let fields = null;
 
-export async function openSettings(user, { forced = false, tab = "password" } = {}) {
+export async function openSettings(user, { forced = false, tab = "interface" } = {}) {
   if (!dialog) await build(user);
   dialog.classList.toggle("settings-forced", forced);
   dialog.querySelector(".settings-forced-note").hidden = !forced;
@@ -51,8 +51,8 @@ async function build(user) {
       <p class="settings-forced-note" hidden>Welcome, ${escapeHtml(user.username)}. Before you continue, replace the
         password you were given with one only you know.</p>
       <nav class="tabs" role="tablist" aria-label="Settings sections">
-        <button class="tab" role="tab" id="settings-tab-password" aria-controls="settings-panel-password">Password</button>
         <button class="tab" role="tab" id="settings-tab-interface" aria-controls="settings-panel-interface">Interface</button>
+        <button class="tab" role="tab" id="settings-tab-password" aria-controls="settings-panel-password">Password</button>
       </nav>
 
       <section role="tabpanel" id="settings-panel-password" aria-labelledby="settings-tab-password">
@@ -79,7 +79,7 @@ async function build(user) {
           ${window.ibPrefs.TEXT_SCALES.map((value) => `
             <label class="choice"><input type="radio" name="text-scale" value="${value}"> ${SCALE_LABELS[value]}</label>`).join("")}
         </fieldset>
-        <p class="hint">Saved in this browser, for every page. Changes apply right away.</p>
+        <p class="hint">Saved with your account, for every page and every computer you log in from. Changes apply right away.</p>
       </section>
     </div>`;
   document.body.appendChild(dialog);
