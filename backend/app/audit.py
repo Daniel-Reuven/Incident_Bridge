@@ -364,6 +364,19 @@ def configure_audit_log(installation_id: Optional[str] = None) -> Optional[Month
         return handler
 
 
+def close_audit_log() -> None:
+    """
+    Detach and close the file handler - at app shutdown (app/api/lifecycle.py),
+    so the month's file is not left open: Windows cannot replace or move an
+    open file (manage_keys.py new-recovery-key, move_data.py).
+    """
+    with _configure_lock:
+        for handler in list(log.handlers):
+            if isinstance(handler, MonthlyJsonlHandler):
+                log.removeHandler(handler)
+                handler.close()
+
+
 def installation_log_dirs(installation_id: str):
     """
     (folder, archive folder) of an installation's log (see configure_audit_log):

@@ -197,6 +197,22 @@ def test_the_ai_queue_records_its_deletions(installed):
 
 # --- keys and export ----------------------------------------------------------------------
 
+def test_stopping_the_app_releases_the_log_file(tmp_path, monkeypatch):
+    """Windows cannot replace an open file: after a stop, nothing may hold the month's log open."""
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "ib.db"))
+    monkeypatch.setenv("LOG_DIR", str(tmp_path / "logs"))
+    from app.api.app import app
+    with TestClient(app) as client:
+        finish_setup(client)
+        handler = current_handler()
+        assert handler is not None
+    assert current_handler() is None and handler._stream is None
+    month_file = next((tmp_path / "logs").rglob("incident_bridge-*.jsonl"))
+    if Path("/proc/self/fd").is_dir():
+        open_files = {str(Path(f).resolve()) for f in (str(fd.resolve()) for fd in Path("/proc/self/fd").iterdir())}
+        assert str(month_file.resolve()) not in open_files
+
+
 def test_a_new_recovery_key_re_encrypts_the_log_too(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "ib.db"))
     monkeypatch.setenv("LOG_DIR", str(tmp_path / "logs"))

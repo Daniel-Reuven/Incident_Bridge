@@ -764,7 +764,7 @@ Incident_Bridge/
 
 ## 14. Automated testing
 
-`backend/tests/` holds **1348 tests** (pytest), all passing, with **96% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
+`backend/tests/` holds **1349 tests** (pytest), all passing, with **96% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
 
 - **Isolated from your settings** — `tests/conftest.py` clears every app setting from the environment and stops `backend/.env` from being loaded, so the suite gives the same result with or without your own `.env` (users, AI provider, database, log options).
 - **Unit tests** — the domain classes directly, no HTTP and no database: models (`tests/test_models/`), services (`tests/test_services/`), queues (`tests/test_queues/`), iterators, the generator, context managers, the scan, the report, the site directory, user provisioning and JSONL validation.

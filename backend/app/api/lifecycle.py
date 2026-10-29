@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from app import app_secrets, display_names
 from app.ai import stored_settings
 from app.ai.setup import create_analysis_worker
-from app.audit import audit, configure_audit_log, record_published_event
+from app.audit import audit, close_audit_log, configure_audit_log, record_published_event
 from app.events import EventBroadcaster, install_shutdown_hook
 from app.security.data_folders import remove_lock, write_lock
 from app.settings_store import SqliteSettingsStore
@@ -71,5 +71,6 @@ def stop_services(app) -> None:
         app.state.analysis_worker.stop()
     app.state.broadcaster.close()          # any stream still open ends now
     app.state.running = False
+    close_audit_log()                      # "app.stopped" is the last record; the file is released
     if app.state.installation.folders():
         remove_lock(Path(database_path()).parent)
