@@ -11,10 +11,10 @@ __pycache__/
 # The database's keys file (app/security/installation.py) - never committed
 *.db.keys
 
-# Activity log files and their monthly archives (backend/app/audit.py)
+# The installation's data folder (database, keys file, activity log - DATA_DIR) and older log folders
+backend/instance/
 backend/logs/
-# Database Files & Keys
-backend/database/
+
 .idea/
 
 *.egg-info/

@@ -62,22 +62,18 @@ def test_every_line_is_encrypted_in_a_folder_of_its_own(installed, tmp_path):
     assert entries[0]["title"] == "Disk full on the payroll server"          # the page decrypts it
 
 
-def test_an_earlier_installations_log_is_not_shown(tmp_path, monkeypatch):
-    logs = tmp_path / "logs"
-    logs.mkdir()
-    (logs / "incident_bridge-2026-01.jsonl").write_text('{"event": "app.started"}\n')   # from an older version
-    monkeypatch.setenv("LOG_DIR", str(logs))
+def test_two_installations_keep_their_logs_apart(tmp_path, monkeypatch):
     from app.api.app import app
     months_seen = []
     for number in (1, 2):                                                # two fresh installations
-        monkeypatch.setenv("DATABASE_PATH", str(tmp_path / f"ib{number}.db"))
+        monkeypatch.setenv("DATABASE_PATH", str(tmp_path / f"i{number}" / "ib.db"))
+        monkeypatch.setenv("LOG_DIR", str(tmp_path / f"i{number}" / "logs"))
         with TestClient(app) as client:
             finish_setup(client)
             client.post("/auth/login", json={"username": "admin", "password": "Demo#Pass1"})
             months_seen.append([m["month"] for m in client.get("/logs/months").json()])
-            assert client.get("/logs/verify").json()["ok"] is True       # the other one's records are not mixed in
+            assert client.get("/logs/verify").json()["ok"] is True
     assert months_seen == [[month()], [month()]]
-    assert len([p for p in logs.iterdir() if p.is_dir()]) == 2           # a folder per installation (archives inside)
 
 
 def test_a_line_from_another_month_or_a_plain_line_does_not_decrypt():

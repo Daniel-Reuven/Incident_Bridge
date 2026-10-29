@@ -41,6 +41,7 @@ AI_USERNAME = "ai-assistant"
 # Every reserved system username. seed_users_from_env() creates one
 # SystemUser per entry and refuses provisioned users with these names.
 SYSTEM_USERNAMES = (AI_USERNAME,)
+DISPLAY_NAMES = {AI_USERNAME: "AI assistant"}      # how the app shows them (app/display_names.py)
 
 
 class SystemUser(User):

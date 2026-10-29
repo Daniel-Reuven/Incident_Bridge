@@ -205,15 +205,27 @@
     <h2 id="users">Users <span class="role-tag admin">Admin</span></h2>
     <p><strong>Users</strong> in the top bar lists every account.</p>
     <figure class="doc-figure">
-      <a href="/screenshots/09-users.png"><img src="/screenshots/09-users.png" alt="The Users page: accounts with role, status, creation time and actions" width="1440" height="720" loading="lazy"></a>
-      <figcaption>The Users page (admin only).</figcaption>
+      <a href="/screenshots/09-users.png"><img src="/screenshots/09-users.png" alt="The Users page: the Display names format panel above the accounts, each shown by name with its location lighter and the username under it" width="1440" height="900" loading="lazy"></a>
+      <figcaption>The Users page (admin only), with the format for everyone set to show the location.</figcaption>
     </figure>
     <ul>
       <li><strong>New user</strong> — a username (3–32 letters, digits, <code>.</code>, <code>_</code> or <code>-</code>), a role and a first password that follows the <a href="#password-policy">policy</a>. Give the password to the person; they must change it at their first login.</li>
+      <li><strong>Details</strong> — first, middle and last name, job title and location, all optional, and how this person's name is shown (below).</li>
       <li><strong>Make admin</strong> / <strong>Make user</strong> changes the role.</li>
       <li><strong>Disable</strong> signs the person out at once and stops them from logging in; <strong>Enable</strong> lets them back in. Accounts are never deleted, so their incidents and comments keep their author.</li>
       <li><strong>Reset password</strong> sets a new password for someone who forgot theirs; it signs them out everywhere and they must change it at their next login.</li>
       <li>You cannot change your own role or disable yourself — use <em>Settings</em> for your own password.</li>
+    </ul>
+    <h3 id="display-names">Display names</h3>
+    <p>Everywhere in the app, people are shown by a <strong>display name</strong> built from their details — in the top bar, as reporter, as the author of updates, in the site portal and in live notices. <em>Display names</em> at the top of the Users page sets the <strong>format for everyone</strong>: pick one of the ready-made formats, or write your own with the field buttons — <code>{first-name}</code>, <code>{middle-name}</code>, <code>{last-name}</code>, <code>{job-title}</code>, <code>{location}</code> and <code>{username}</code> — for example <code>{first-name} {last-name} - {job-title} ({location})</code>. The example under it shows the result at once. In a person's <em>Details</em>, <em>A format of their own</em> overrides it for that person only.</p>
+    <figure class="doc-figure">
+      <a href="/screenshots/12-user-details.png"><img src="/screenshots/12-user-details.png" alt="The Details dialog of tech1: name, job title and location fields, a format of their own picked from the ready-made ones, and the result shown below as Dana Levi - Technician with (Haifa) lighter" width="640" height="628" loading="lazy"></a>
+      <figcaption>A person's <em>Details</em>, with a format of their own and the result under it.</figcaption>
+    </figure>
+    <ul>
+      <li>Empty fields leave nothing behind: no empty brackets or stray dashes. With no details at all, the username is shown.</li>
+      <li>The <strong>location</strong> is shown lighter and smaller, since it matters less than the name.</li>
+      <li>The username stays the person's identity: it is used to log in, it appears under the name on the Users page and when you point at a name, and the activity log records usernames.</li>
     </ul>
 
     <h2 id="logs">Activity log <span class="role-tag admin">Admin</span></h2>
@@ -252,12 +264,20 @@
       <figcaption>The setup page, recovery key step.</figcaption>
     </figure>
     <ol>
-      <li><strong>Setup code</strong> — the server prints it in its console window when it starts. Only the person running the server can see it, so nobody else can take over a fresh installation.</li>
+      <li><strong>Setup code</strong> — the server prints it in its console window when it starts. Only the person running the server can see it, so nobody else can take over a fresh installation. The page then checks the folders the app will use — by default <code>backend/instance</code> for the data and <code>backend/instance/logs</code> for the activity log. Each must be <strong>empty or not exist yet</strong>: the app keeps its folders to itself. If one holds anything, the page shows what is in it; empty it and press <em>Check again</em>, or give the app another folder in <code>backend/.env</code> (<code>DATA_DIR</code>, <code>LOG_DIR</code>) and restart the server.</li>
       <li><strong>Recovery key</strong> — all data is <strong>encrypted</strong>. The computer keeps the working key in its own protected store (Windows Credential Manager, macOS Keychain, or the Linux equivalent), so the app starts by itself. The recovery key is the only other way in: on a new computer, or if that key is lost. It is <strong>shown only once</strong>. Copy or download it, keep it <strong>offline and away from the server</strong> (a password manager, a printout in a safe), keep a backup copy, and type its last two groups to confirm.</li>
-      <li><strong>Admin account</strong> — the first admin, with a password that follows the <a href="#password-policy">policy</a>. More admins are added later on the <a href="#users">Users</a> page.</li>
+      <li><strong>Admin account</strong> — the first admin, with a password that follows the <a href="#password-policy">policy</a>, and optionally your name and job title (for your <a href="#display-names">display name</a>). More admins are added later on the <a href="#users">Users</a> page.</li>
       <li><strong>AI analysis</strong> (optional) — the provider and its API key; <em>Test connection</em> checks the key. The key is stored encrypted with the data.</li>
     </ol>
     <p>Regular users that the operator listed in the server's settings are created at the same time and choose their own password at their first login.</p>
+    <h3 id="move-data">Moving the data to another folder</h3>
+    <p>The data folder holds the database, its keys file and the activity log, each marked as belonging to this installation; the app refuses to start if a folder in its settings belongs to something else. To move it:</p>
+    <ol>
+      <li><strong>Stop the server</strong> — it keeps the database and the log open (the tool refuses while it runs).</li>
+      <li>In the <code>backend</code> folder run <code>python move_data.py D:\IncidentBridge\data</code> — any new folder that is empty or does not exist yet. Add <code>--logs &lt;folder&gt;</code> to keep the activity log in a folder of its own.</li>
+      <li>The tool copies everything, checks that the copy opens as the same installation and that every log line can be read, and prints the lines to put in <code>backend/.env</code> (for example <code>DATA_DIR=D:\IncidentBridge\data</code>).</li>
+      <li>Put them in <code>.env</code>, start the server and check that everything is there. The old folder is left untouched: <strong>delete it yourself</strong> once you are sure.</li>
+    </ol>
     <div class="doc-note admin">Moving to a new computer, or the computer's key store was lost? With the server stopped, run <code>python manage_keys.py restore</code> in the <code>backend</code> folder and enter the recovery key. If the recovery key may have been seen by someone else, <code>python manage_keys.py new-recovery-key</code> replaces it and re-encrypts the data.</div>
 
     <h2 id="data">What is recorded and stored</h2>
@@ -270,7 +290,7 @@
       <li>for every database record the app saves or deletes: its kind, its id and a fingerprint — never its content.</li>
     </ul>
     <p>It <strong>never</strong> records passwords (not even wrong ones), API keys, cookies, request or reply bodies, incident descriptions, the text of updates, or what was sent to the AI provider.</p>
-    <p><strong>The database</strong> (one file on the server, <strong>encrypted</strong> — unreadable without its key, see <a href="#setup">setup</a>) stores accounts (username, role, a salted hash of the password — never the password — and its interface settings (color scheme, text size, updates order), whether the account is disabled or must change its password), incidents with their details, updates and history, sites, mailing lists (with email addresses) and notifications, the AI analysis queue and its results, and the activity log's checkpoint.</p>
+    <p><strong>The database</strong> (one file on the server, <strong>encrypted</strong> — unreadable without its key, see <a href="#setup">setup</a>) stores accounts (username, role, the optional name, job title and location, a salted hash of the password — never the password — and its interface settings (color scheme, text size, updates order), whether the account is disabled or must change its password), incidents with their details, updates and history, sites, mailing lists (with email addresses) and notifications, the AI analysis queue and its results, and the activity log's checkpoint.</p>
     <p><strong>Your browser</strong> keeps the session cookie that keeps you logged in, a copy of your interface settings while you are logged in (deleted when you log out), and, until you close the tab, the tab's id and your dashboard and log filters. See also the <a href="/terms.html#storage">Terms</a>.</p>
 
     <!-- 10 -->

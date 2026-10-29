@@ -20,12 +20,19 @@
       <h1>Users</h1>
       <button class="btn btn-primary" id="new-user-btn">New user</button>
     </div>
+    <section class="format-panel" aria-labelledby="format-title">
+      <h2 id="format-title">Display names</h2>
+      <p class="hint">How everyone is shown in the app, built from their details. A person can also have a format of their own (<em>Details</em>). Usernames still identify people in the activity log.</p>
+      <div class="format-editor" id="default-format-editor"></div>
+      <div class="dialog-actions"><button class="btn btn-primary btn-sm" id="save-format-btn">Save the format</button></div>
+    </section>
+
     <p class="hint">Accounts are disabled, never deleted, so their incidents and comments keep their author.
       A new account and a reset password must be changed at the next login, unless the operator turned this off. You cannot change your own role
       or disable yourself.</p>
     <div class="table-wrap">
       <table class="data-table users-table">
-        <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Created</th><th><span class="sr-only">Actions</span></th></tr></thead>
+        <thead><tr><th>Name / username</th><th>Role</th><th>Status</th><th>Created</th><th><span class="sr-only">Actions</span></th></tr></thead>
         <tbody id="users-body"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
       </table>
     </div>
@@ -41,6 +48,16 @@
         <select name="role"><option value="user">User</option><option value="admin">Admin</option></select>
       </label>
       <div class="pw-fields"></div>
+      <fieldset class="choice-group details-fields">
+        <legend>Name and role at work <span class="hint">optional - shown instead of the username</span></legend>
+        <div class="details-grid">
+          <label>First name<input type="text" name="first_name" maxlength="60" autocomplete="off"></label>
+          <label>Middle name<input type="text" name="middle_name" maxlength="60" autocomplete="off"></label>
+          <label>Last name<input type="text" name="last_name" maxlength="60" autocomplete="off"></label>
+          <label>Job title<input type="text" name="job_title" maxlength="60" autocomplete="off" placeholder="e.g. Technician"></label>
+          <label>Location<input type="text" name="location" maxlength="60" autocomplete="off" placeholder="e.g. Haifa office"></label>
+        </div>
+      </fieldset>
       <p class="form-error" id="new-user-error" hidden></p>
       <div class="dialog-actions">
         <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
@@ -58,6 +75,34 @@
       <div class="dialog-actions">
         <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
         <button type="submit" class="btn btn-primary">Reset password</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="details-dialog" class="dialog dialog-wide">
+    <form id="details-form" class="dialog-form">
+      <h2 id="details-title">Details</h2>
+      <fieldset class="choice-group details-fields">
+        <legend>Name and role at work</legend>
+        <div class="details-grid">
+          <label>First name<input type="text" name="first_name" maxlength="60" autocomplete="off"></label>
+          <label>Middle name<input type="text" name="middle_name" maxlength="60" autocomplete="off"></label>
+          <label>Last name<input type="text" name="last_name" maxlength="60" autocomplete="off"></label>
+          <label>Job title<input type="text" name="job_title" maxlength="60" autocomplete="off" placeholder="e.g. Technician"></label>
+          <label>Location<input type="text" name="location" maxlength="60" autocomplete="off" placeholder="e.g. Haifa office"></label>
+        </div>
+      </fieldset>
+      <fieldset class="choice-group">
+        <legend>Display name</legend>
+        <label class="choice"><input type="radio" name="format_mode" value="default" checked> The format for everyone</label>
+        <label class="choice"><input type="radio" name="format_mode" value="own"> A format of their own</label>
+        <div class="format-editor" id="own-format-editor" hidden></div>
+      </fieldset>
+      <p class="format-preview">Shown as: <strong id="details-preview"></strong></p>
+      <p class="form-error" id="details-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save details</button>
       </div>
     </form>
   </dialog>

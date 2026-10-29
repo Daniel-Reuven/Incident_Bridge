@@ -10,6 +10,9 @@ from typing import Optional
 from app.models import preferences as prefs_rules
 from app.models.enums import Role
 
+# Optional details shown in display names (app/display_names.py); display_format = the user's own format.
+DETAIL_FIELDS = ("first_name", "middle_name", "last_name", "job_title", "location", "display_format")
+
 
 class User:
     """
@@ -72,12 +75,15 @@ class User:
             raise ValueError(f"'role' must be one of: {allowed} (got {data['role']!r})") from None
         if not isinstance(data["password"], str):
             raise ValueError("'password' must be a string")
-        return cls(username=username.strip(), role=role, password=data["password"])
+        user = cls(username=username.strip(), role=role, password=data["password"])
+        user.set_details({name: data[name] for name in DETAIL_FIELDS if name in data})   # optional names
+        return user
 
     @classmethod
     def from_record(cls, username: str, role: Role, password_hash: str, must_change_password: bool = False,
                     disabled: bool = False, session_version: int = 1,
-                    created_at: Optional[datetime] = None, preferences: Optional[dict] = None) -> "User":
+                    created_at: Optional[datetime] = None, preferences: Optional[dict] = None,
+                    details: Optional[dict] = None) -> "User":
         """A user read back from the database (app/persistence_users.py): the stored hash, no policy check."""
         user = cls.__new__(cls)
         user.id = str(uuid.uuid4())
@@ -89,6 +95,8 @@ class User:
         user.session_version = session_version
         user.created_at = created_at or datetime.now(timezone.utc)
         user.preferences = prefs_rules.from_stored(preferences)
+        for name in DETAIL_FIELDS:
+            setattr(user, name, (details or {}).get(name) or ("" if name != "display_format" else None))
         return user
 
     def __init__(self, username: str, role: Role, password: str, must_change_password: bool = False):
@@ -101,6 +109,8 @@ class User:
         self.session_version = 1
         self.created_at = datetime.now(timezone.utc)
         self.preferences = dict(prefs_rules.DEFAULTS)
+        self.first_name = self.middle_name = self.last_name = self.job_title = self.location = ""
+        self.display_format: Optional[str] = None      # None: the default format (app/display_names.py)
         _policy().validate(password, username)
         self._password_hash = self._hash(password)
 
@@ -124,6 +134,31 @@ class User:
         self._password_hash = self._hash(new_password)
         self.must_change_password = False
         self.session_version += 1
+
+    def set_details(self, changes: dict) -> dict:
+        """
+        Names, job title, location and the own display-name format (None =
+        the default). Checks everything first (ValueError), then applies.
+        Returns what actually changed.
+        """
+        from app.display_names import MAX_FIELD, validate_format
+        clean = {}
+        for name, value in changes.items():
+            if name not in DETAIL_FIELDS:
+                raise ValueError(f"Unknown field {name!r}.")
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"{name.replace('_', ' ')} must be text.")
+            value = (value or "").strip()
+            if name == "display_format":
+                clean[name] = validate_format(value) if value else None
+                continue
+            if len(value) > MAX_FIELD:
+                raise ValueError(f"{name.replace('_', ' ').capitalize()} is too long (at most {MAX_FIELD} characters).")
+            clean[name] = value
+        changed = {k: v for k, v in clean.items() if getattr(self, k) != v}
+        for name, value in changed.items():
+            setattr(self, name, value)
+        return changed
 
     def update_preferences(self, changes: dict) -> dict:
         """Apply interface preferences (ValueError for an unknown key or value). Returns what actually changed."""

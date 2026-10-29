@@ -60,7 +60,9 @@ from app.ai.setup import check_ai_settings  # noqa: E402
 from app.logs import LOGGING_CONFIG, app_log  # noqa: E402
 from app.api.security import session_settings_from_env  # noqa: E402
 from app.repository import UserProvisioningError, first_login_change_required, seed_users_from_env  # noqa: E402
+from app.security.data_folders import check_markers  # noqa: E402
 from app.security.installation import Installation, InstallationError  # noqa: E402
+from app.settings_store import SqliteSettingsStore  # noqa: E402
 from app.security.key_providers import choose_provider  # noqa: E402
 
 
@@ -91,6 +93,14 @@ def _check_users_or_exit() -> None:
         if status == "new":
             choose_provider()
             seed_users_from_env(warn=False)
+        if status == "installed":                # the folders must still be this installation's
+            installation.unlock()
+            settings = SqliteSettingsStore(installation.db_path)
+            installed_id = (settings.get("installation") or {}).get("id")
+            settings.close()
+            problems = check_markers(installation.folders(), installed_id) if installed_id else []
+            if problems:
+                raise ValueError("The data folders do not match this installation:\n  - " + "\n  - ".join(problems))
     except (UserProvisioningError, ValueError, InstallationError) as exc:
         app_log.error(str(exc))
         sys.exit(1)

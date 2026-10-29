@@ -4,6 +4,7 @@ import { connectLiveUpdates } from "./events.js";
 import { renderRowList } from "./row-list.js";
 import { showToast, describeEvent } from "./toast.js";
 import { formatWhen } from "./datetime.js";
+import { personHtml } from "./people.js";
 
 /*
  * Dashboard: four tabs over the same data, plus a text filter.
@@ -280,7 +281,7 @@ function renderMaintenanceQueue(terms) {
         html: `
         <span class="row-position">${label}</span>
         <span class="row-title">${escapeHtml(task.title)}</span>${staleTag(stale)}${matchTag(match)}
-        <span class="row-meta">by ${escapeHtml(task.created_by)} · ${formatWhen(task.created_at)}</span>`,
+        <span class="row-meta">by ${personHtml(task.created_by)} · ${formatWhen(task.created_at)}</span>`,
         sig: JSON.stringify([label, task.title, task.updated_at, stale ? stale.minutes_since_update : null,
                              match.inComments]),
       };

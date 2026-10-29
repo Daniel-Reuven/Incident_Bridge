@@ -20,7 +20,10 @@ def login(client, username, password):
 def test_the_admin_lists_accounts_without_system_users_or_hashes(admin_client):
     users = admin_client.get("/users").json()
     assert [u["username"] for u in users] == ["admin", "tech1"]
-    assert set(users[0]) == {"username", "role", "disabled", "must_change_password", "created_at"}
+    assert set(users[0]) == {"username", "role", "disabled", "must_change_password", "created_at", "first_name",
+                             "middle_name", "last_name", "job_title", "location", "display_format",
+                             "display_name", "display_parts"}
+    assert "password_hash" not in users[0]
 
 
 def test_a_regular_user_cannot_manage_users(user_client):

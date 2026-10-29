@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { loadPeople, personHtml } from "./people.js";
 import { applyAccountPreferences, forgetSession } from "./preferences.js";
 import { openSettings } from "./settings.js";
 
@@ -33,6 +34,7 @@ export async function mountTopbar() {
     return null;
   }
   applyAccountPreferences(user.preferences);       // changed on another computer? follow it
+  await loadPeople();                               // display names for every page (js/people.js)
 
   const here = window.location.pathname;
   const adminButton = (href, label) =>
@@ -46,7 +48,7 @@ export async function mountTopbar() {
     <div class="topbar">
       <a class="wordmark" href="/dashboard.html">Incident Bridge</a>
       <div class="topbar-user">
-        <span class="topbar-username">${escapeHtml(user.username)}</span>
+        <span class="topbar-username">${personHtml(user.username)}</span>
         ${adminButtons}
         <span class="topbar-role">${user.role}</span>
         <button class="btn btn-ghost btn-sm" data-action="settings">Settings</button>

@@ -202,6 +202,10 @@ textarea { resize: vertical; }
 .setup-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .setup-note { background: var(--paper); border-left: 4px solid var(--accent); padding: 10px 12px; border-radius: var(--radius); font-size: 14px; white-space: pre-line; }
 .setup-note.warn { border-left-color: var(--critical); }
+.setup-folders { list-style: none; padding: 0; margin: 0; font-size: 14px; }
+.setup-folders li { padding: 6px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.setup-folders li.bad strong { color: var(--critical); }
+.setup-folders li.ok strong { color: var(--accent); }
 
 /* --- top bar --- */
 .topbar {
@@ -792,6 +796,28 @@ body > main { flex: 1 0 auto; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
 
 /* --- Users page (js/users.js) --- */
+/* Display names (js/people.js): the location part is lighter and smaller - it matters less */
+.person-secondary { color: var(--ink-soft); font-size: 0.88em; font-weight: 400; }
+.user-login { margin: 2px 0 0; }
+
+/* Users page: the display-name format editor and the Details dialog */
+.format-panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface);
+                padding: 14px 18px; margin: 0 0 18px; }
+.format-panel h2 { font-size: 17px; margin: 0 0 4px; }
+.format-panel .hint { margin-inline-start: 0; }
+.format-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 16px; margin-top: 10px; }
+.format-editor .format-chips { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.format-editor .format-preview { grid-column: 1 / -1; margin: 0; }
+.chip { font: inherit; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper);
+        color: var(--ink); cursor: pointer; }
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.format-text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.format-preview { font-size: 14px; color: var(--ink-soft); }
+.format-preview strong { color: var(--ink); }
+.details-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 14px; }
+@media (max-width: 720px) { .format-editor { grid-template-columns: 1fr; } }
+
 .users-table { width: 100%; background: var(--surface); }
 .users-table tbody tr { cursor: default; }
 .users-table .user-actions-inner { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }

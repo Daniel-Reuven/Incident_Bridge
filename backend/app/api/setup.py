@@ -44,6 +44,7 @@ from app.logs import app_log
 from app.models import Role, User
 from app.models.system_users import is_reserved_username
 from app.repository import UserProvisioningError, create_initial_users, seed_users_from_env
+from app.security.data_folders import check_new, write_markers
 from app.security.installation import Installation
 from app.security.key_providers import FileProvider, KeyProviderError, choose_provider
 from app.settings_store import SqliteSettingsStore
@@ -113,6 +114,9 @@ class CompleteRequest(BaseModel):
     admin_username: str
     admin_password: str
     confirm_password: str
+    admin_first_name: str = ""          # optional: the admin's display name (app/display_names.py)
+    admin_last_name: str = ""
+    admin_job_title: str = ""
     ai: Optional[AISettings] = None
 
 
@@ -183,7 +187,10 @@ def start(body: StartRequest, request: Request):
                 env_ai = {"provider": PROVIDERS[config.provider].display_name} if config else None
             except ValueError:
                 env_ai = None
+        folders = [] if session.keys_exist else check_new(session.installation.folders())
         return {
+            "folders": folders,
+            "folders_ok": all(f["ok"] for f in folders),
             "recovery_key": session.pending[0] if session.pending else None,
             "fingerprint": session.pending[2]["fingerprint"] if session.pending else None,
             "keys_exist": session.keys_exist,
@@ -220,6 +227,11 @@ async def complete(body: CompleteRequest, request: Request):
     with session.lock:
         # --- check everything first, so a refusal changes nothing ---------------------------
         if not session.keys_exist:
+            crowded = [f for f in check_new(session.installation.folders()) if not f["ok"]]
+            if crowded:
+                raise ValueError("These folders must be empty (or not exist) before the setup - empty them, or "
+                                 "set another path in .env and restart: "
+                                 + "; ".join(f"{f['path']} ({f['role']}): {f['problem']}" for f in crowded))
             if session.pending is None:
                 raise RuntimeError("Start the setup first - the recovery key has not been shown yet.")
             groups = session.pending[0].split("-")
@@ -236,6 +248,8 @@ async def complete(body: CompleteRequest, request: Request):
         if body.admin_password != body.confirm_password:
             raise ValueError("The password and its confirmation do not match.")
         admin = User(username, Role.ADMIN, body.admin_password)          # PasswordPolicy: ValueError
+        admin.set_details({"first_name": body.admin_first_name, "last_name": body.admin_last_name,
+                           "job_title": body.admin_job_title})
         try:
             seed_users_from_env(warn=False)
         except UserProvisioningError as exc:
@@ -264,6 +278,8 @@ async def complete(body: CompleteRequest, request: Request):
             raise ValueError(str(exc)) from None
         app.state.setup = None
         session.pending = None
+        # Mark the folders as this installation's (checked at every start - app/security/data_folders.py).
+        write_markers(session.installation.folders(), settings.get("installation")["id"])
 
     audit("setup.completed", user=admin.username, key_store=key_store,
           regular_users=[u.username for u in regular], ai_provider=ai_values.get("AI_PROVIDER"),
@@ -273,7 +289,8 @@ async def complete(body: CompleteRequest, request: Request):
         app_log.warning(f"Key store: {warning}")
     return {"detail": "Incident Bridge is ready - log in with the admin account you just created.",
             "admin": admin.username, "regular_users": [u.username for u in regular],
-            "key_store": key_store, "key_store_warning": warning}
+            "key_store": key_store, "key_store_warning": warning,
+            "folders": [{"role": role, "path": str(folder)} for role, folder in session.installation.folders()]}
 
 
 # --- holding back everything else until the setup is done ----------------------------------

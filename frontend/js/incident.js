@@ -5,6 +5,7 @@ import { connectLiveUpdates } from "./events.js";
 import { showToast, describeEvent } from "./toast.js";
 import { getUpdatesOrder, setUpdatesOrder, sortComments, onUpdatesOrderChanged } from "./updates-order.js";
 import { MAX_COMMENT_LENGTH, MAX_REASON_LENGTH, wireCharCounters } from "./text-limits.js";
+import { personHtml } from "./people.js";
 
 const user = await mountTopbar();
 const root = document.getElementById("incident-root");
@@ -126,7 +127,7 @@ async function load() {
 function commentsListHtml(comments, order) {
   return sortComments(comments, order).map((c) => `
     <div class="comment${c.author === AI_USERNAME ? " comment-ai" : ""}">
-      <span class="comment-author">${escapeHtml(c.author)}</span>
+      <span class="comment-author">${personHtml(c.author)}</span>
       <span class="comment-time">${formatWhen(c.created_at)}</span>
       <p>${escapeHtml(c.text)}</p>
     </div>`).join("") || `<p class="empty">No updates yet.</p>`;
@@ -519,7 +520,7 @@ function render(incident, claimStatus) {
       <header class="incident-header">
         <div>
           <h1>${escapeHtml(incident.title)}</h1>
-          <p class="incident-meta">Reported by ${escapeHtml(incident.created_by)} · ${formatWhen(incident.created_at)}${incident.status === "closed" ? ` · closed ${formatWhen(incident.updated_at)}` : ""}</p>
+          <p class="incident-meta">Reported by ${personHtml(incident.created_by)} · ${formatWhen(incident.created_at)}${incident.status === "closed" ? ` · closed ${formatWhen(incident.updated_at)}` : ""}</p>
         </div>
         ${badge}
       </header>

@@ -39,12 +39,20 @@ from app.services.notifier import OutboxNotifier
 from app.sites import SiteDirectory, notification_archive_after_from_env, seed_site_directory
 
 
-DEFAULT_DATABASE_PATH = "incident_bridge.db"
+DATABASE_FILE = "incident_bridge.db"
 
 
 def database_path() -> str:
-    """The SQLite file every store uses: DATABASE_PATH, or DEFAULT_DATABASE_PATH when unset."""
-    return os.environ.get("DATABASE_PATH", DEFAULT_DATABASE_PATH)
+    """
+    The database file every store uses: DATABASE_PATH (":memory:" for tests; a
+    relative path is resolved against backend/), else incident_bridge.db in
+    the data folder (DATA_DIR, default backend/instance/ - app/security/data_folders.py).
+    """
+    from app.security.data_folders import data_dir, resolve
+    raw = (os.environ.get("DATABASE_PATH") or "").strip()
+    if raw == ":memory:":
+        return raw
+    return str(resolve(raw, data_dir() / DATABASE_FILE))
 
 
 def order_pending_maintenance(tasks: List[MaintenanceTask], has_current: bool) -> List[MaintenanceTask]:

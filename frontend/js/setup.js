@@ -13,17 +13,20 @@ const answers = { code: "", recoveryCheck: "", admin: null };
 let info = null;
 
 const $ = (selector, root = document) => root.querySelector(selector);
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fill = (name, text) => { const el = $(`[data-fill="${name}"]`); el.textContent = text; return el; };
 
 function show(step) {
   document.querySelectorAll("[data-panel]").forEach((panel) => { panel.hidden = panel.dataset.panel !== step; });
+  const panel = step;
+  step = step === "folders" ? "code" : step;              // the folder check belongs to the first step
   let reached = true;
   document.querySelectorAll(".setup-steps li").forEach((item) => {
     item.classList.toggle("done", reached && item.dataset.step !== step);
     item.toggleAttribute("aria-current", item.dataset.step === step);
     if (item.dataset.step === step) reached = false;
   });
-  const first = $(`[data-panel="${step}"] input, [data-panel="${step}"] select`);
+  const first = $(`[data-panel="${panel}"] input, [data-panel="${panel}"] select`);
   if (first) first.focus();
 }
 
@@ -33,7 +36,21 @@ function failWith(form, err) {
   el.hidden = false;
 }
 
-// --- 1. setup code --------------------------------------------------------------------------
+// --- 1. setup code (and the folders: they must be empty) -------------------------------------
+function showFolders() {
+  $('[data-fill="folders"]').innerHTML = info.folders.map((f) => `<li class="${f.ok ? "ok" : "bad"}">
+      <strong>${f.ok ? "✓" : "✗"} ${escapeHtml(f.role)}</strong>: <code>${escapeHtml(f.path)}</code>
+      ${f.ok ? "" : `<br><span class="hint">${escapeHtml(f.problem)}: ${f.contents.map(escapeHtml).join(", ")}${
+        f.contents.length < parseInt(f.problem.replace(/\D/g, ""), 10) ? ", …" : ""}</span>`}</li>`).join("");
+  show("folders");
+}
+
+$('[data-action="recheck"]').addEventListener("click", async () => {
+  info = await api.setupStart(answers.code);
+  if (!info.folders_ok) showFolders();
+  else continueAfterCode();
+});
+
 $("#code-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -45,6 +62,14 @@ $("#code-form").addEventListener("submit", async (e) => {
     failWith(form, err);
     return;
   }
+  if (!info.folders_ok) {
+    showFolders();
+    return;
+  }
+  continueAfterCode();
+});
+
+function continueAfterCode() {
   fill("key-store", info.key_store.description || "this computer's key store");
   if (info.key_store.warning) fill("key-store-warning", `Note: ${info.key_store.warning}`).hidden = false;
   prepareAI();
@@ -55,7 +80,7 @@ $("#code-form").addEventListener("submit", async (e) => {
   fill("recovery-key", info.recovery_key);
   fill("fingerprint", info.fingerprint);
   show("recovery");
-});
+}
 
 // --- 2. recovery key ------------------------------------------------------------------------
 $('[data-action="copy"]').addEventListener("click", async (e) => {
@@ -101,7 +126,8 @@ adminForm.addEventListener("submit", (e) => {
     return;
   }
   answers.admin = { username: adminForm.username.value.trim(), password: adminForm.new_password.value,
-                    confirm: adminForm.confirm_password.value };
+                    confirm: adminForm.confirm_password.value, first: adminForm.first_name.value.trim(),
+                    last: adminForm.last_name.value.trim(), job: adminForm.job_title.value.trim() };
   show("ai");
 });
 
@@ -164,10 +190,12 @@ aiForm.addEventListener("submit", async (e) => {
     const result = await api.setupComplete({
       code: answers.code, recovery_check: answers.recoveryCheck, admin_username: answers.admin.username,
       admin_password: answers.admin.password, confirm_password: answers.admin.confirm, ai: aiChoice(),
+      admin_first_name: answers.admin.first, admin_last_name: answers.admin.last, admin_job_title: answers.admin.job,
     });
     const users = result.regular_users.length ? ` Regular users created: ${result.regular_users.join(", ")}.` : "";
     fill("done-text", `Log in as ${result.admin}.${users}`);
     if (result.key_store_warning) fill("done-warning", `Note: ${result.key_store_warning}`).hidden = false;
+    fill("done-folders", (result.folders || []).map((f) => `${f.path} (${f.role})`).join("; "));
     show("done");
   } catch (err) {
     failWith(aiForm, err);

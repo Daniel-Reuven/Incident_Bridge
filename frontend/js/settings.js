@@ -17,6 +17,7 @@ import { api } from "./api.js";
 import { passwordFieldsHtml, wirePasswordFields } from "./password-fields.js";
 import { showToast } from "./toast.js";
 import { savePreferences } from "./preferences.js";
+import { personText } from "./people.js";
 
 const THEME_LABELS = { system: "System", light: "Light", dark: "Dark" };
 const SCALE_LABELS = { "0.9": "Small (90%)", "1": "Normal (100%)", "1.15": "Large (115%)", "1.3": "Larger (130%)" };
@@ -48,7 +49,7 @@ async function build(user) {
         <h2 id="settings-title">Settings</h2>
         <button type="button" class="btn btn-ghost btn-sm" data-action="close">Close</button>
       </div>
-      <p class="settings-forced-note" hidden>Welcome, ${escapeHtml(user.username)}. Before you continue, replace the
+      <p class="settings-forced-note" hidden>Welcome, ${escapeHtml(personText(user.username))}. Before you continue, replace the
         password you were given with one only you know.</p>
       <nav class="tabs" role="tablist" aria-label="Settings sections">
         <button class="tab" role="tab" id="settings-tab-interface" aria-controls="settings-panel-interface">Interface</button>

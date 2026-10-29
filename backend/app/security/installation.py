@@ -64,6 +64,20 @@ class Installation:
         configured = (os.environ.get("DATABASE_KEYS_PATH") or "").strip()
         return cls(db_path, Path(configured) if configured else Path(db_path + ".keys"))
 
+    def folders(self):
+        """[(role, folder)] this installation keeps to itself (app/security/data_folders.py); none in memory."""
+        if self.keys_path is None:
+            return []
+        from app.audit import log_dirs_from_env
+        from app.security.data_folders import installation_folders
+        log_root, archive_root, enabled = log_dirs_from_env()
+        if not enabled:
+            log_root = None
+        separate_archive = archive_root if enabled and (os.environ.get("LOG_ARCHIVE_DIR") or "").strip() else None
+        folders = installation_folders(self.db_path, self.keys_path, log_root or Path(self.db_path).parent,
+                                       separate_archive)
+        return folders
+
     # --- state ------------------------------------------------------------------
 
     def read(self) -> Optional[dict]:

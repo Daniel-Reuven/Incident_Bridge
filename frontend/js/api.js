@@ -49,6 +49,12 @@ export const api = {
   login: (username, password) => request("/auth/login", { method: "POST", body: { username, password } }),
   logout: () => request("/auth/logout", { method: "POST" }),
   me: () => request("/auth/me"),
+  peopleDirectory: () => request("/users/directory"),
+  displayFormat: () => request("/users/display-format"),
+  setDisplayFormat: (format) => request("/users/display-format", { method: "PUT", body: { format } }),
+  previewDisplay: (body) => request("/users/display-preview", { method: "POST", body }),
+  updateUserDetails: (username, details) =>
+    request(`/users/${encodeURIComponent(username)}/details`, { method: "PATCH", body: details }),
   savePreferences: (changes) => request("/auth/preferences", { method: "PATCH", body: changes }),
   changePassword: (current_password, new_password, confirm_password) =>
     request("/auth/change-password", { method: "POST", body: { current_password, new_password, confirm_password } }),
@@ -64,8 +70,8 @@ export const api = {
 
   // --- user management (admin only - backend/app/api/users.py) ---
   listUsers: () => request("/users"),
-  createUser: (username, role, password, confirm_password) =>
-    request("/users", { method: "POST", body: { username, role, password, confirm_password } }),
+  createUser: (username, role, password, confirm_password, details = {}) =>
+    request("/users", { method: "POST", body: { username, role, password, confirm_password, ...details } }),
   updateUser: (username, changes) =>
     request(`/users/${encodeURIComponent(username)}`, { method: "PATCH", body: changes }),
   resetUserPassword: (username, new_password, confirm_password) =>

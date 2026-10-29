@@ -22,6 +22,7 @@ import { mountTopbar } from "./topbar.js";
 import { connectLiveUpdates } from "./events.js";
 import { renderRowList } from "./row-list.js";
 import { showToast } from "./toast.js";
+import { personHtml, personText } from "./people.js";
 import {
   attentionSentence, describeOwnCheck, describeSiteEvent, escapeHtml, formatDate, formatDateTime,
   label, plural, reportFindings, siteLabels,
@@ -84,7 +85,7 @@ function scheduleRefresh() {
 }
 
 function onLiveEvent(event) {
-  if (event.scope === "sites") showToast(describeSiteEvent(event));
+  if (event.scope === "sites") showToast(describeSiteEvent(event, personText));
   scheduleRefresh();
 }
 
@@ -169,7 +170,7 @@ function notificationRow(n) {
       <span class="status-text notification-${n.state}">${label(n.state)}</span>
       <span class="row-main">
         <span class="row-title">Site ${n.site_id} (${escapeHtml(n.site_name)}): ${label(n.old_status)} to ${label(n.new_status)}</span>
-        <span class="row-sub">${plural(n.recipient_count, "recipient")}, created ${formatDateTime(n.created_at)} by ${escapeHtml(n.created_by)}${archiveNote}</span>
+        <span class="row-sub">${plural(n.recipient_count, "recipient")}, created ${formatDateTime(n.created_at)} by ${personHtml(n.created_by)}${archiveNote}</span>
       </span>
       <span class="row-actions">
         <button class="btn ${n.state === "draft" ? "btn-primary" : "btn-ghost"} btn-sm" data-action="review" data-notification-id="${n.id}">
@@ -423,8 +424,8 @@ async function openReview(notificationId) {
   showError("notification-error", "");
   $("notification-dialog-title").textContent = `Site ${n.site_id} (${n.site_name}): ${label(n.old_status)} to ${label(n.new_status)}`;
   $("notification-meta").textContent = isDraft
-    ? `Draft created ${formatDateTime(n.created_at)} by ${n.created_by}`
-    : `${label(n.state)} ${formatDateTime(n.decided_at)} by ${n.decided_by || n.created_by}`
+    ? `Draft created ${formatDateTime(n.created_at)} by ${personText(n.created_by)}`
+    : `${label(n.state)} ${formatDateTime(n.decided_at)} by ${personText(n.decided_by || n.created_by)}`
       + (n.dismiss_reason ? `. Reason: ${n.dismiss_reason}` : "");
   $("notification-recipients").textContent = n.recipient_count
     ? `To ${n.list_ids.join(", ")}: ${n.recipients.join(", ")}`
@@ -482,7 +483,7 @@ async function openDetails(siteId) {
     : `<li class="hint">No active incident mentions ${site.label}.</li>`;
   const history = site.status_history.length
     ? [...site.status_history].reverse().map((c) => `<li>${formatDateTime(c.changed_at)}: ${label(c.old_status)} to
-        ${label(c.new_status)} by ${escapeHtml(c.actor)}<br><span class="hint">${escapeHtml(c.reason)}</span></li>`).join("")
+        ${label(c.new_status)} by ${personHtml(c.actor)}<br><span class="hint">${escapeHtml(c.reason)}</span></li>`).join("")
     : `<li class="hint">No status changes yet.</li>`;
   const sent = site.notifications.length
     ? site.notifications.map((n) => `<li>${label(n.state)}: ${label(n.old_status)} to ${label(n.new_status)},

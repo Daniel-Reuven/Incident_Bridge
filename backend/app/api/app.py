@@ -38,6 +38,7 @@ from app.logs import app_log, apply_console_format
 from app.version import app_version
 from app.models import Role
 from app.persistence_users import SqliteUserStore
+from app.security.data_folders import check_markers
 from app.security.installation import Installation, InstallationError
 from app.settings_store import SqliteSettingsStore
 from app.state import database_path
@@ -66,6 +67,11 @@ async def lifespan(app: FastAPI):
         if warning:
             app_log.warning(f"Key store: {warning}")
         settings = SqliteSettingsStore(database_path())
+        installed_id = (settings.get("installation") or {}).get("id")
+        if installed_id:
+            problems = check_markers(installation.folders(), installed_id)
+            if problems:
+                raise InstallationError("The data folders do not match this installation:\n  - " + "\n  - ".join(problems))
         users_db = SqliteUserStore(database_path())
         has_admin = any(u.role == Role.ADMIN for u in users_db.load_all())
         users_db.close()

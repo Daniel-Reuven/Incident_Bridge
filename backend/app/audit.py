@@ -62,7 +62,8 @@ stores also record a fingerprint of every record they save (category
 checks.
 
 Settings (backend/.env):
-    LOG_DIR            default backend/logs   (relative paths are resolved against backend/)
+    LOG_DIR            default <DATA_DIR>/logs (DATA_DIR default backend/instance;
+                       relative paths are resolved against backend/)
     LOG_ARCHIVE_DIR    default <LOG_DIR>/archive
     LOG_FILE_ENABLED   default true - false writes no log files (the Logs page is then empty)
     (the key that signs every record is generated at setup and kept in the
@@ -97,7 +98,7 @@ from app.log_crypto import LogCipher
 AUDIT_LOGGER = "incident_bridge.audit"
 FILE_PREFIX = "incident_bridge"
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_LOG_DIR = BACKEND_DIR / "logs"
+
 
 CATEGORIES = ("http", "auth", "users", "incident", "site", "external", "data", "setup", "app")
 _FIELD_ORDER = ("ts", "level", "category", "event", "user", "ip", "message")
@@ -308,7 +309,8 @@ def _resolve(raw: Optional[str], default: Path) -> Path:
 
 def log_dirs_from_env():
     """(log_dir, archive_dir, enabled) from LOG_DIR, LOG_ARCHIVE_DIR and LOG_FILE_ENABLED."""
-    log_dir = _resolve(os.environ.get("LOG_DIR"), DEFAULT_LOG_DIR)
+    from app.security.data_folders import data_dir
+    log_dir = _resolve(os.environ.get("LOG_DIR"), data_dir() / "logs")
     archive_dir = _resolve(os.environ.get("LOG_ARCHIVE_DIR"), log_dir / "archive")
     raw = (os.environ.get("LOG_FILE_ENABLED") or "true").strip().lower()
     if raw not in ("true", "false", "1", "0", "yes", "no"):

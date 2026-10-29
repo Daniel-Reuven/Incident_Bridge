@@ -20,11 +20,13 @@ Rules:
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.api.deps import get_state, get_user_admin
-from app.api.schemas import CreateUserRequest, ResetPasswordRequest, UpdateUserRequest
-from app.api.serializers import account_to_dict
+from app import display_names
+from app.api.deps import get_current_user, get_state, get_user_admin
+from app.api.schemas import (CreateUserRequest, DisplayFormatRequest, DisplayPreviewRequest, ResetPasswordRequest,
+                             UpdateUserRequest, UserDetailsRequest)
+from app.api.serializers import account_to_dict, display_to_dict
 from app.audit import audit
 from app.models import Role, User
 from app.models.system_users import is_reserved_username
@@ -55,6 +57,41 @@ def _check_confirmation(password: str, confirmation: str) -> None:
         raise ValueError("The password and its confirmation do not match.")
 
 
+@router.get("/directory")
+def directory(state: AppState = Depends(get_state), _user: User = Depends(get_current_user)):
+    """
+    How every person is shown - {username: {"display_name", "display_parts"}} - for any logged-in user:
+    the pages show display names wherever a username used to appear (frontend/js/people.js).
+    """
+    return {"people": {u.username: display_to_dict(u) for u in state.users.all_users()}}
+
+
+@router.get("/display-format")
+def get_display_format(_admin: User = Depends(get_user_admin)):
+    """The default display-name format, the presets and the placeholders (the Users page's editor)."""
+    return {"format": display_names.default_format(), "default": display_names.DEFAULT_FORMAT,
+            "presets": list(display_names.PRESETS), "placeholders": list(display_names.PLACEHOLDERS)}
+
+
+@router.put("/display-format")
+def set_display_format(body: DisplayFormatRequest, request: Request, admin: User = Depends(get_user_admin)):
+    """The default display-name format for everyone (kept in the encrypted settings)."""
+    template = display_names.validate_format(body.format)
+    request.app.state.settings.set("display_name_format", template)
+    display_names.set_default_format(template)
+    audit("users.display_format_changed", user=admin.username, format=template,
+          message=f"{admin.username} set the display name format to {template}")
+    return {"format": template}
+
+
+@router.post("/display-preview")
+def preview_display(body: DisplayPreviewRequest, _admin: User = Depends(get_user_admin)):
+    """How a format looks for these details - the editor's live preview. Nothing is saved."""
+    template = display_names.validate_format(body.format) if body.format else display_names.default_format()
+    text, parts = display_names.render(template, body.model_dump(), body.username)
+    return {"display_name": text, "display_parts": [[part, secondary] for part, secondary in parts]}
+
+
 @router.get("")
 def list_users(state: AppState = Depends(get_state), _admin: User = Depends(get_user_admin)):
     return [account_to_dict(u) for u in state.users.accounts()]
@@ -72,6 +109,8 @@ def create_user(body: CreateUserRequest, state: AppState = Depends(get_state),
         raise RuntimeError(f"The username {username!r} is already taken.")          # 409
     _check_confirmation(body.password, body.confirm_password)
     user = User(username, _role(body.role), body.password, must_change_password=first_login_change_required())
+    user.set_details({name: getattr(body, name) for name in ("first_name", "middle_name", "last_name",
+                                                             "job_title", "location")})
     state.users.add(user)
     audit("users.created", user=admin.username, target=user.username, role=user.role.value,
           message=f"{admin.username} created {user.role.value} account {user.username}")
@@ -98,6 +137,20 @@ def update_user(username: str, body: UpdateUserRequest, state: AppState = Depend
         described = ", ".join(f"{key} -> {value}" for key, value in changes.items())
         audit("users.updated", user=admin.username, target=user.username, **changes,
               message=f"{admin.username} changed {user.username}: {described}")
+    return account_to_dict(user)
+
+
+@router.patch("/{username}/details")
+def update_details(username: str, body: UserDetailsRequest, state: AppState = Depends(get_state),
+                   admin: User = Depends(get_user_admin)):
+    """Names, job title, location and the person's own display-name format ("" = the default)."""
+    user = _account(state, username)
+    changed = user.set_details({k: v for k, v in body.model_dump().items() if v is not None})
+    if changed:
+        state.users.save(user)
+        # Which fields changed - not their values (names are personal data).
+        audit("users.details_changed", user=admin.username, target=user.username, fields=sorted(changed),
+              message=f"{admin.username} changed the details of {user.username}: {', '.join(sorted(changed))}")
     return account_to_dict(user)
 
 

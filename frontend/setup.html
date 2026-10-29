@@ -34,6 +34,13 @@
       </form>
     </section>
 
+    <section data-panel="folders" class="stack" hidden>
+      <p><strong>These folders must be empty first.</strong> Incident Bridge keeps its database, keys and activity log in folders of its own, not shared with anything else.</p>
+      <ul class="setup-folders" data-fill="folders"></ul>
+      <div class="setup-note">Empty each folder marked ✗ (move its contents elsewhere), or give the app another path in <code>backend/.env</code> — <code>DATA_DIR</code> for the data folder, <code>LOG_DIR</code> for the log — and restart the server. A folder that does not exist yet is fine: the app creates it.</div>
+      <button type="button" class="btn btn-primary btn-block" data-action="recheck">Check again</button>
+    </section>
+
     <section data-panel="recovery" class="stack" hidden>
       <p>All data is <strong>encrypted</strong>. This computer keeps the working key in <span data-fill="key-store"></span>, so the app starts by itself. The <strong>recovery key</strong> below is the only other way in — on a new computer, or if that key is lost. <strong>It is shown only now.</strong></p>
       <p class="setup-key" data-fill="recovery-key"></p>
@@ -56,6 +63,11 @@
       <p>The first <strong>admin</strong> account. More admins can be added later on the Users page.</p>
       <form id="admin-form" class="stack">
         <label>Username<input name="username" autocomplete="username" required></label>
+        <div class="details-grid">
+          <label>First name <span class="hint">optional</span><input type="text" name="first_name" maxlength="60" autocomplete="given-name"></label>
+          <label>Last name <span class="hint">optional</span><input type="text" name="last_name" maxlength="60" autocomplete="family-name"></label>
+          <label>Job title <span class="hint">optional</span><input type="text" name="job_title" maxlength="60" autocomplete="organization-title"></label>
+        </div>
         <div class="pw-fields"></div>
         <p class="form-error" hidden></p>
         <button type="submit" class="btn btn-primary btn-block">Continue</button>
@@ -86,6 +98,7 @@
       <p><strong>Incident Bridge is ready.</strong></p>
       <p data-fill="done-text"></p>
       <p class="setup-note warn" data-fill="done-warning" hidden></p>
+      <p class="hint setup-hint">Your data is kept in: <span data-fill="done-folders"></span>. To move it later, stop the server and run <code>python move_data.py</code> (see the Guide).</p>
       <a class="btn btn-primary btn-block" href="/">Go to the login page</a>
     </section>
   </main>
