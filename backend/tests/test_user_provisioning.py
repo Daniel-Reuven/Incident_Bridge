@@ -1,7 +1,8 @@
 """
 Tests for fail-fast user provisioning: User.from_dict (app/models/user.py),
-UserStore's duplicate rule and seed_users_from_env (app/repository.py), and
-serve_app.py refusing to start with a bad INCIDENT_BRIDGE_USERS.
+UserStore's duplicate rule and seed_users_from_env (app/repository.py - the
+regular users the setup page creates), and serve_app.py refusing to start
+with a bad INCIDENT_BRIDGE_USERS or a database without its keys file.
 
 Run from backend/:  python -m pytest tests/test_user_provisioning.py -v
 """
@@ -57,40 +58,50 @@ def test_store_rejects_duplicates_case_insensitively():
     assert store.get("TECH1") is None                    # lookups stay exact-case
 
 
-# --- seed_users_from_env ---------------------------------------------------------
+# --- seed_users_from_env (regular users only - admins come from the setup page) -------
+
+TECH2 = {"username": "tech2", "password": "Passw0rd!3", "role": "user"}
+
 
 def test_valid_value_loads_every_user(monkeypatch):
-    set_users(monkeypatch, [ADMIN, TECH])
+    set_users(monkeypatch, [TECH, TECH2])
     store = seed_users_from_env()
     # The built-in "ai-assistant" system user is always added (see app/models/system_users.py).
-    assert {u.username for u in store.all_users()} == {"admin", "tech1", "ai-assistant"}
+    assert {u.username for u in store.all_users()} == {"tech1", "tech2", "ai-assistant"}
+
+
+def test_an_admin_entry_is_refused(monkeypatch):
+    set_users(monkeypatch, [ADMIN, TECH])
+    with pytest.raises(UserProvisioningError) as caught:
+        seed_users_from_env()
+    assert "entry 1: 'admin' is an admin - admins are not created from INCIDENT_BRIDGE_USERS" in str(caught.value)
 
 
 def test_duplicate_username_stops_startup_with_a_clear_message(monkeypatch):
-    set_users(monkeypatch, [ADMIN, TECH, {"username": "Tech1", "password": "Passw0rd!3", "role": "user"}])
+    set_users(monkeypatch, [TECH, TECH2, {"username": "Tech1", "password": "Passw0rd!3", "role": "user"}])
     with pytest.raises(UserProvisioningError) as caught:
         seed_users_from_env()
     message = str(caught.value)
     assert "INCIDENT_BRIDGE_USERS has 1 problem(s)" in message
-    assert "entry 3: duplicate username 'Tech1' (already defined in entry 2)" in message
+    assert "entry 3: duplicate username 'Tech1' (already defined in entry 1)" in message
     assert "Fix the value in backend/.env" in message
 
 
 def test_every_problem_is_reported_at_once(monkeypatch):
-    set_users(monkeypatch, [ADMIN, ADMIN, {"username": "x", "role": "user"}, {"username": "y", "password": "Passw0rd!1",
-                                                                              "role": "boss"}])
+    set_users(monkeypatch, [TECH, TECH, {"username": "x", "role": "user"}, {"username": "y", "password": "Passw0rd!1",
+                                                                            "role": "boss"}])
     with pytest.raises(UserProvisioningError) as caught:
         seed_users_from_env()
     message = str(caught.value)
     assert "has 3 problem(s)" in message
-    assert "entry 2: duplicate username 'admin'" in message
+    assert "entry 2: duplicate username 'tech1'" in message
     assert "entry 3: missing field(s): password" in message
     assert "entry 4: 'role' must be one of" in message
 
 
 @pytest.mark.parametrize("name", ["ai-assistant", "AI-Assistant", "AI-ASSISTANT"])
 def test_a_reserved_system_username_stops_startup(monkeypatch, name):
-    set_users(monkeypatch, [ADMIN, {"username": name, "password": "Passw0rd!3", "role": "user"}])
+    set_users(monkeypatch, [TECH, {"username": name, "password": "Passw0rd!3", "role": "user"}])
     with pytest.raises(UserProvisioningError) as caught:
         seed_users_from_env()
     assert f"entry 2: username {name!r} is reserved for a built-in system user" in str(caught.value)
@@ -99,7 +110,6 @@ def test_a_reserved_system_username_stops_startup(monkeypatch, name):
 @pytest.mark.parametrize("value, message", [
     ("[{'username': 'admin'}]", "not valid JSON"),
     ('{"username": "admin"}', "must be a JSON array"),
-    ("[]", "the array is empty"),
 ])
 def test_unusable_values(monkeypatch, value, message):
     set_users(monkeypatch, value)
@@ -107,22 +117,14 @@ def test_unusable_values(monkeypatch, value, message):
         seed_users_from_env()
 
 
-@pytest.mark.parametrize("value", [None, "", "   "])
-def test_unset_or_blank_falls_back_to_the_demo_pair(monkeypatch, app_log, value):
+@pytest.mark.parametrize("value", [None, "", "   ", "[]"])
+def test_unset_blank_or_empty_means_no_regular_users(monkeypatch, app_log, value):
     if value is None:
         monkeypatch.delenv("INCIDENT_BRIDGE_USERS", raising=False)
     else:
         set_users(monkeypatch, value)
     store = seed_users_from_env()
-    # The built-in "ai-assistant" system user is always added (see app/models/system_users.py).
-    assert {u.username for u in store.all_users()} == {"admin", "tech1", "ai-assistant"}
-    assert [r.levelname for r in app_log.records] == ["WARNING"]
-    assert "INCIDENT_BRIDGE_USERS is not set" in app_log.text
-
-
-def test_warning_can_be_silenced(monkeypatch, app_log):
-    monkeypatch.delenv("INCIDENT_BRIDGE_USERS", raising=False)
-    seed_users_from_env(warn=False)
+    assert {u.username for u in store.all_users()} == {"ai-assistant"}     # no demo accounts any more
     assert app_log.records == []
 
 
@@ -130,10 +132,21 @@ def test_warning_can_be_silenced(monkeypatch, app_log):
 
 def test_serve_app_exits_with_the_message_and_no_traceback(tmp_path):
     backend = Path(__file__).resolve().parents[1]
-    # Real values beat backend/.env (load_dotenv never overrides); a fresh database so the users are checked.
-    env = {**os.environ, "INCIDENT_BRIDGE_USERS": json.dumps([ADMIN, ADMIN]), "DATABASE_PATH": str(tmp_path / "t.db")}
+    # Real values beat backend/.env (load_dotenv never overrides); a new installation, so the users are checked.
+    env = {**os.environ, "INCIDENT_BRIDGE_USERS": json.dumps([TECH, TECH]), "DATABASE_PATH": str(tmp_path / "t.db")}
     result = subprocess.run([sys.executable, "serve_app.py"], cwd=backend, env=env,
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 1
-    assert "duplicate username 'admin'" in result.stderr
+    assert "duplicate username 'tech1'" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_serve_app_refuses_a_database_without_its_keys_file(tmp_path):
+    backend = Path(__file__).resolve().parents[1]
+    (tmp_path / "t.db").write_bytes(b"not a database")
+    env = {**os.environ, "DATABASE_PATH": str(tmp_path / "t.db")}
+    result = subprocess.run([sys.executable, "serve_app.py"], cwd=backend, env=env,
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 1
+    assert "has no keys file" in result.stderr and "manage_keys.py restore" in result.stderr
     assert "Traceback" not in result.stderr

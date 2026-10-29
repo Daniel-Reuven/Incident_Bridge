@@ -101,3 +101,32 @@ def session_settings_from_env() -> Tuple[int, bool]:
     if raw_secure not in ("true", "false", "1", "0", "yes", "no"):
         raise ValueError(f"SESSION_COOKIE_SECURE must be true or false (got {raw_secure!r}).")
     return int(hours * 3600), raw_secure in ("true", "1", "yes")
+
+
+class SessionFromSecrets:
+    """
+    Starlette's SessionMiddleware (signed cookie), keyed with the
+    installation's session secret - generated at setup and kept in the
+    encrypted database (app/app_secrets.py), so it cannot be known when the
+    app object is built. Before the setup there is no secret and no session
+    (the setup page needs none; every other request is held back by
+    app/api/setup.py's SetupGateMiddleware).
+    """
+
+    def __init__(self, app, **options):
+        self.app = app
+        self.options = options
+        self._inner = None
+        self._secret = None
+
+    async def __call__(self, scope, receive, send):
+        from starlette.middleware.sessions import SessionMiddleware
+        from app import app_secrets
+        secret = app_secrets.session_secret()
+        if scope["type"] not in ("http", "websocket") or secret is None:
+            await self.app(scope, receive, send)
+            return
+        if self._inner is None or secret != self._secret:
+            self._inner = SessionMiddleware(self.app, secret_key=secret, **self.options)
+            self._secret = secret
+        await self._inner(scope, receive, send)

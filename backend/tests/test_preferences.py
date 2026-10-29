@@ -5,7 +5,7 @@ storage with the account (app/persistence_users.py) and PATCH /auth/preferences.
 Run from backend/:  python -m pytest tests/test_preferences.py -v
 """
 
-import sqlite3
+from app import database
 
 import pytest
 
@@ -65,10 +65,10 @@ def test_preferences_survive_a_restart_and_bad_stored_values_fall_back(tmp_path)
     SqliteUserStore(db).save(user)
     assert SqliteUserStore(db).load_all()[0].preferences == {"theme": "light", "text_scale": "1",
                                                              "updates_order": "desc"}
-    with sqlite3.connect(db) as conn:                                   # edited by hand into nonsense
+    with database.connect(db) as conn:                                   # edited by hand into nonsense
         conn.execute("""UPDATE users SET preferences = '{"theme": "neon", "text_scale": "1.3"'""")
     assert SqliteUserStore(db).load_all()[0].preferences == DEFAULTS     # not JSON -> the defaults
-    with sqlite3.connect(db) as conn:
+    with database.connect(db) as conn:
         conn.execute("""UPDATE users SET preferences = '{"theme": "neon", "text_scale": "1.3"}'""")
     assert SqliteUserStore(db).load_all()[0].preferences == {**DEFAULTS, "text_scale": "1.3"}
 
@@ -76,7 +76,7 @@ def test_preferences_survive_a_restart_and_bad_stored_values_fall_back(tmp_path)
 def test_an_older_database_gets_the_column(tmp_path):
     db = str(tmp_path / "old.db")
     user = User("tech7", Role.USER, "Tech#Start7")
-    with sqlite3.connect(db) as conn:                                   # the v0.5.x table, no preferences
+    with database.connect(db) as conn:                                   # the v0.5.x table, no preferences
         conn.execute("""CREATE TABLE users (username TEXT PRIMARY KEY, role TEXT NOT NULL,
                         password_hash TEXT NOT NULL, must_change_password INTEGER NOT NULL DEFAULT 0,
                         disabled INTEGER NOT NULL DEFAULT 0, session_version INTEGER NOT NULL DEFAULT 1,

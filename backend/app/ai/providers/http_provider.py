@@ -33,7 +33,7 @@ The ApiClient is created in the constructor from BASE_URL, or passed in
 """
 
 from abc import abstractmethod
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from app.ai.log import log
 from app.ai.providers.base import AnalysisError, AnalysisProvider, check_unavailable
@@ -43,6 +43,7 @@ from app.api_client import (ApiClient, ApiConnectionError, ApiHTTPError, ApiInva
 
 class HttpProvider(AnalysisProvider):
     BASE_URL = ""      # the company's API root - set by every subclass
+    MODELS_PATH = "/models"   # GET: the models this key may use ({"data": [{"id": ...}]}, Anthropic and OpenAI)
 
     def __init__(self, models, api_key: Optional[str], timeout_seconds: float,
                  client: Optional[ApiClient] = None, base_url: Optional[str] = None):
@@ -67,6 +68,12 @@ class HttpProvider(AnalysisProvider):
     @abstractmethod
     def _answer_text(self, model: str, reply: dict) -> str:
         """The answer text in the reply JSON ("" if there is none). Raises ApiInvalidData for a wrong shape."""
+
+    def list_models(self) -> List[str]:
+        """GET MODELS_PATH - a real GET with the client's retry; ApiError when the key or connection fails."""
+        reply = self._client.get_json(self.MODELS_PATH, timeout_seconds=15,
+                                      log_fields={"provider": self.display_name, "purpose": "connection test"})
+        return [entry["id"] for entry in reply.get("data") or [] if isinstance(entry, dict) and "id" in entry]
 
     def _ask(self, model: str, instructions: str, incident_data: str) -> str:
         api = f"the {self.display_name} API"

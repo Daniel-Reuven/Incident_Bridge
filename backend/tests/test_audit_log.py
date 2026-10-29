@@ -18,6 +18,8 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
+from tests.install_helper import finish_setup
+
 from app.audit import MonthlyJsonlHandler, audit, configure_audit_log, log, log_dirs_from_env
 from app.log_reader import available_months, query
 
@@ -150,6 +152,7 @@ def logged_app(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", ":memory:")
     from app.api.app import app
     with TestClient(app) as client:
+        finish_setup(client)
         month = datetime.now(timezone.utc).strftime("%Y-%m")
         yield client, tmp_path / "logs" / f"incident_bridge-{month}.jsonl"
 
@@ -381,6 +384,7 @@ def test_the_mode_applies_to_every_record(tmp_path, monkeypatch, mode, expected)
     monkeypatch.setenv("LOG_IP_MODE", mode)
     from app.api.app import app
     with TestClient(app) as client:
+        finish_setup(client)
         client.post("/auth/login", json={"username": "admin", "password": "wrong"})
         client.get("/auth/me")
     month = datetime.now(timezone.utc).strftime("%Y-%m")

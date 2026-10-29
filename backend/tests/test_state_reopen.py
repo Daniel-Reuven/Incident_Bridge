@@ -6,6 +6,7 @@ queue from SQLite. The steps below mirror what the reopen endpoint does.
 
 from app.models import IncidentStatus, MaintenanceTask
 from app.state import AppState
+from tests.install_helper import add_demo_users
 
 
 def _reopen(state, queue, task, admin, status, position):
@@ -18,7 +19,7 @@ def _reopen(state, queue, task, admin, status, position):
 
 def _setup(tmp_path, monkeypatch, name):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / name))
-    state = AppState.create()
+    state = add_demo_users(AppState.create())
     admin = state.users.get("admin")
     queue = state.maintenance.get_queue()
     tasks = {}

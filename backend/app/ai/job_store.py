@@ -19,7 +19,7 @@ needs (app/ai/reanalysis.py). One row per fault, replaced on each success,
 so it survives restarts and never grows beyond the number of faults.
 """
 
-import sqlite3
+from app import database
 import threading
 from datetime import datetime
 from typing import List, Optional
@@ -48,8 +48,8 @@ CREATE TABLE IF NOT EXISTS analysis_history (
 class SqliteAnalysisJobStore:
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        self._conn = database.connect(db_path)
+        self._conn.row_factory = database.Row
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(_SCHEMA)

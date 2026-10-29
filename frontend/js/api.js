@@ -42,6 +42,10 @@ async function request(path, { method = "GET", body } = {}) {
 
 export const api = {
   // --- auth ---
+  // First-start setup (backend/app/api/setup.py) - every call carries the console's setup code.
+  setupStart: (code) => request("/setup/start", { method: "POST", body: { code } }),
+  setupTestAI: (code, ai) => request("/setup/test-ai", { method: "POST", body: { code, ai } }),
+  setupComplete: (body) => request("/setup/complete", { method: "POST", body }),
   login: (username, password) => request("/auth/login", { method: "POST", body: { username, password } }),
   logout: () => request("/auth/logout", { method: "POST" }),
   me: () => request("/auth/me"),

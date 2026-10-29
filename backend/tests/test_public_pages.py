@@ -70,7 +70,7 @@ def test_screenshots_are_served_from_docs(app_client, name):
 def test_health_reports_the_version_from_pyproject(app_client):
     pyproject = (ROOT / "backend" / "pyproject.toml").read_text(encoding="utf-8")
     expected = re.search(r'^version\s*=\s*"([^"]+)"', pyproject, re.MULTILINE).group(1)
-    assert app_client.get("/health").json() == {"status": "ok", "version": expected}
+    assert app_client.get("/health").json() == {"status": "ok", "version": expected, "setup_required": False}
     assert app_version() == expected
 
 
@@ -126,7 +126,7 @@ def test_the_guide_uses_every_readme_screenshot():
 def test_the_readme_screenshots_exist():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     links = set(re.findall(r"\((docs/screenshots/[^)]+)\)", readme))
-    assert len(links) == 10         # 5 until the Settings / dark theme / Users screenshots, 9 until Logs
+    assert len(links) == 11         # 5 until Settings / dark theme / Users, 9 until Logs, 10 until Setup
     for link in links:
         assert (ROOT / link).is_file(), link
 
@@ -142,7 +142,7 @@ def png_size(path):
 def test_every_guide_image_exists_with_its_real_size():
     guide = (FRONTEND / "guide.html").read_text(encoding="utf-8")
     images = re.findall(r'<img src="/screenshots/([^"]+)"[^>]* width="(\d+)" height="(\d+)"', guide)
-    assert len(images) == 10
+    assert len(images) == 11
     for name, width, height in images:
         assert png_size(SCREENSHOTS / name) == (int(width), int(height)), name
 

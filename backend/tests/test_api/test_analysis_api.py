@@ -9,6 +9,8 @@ Run from backend/:  python -m pytest tests/test_api/test_analysis_api.py -v
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.install_helper import finish_setup
+
 from app.ai.providers.fake_provider import FakeProvider
 from tests.test_ai.conftest import wait_until
 
@@ -32,9 +34,9 @@ def ai_client(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "fake")
     monkeypatch.setenv("AI_REQUEST_DELAY_SECONDS", "0")
     monkeypatch.setenv("DATABASE_PATH", ":memory:")
-    monkeypatch.delenv("INCIDENT_BRIDGE_USERS", raising=False)
     from app.api.app import app
     with TestClient(app) as client:
+        finish_setup(client)
         login(client)
         yield client
 
@@ -47,6 +49,7 @@ def off_client(monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", ":memory:")
     from app.api.app import app
     with TestClient(app) as client:
+        finish_setup(client)
         login(client)
         yield client
 

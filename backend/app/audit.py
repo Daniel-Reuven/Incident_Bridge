@@ -54,7 +54,8 @@ Settings (backend/.env):
     LOG_DIR            default backend/logs   (relative paths are resolved against backend/)
     LOG_ARCHIVE_DIR    default <LOG_DIR>/archive
     LOG_FILE_ENABLED   default true - false writes no log files (the Logs page is then empty)
-    LOG_SIGNING_KEY    the key that signs every record (default: SESSION_SECRET_KEY)
+    (the key that signs every record is generated at setup and kept in the
+    encrypted database - app/app_secrets.py)
     LOG_IP_MODE        hashed (default) | masked | full | off - how client addresses are
                        written, here and on the console (app/ip_privacy.py)
 
@@ -78,7 +79,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from app import ip_privacy
+from app import app_secrets, ip_privacy
 from app.audit_integrity import AuditChain
 
 AUDIT_LOGGER = "incident_bridge.audit"
@@ -257,15 +258,12 @@ _DEV_SIGNING_KEY = "dev-only-insecure-log-signing-key"
 
 def signing_key() -> bytes:
     """
-    LOG_SIGNING_KEY, else SESSION_SECRET_KEY, else an insecure development
-    default. Changing it later makes the older records show up as "signed
-    with another key" in the integrity check - keep it once chosen.
+    The installation's log signing key - generated at setup and kept in the
+    encrypted database (app/app_secrets.py), never in a file. Before the
+    setup (and in tests that write records without starting the app) a fixed
+    development key, which the integrity check then reports as "another key".
     """
-    for name in ("LOG_SIGNING_KEY", "SESSION_SECRET_KEY"):
-        value = (os.environ.get(name) or "").strip()
-        if value:
-            return value.encode("utf-8")
-    return _DEV_SIGNING_KEY.encode("utf-8")
+    return app_secrets.log_signing_key() or _DEV_SIGNING_KEY.encode("utf-8")
 
 
 def configure_audit_log() -> Optional[MonthlyJsonlHandler]:

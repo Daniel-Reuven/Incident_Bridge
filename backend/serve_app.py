@@ -7,7 +7,7 @@ Equivalent to:
 
 ...with one important difference: this script also loads a .env file
 first (via python-dotenv), which the bare uvicorn CLI does NOT do on its
-own. That's why INCIDENT_BRIDGE_USERS / SESSION_SECRET_KEY / PORT / etc.
+own. That's why INCIDENT_BRIDGE_USERS / PORT / etc.
 in your .env were being silently ignored before - nothing was ever
 reading that file into the environment. load_dotenv() below fixes that,
 and does it early enough (before app.api.app is imported/run) that the
@@ -28,9 +28,11 @@ app ends every open live-update stream first (app/events.py's
 install_shutdown_hook), and the tabs reconnect automatically once the server
 is running again. timeout_graceful_shutdown below is only a safety net.
 
-Before starting the server, INCIDENT_BRIDGE_USERS is validated: if it is
-set but unusable (invalid JSON, an invalid entry, a duplicate username),
-the script prints the problems and exits with code 1 instead of starting.
+Before starting the server, the installation and (while the setup is still
+to be done) INCIDENT_BRIDGE_USERS are validated: if something is unusable
+(a database without its keys file, invalid JSON, an invalid entry, an admin
+entry, a duplicate username), the script prints the problems and exits
+with code 1 instead of starting.
 The AI analysis settings (AI_PROVIDER and the selected provider's key and
 model - see app/ai/config.py) are checked the same way.
 
@@ -57,35 +59,39 @@ import uvicorn  # noqa: E402 - must come after load_dotenv() so PORT etc. are al
 from app.ai.setup import check_ai_settings  # noqa: E402
 from app.logs import LOGGING_CONFIG, app_log  # noqa: E402
 from app.api.security import session_settings_from_env  # noqa: E402
-from app.persistence_users import SqliteUserStore  # noqa: E402
 from app.repository import UserProvisioningError, first_login_change_required, seed_users_from_env  # noqa: E402
-from app.state import database_path  # noqa: E402
+from app.security.installation import Installation, InstallationError  # noqa: E402
+from app.security.key_providers import choose_provider  # noqa: E402
 
 
 def _check_users_or_exit() -> None:
     """
-    Validate the user and session settings BEFORE starting the server, so a
-    bad value stops the app with just its clear message and exit code 1 -
-    no traceback, and no auto-reloader left waiting:
-      - INCIDENT_BRIDGE_USERS (invalid JSON, a duplicate username, a
-        password that fails the policy, ...) - only when the users table is
-        still empty, because that is the only time it is used (see
-        app/repository.py's load_users());
-      - REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN, SESSION_MAX_AGE_HOURS and
-        SESSION_COOKIE_SECURE.
+    Validate the settings BEFORE starting the server, so a bad value stops
+    the app with just its clear message and exit code 1 - no traceback, and
+    no auto-reloader left waiting:
+      - the installation (app/security/installation.py): a database without
+        its keys file is refused;
+      - INCIDENT_BRIDGE_USERS (invalid JSON, a duplicate username, a password
+        that fails the policy, an admin entry...) - only while the setup is
+        still to be done, because only the setup page reads it;
+      - KEY_PROVIDER, REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN,
+        SESSION_MAX_AGE_HOURS and SESSION_COOKIE_SECURE.
     The app checks the same things again at startup, which also covers
     running uvicorn directly.
     """
     try:
         first_login_change_required()
         session_settings_from_env()
-        users_db = SqliteUserStore(database_path())
-        try:
-            if users_db.count() == 0:
-                seed_users_from_env(warn=False)
-        finally:
-            users_db.close()
-    except (UserProvisioningError, ValueError) as exc:
+        installation = Installation.from_env()
+        status = installation.status()
+        if status == "orphan":
+            raise ValueError(f"The database {installation.db_path} has no keys file ({installation.keys_path}). Put "
+                             f"the keys file back, or restore access with the recovery key: "
+                             f"python manage_keys.py restore")
+        if status == "new":
+            choose_provider()
+            seed_users_from_env(warn=False)
+    except (UserProvisioningError, ValueError, InstallationError) as exc:
         app_log.error(str(exc))
         sys.exit(1)
 

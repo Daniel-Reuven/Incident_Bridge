@@ -17,11 +17,8 @@ already-running server had no way to know about it until restarted; this
 version fixes that by going through the server itself, over HTTP, instead
 of around it.)
 
-Logs in as an admin. Without --username it first tries the first admin of
-INCIDENT_BRIDGE_USERS (the server's first-start users, from your .env).
-Those passwords stop working once the admin has changed theirs (the app
-asks for that at the first login) - then the script asks for the current
-password, up to 3 times. With --username it asks straight away.
+Logs in as an admin - "admin", or the one named with --username - and asks
+for the password (up to 3 times): admin passwords are never kept in .env.
 
 Usage (from inside backend/, with the server already running elsewhere):
     python seed_from_jsonl.py                        # loads ../data/sample_data.jsonl
@@ -35,7 +32,6 @@ overwritten - see load_from_jsonl_lines()'s docstring for the exact rules.
 
 import argparse
 import getpass
-import json
 import os
 import sys
 from pathlib import Path
@@ -58,21 +54,12 @@ def _base_url() -> str:
 
 def _find_admin_credentials():
     """
-    Reads INCIDENT_BRIDGE_USERS - the same env var the server itself reads
-    at startup (see app/repository.py's seed_users_from_env) - and returns
-    the first admin's (username, password) so this script can log in the
-    same way a person would. Falls back to the exact same demo admin the
-    server falls back to when the env var isn't set, so this still works
-    against a freshly-cloned project with no .env yet.
+    The admin to log in as: "admin" (the usual name chosen on the setup
+    page), with the password asked for - admin passwords are never kept in
+    .env (the first admin is created on the setup page). --username picks
+    another admin.
     """
-    raw = os.environ.get("INCIDENT_BRIDGE_USERS")
-    if not raw:
-        return "admin", "Demo#Pass1"
-    users = json.loads(raw)
-    admin = next((u for u in users if u["role"] == "admin"), None)
-    if admin is None:
-        sys.exit("INCIDENT_BRIDGE_USERS has no 'admin' entry - can't log in to import seed data.")
-    return admin["username"], admin["password"]
+    return "admin", None
 
 
 MAX_PASSWORD_ATTEMPTS = 3

@@ -42,6 +42,7 @@
         <li><a href="#users">Users</a></li>
         <li><a href="#logs">Activity log</a></li>
         <li><a href="#sites">The site portal</a></li>
+        <li><a href="#setup">First-time setup and the recovery key</a></li>
         <li><a href="#data">What is recorded and stored</a></li>
         <li><a href="#good-to-know">Good to know</a></li>
       </ol>
@@ -244,6 +245,21 @@
       <li>Sent, dismissed and skipped notifications move to the <em>Archive</em> tab after a set time (30 days unless the operator changed it), where they can only be viewed. Notifications waiting for a decision stay in <em>Notifications</em>.</li>
     </ul>
 
+    <h2 id="setup">First-time setup and the recovery key <span class="role-tag admin">Admin</span></h2>
+    <p>A new installation shows only its <strong>setup page</strong> until it is finished; every other page leads there.</p>
+    <figure class="doc-figure narrow">
+      <a href="/screenshots/11-setup-recovery.png"><img src="/screenshots/11-setup-recovery.png" alt="The setup page at the recovery key step: the key in 13 groups, Copy and Download buttons, and a field for its last two groups" width="560" height="860" loading="lazy"></a>
+      <figcaption>The setup page, recovery key step.</figcaption>
+    </figure>
+    <ol>
+      <li><strong>Setup code</strong> — the server prints it in its console window when it starts. Only the person running the server can see it, so nobody else can take over a fresh installation.</li>
+      <li><strong>Recovery key</strong> — all data is <strong>encrypted</strong>. The computer keeps the working key in its own protected store (Windows Credential Manager, macOS Keychain, or the Linux equivalent), so the app starts by itself. The recovery key is the only other way in: on a new computer, or if that key is lost. It is <strong>shown only once</strong>. Copy or download it, keep it <strong>offline and away from the server</strong> (a password manager, a printout in a safe), keep a backup copy, and type its last two groups to confirm.</li>
+      <li><strong>Admin account</strong> — the first admin, with a password that follows the <a href="#password-policy">policy</a>. More admins are added later on the <a href="#users">Users</a> page.</li>
+      <li><strong>AI analysis</strong> (optional) — the provider and its API key; <em>Test connection</em> checks the key. The key is stored encrypted with the data.</li>
+    </ol>
+    <p>Regular users that the operator listed in the server's settings are created at the same time and choose their own password at their first login.</p>
+    <div class="doc-note admin">Moving to a new computer, or the computer's key store was lost? With the server stopped, run <code>python manage_keys.py restore</code> in the <code>backend</code> folder and enter the recovery key. If the recovery key may have been seen by someone else, <code>python manage_keys.py new-recovery-key</code> replaces it and re-encrypts the data.</div>
+
     <h2 id="data">What is recorded and stored</h2>
     <p><strong>The activity log</strong> (files on the server, one per month; finished months are compressed into a zip archive and kept until the operator deletes them) records, for each event:</p>
     <ul>
@@ -253,7 +269,7 @@
       <li>for a call to an outside service (AI provider, site check): the service, model, address, status, outcome and duration.</li>
     </ul>
     <p>It <strong>never</strong> records passwords (not even wrong ones), API keys, cookies, request or reply bodies, incident descriptions, the text of updates, or what was sent to the AI provider.</p>
-    <p><strong>The database</strong> (one file on the server) stores accounts (username, role, a salted hash of the password — never the password — and its interface settings (color scheme, text size, updates order), whether the account is disabled or must change its password), incidents with their details, updates and history, sites, mailing lists (with email addresses) and notifications, the AI analysis queue and its results, and the activity log's checkpoint.</p>
+    <p><strong>The database</strong> (one file on the server, <strong>encrypted</strong> — unreadable without its key, see <a href="#setup">setup</a>) stores accounts (username, role, a salted hash of the password — never the password — and its interface settings (color scheme, text size, updates order), whether the account is disabled or must change its password), incidents with their details, updates and history, sites, mailing lists (with email addresses) and notifications, the AI analysis queue and its results, and the activity log's checkpoint.</p>
     <p><strong>Your browser</strong> keeps the session cookie that keeps you logged in, a copy of your interface settings while you are logged in (deleted when you log out), and, until you close the tab, the tab's id and your dashboard and log filters. See also the <a href="/terms.html#storage">Terms</a>.</p>
 
     <!-- 10 -->

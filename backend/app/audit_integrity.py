@@ -7,7 +7,7 @@ Every record written to the log files gets three more fields:
     "seq":  1, 2, 3 ...        one sequence for the whole log, across months
     "prev": <hash of the record before it>   ("0" * 64 for the very first)
     "kid":  <id of the signing key>           first 8 hex digits of SHA-256(key)
-    "hash": HMAC-SHA256(LOG_SIGNING_KEY, the record without "hash")
+    "hash": HMAC-SHA256(the log signing key, the record without "hash")
 
 and the database (same file as the incidents, tables audit_chain and
 audit_months) keeps a CHECKPOINT: the last seq and hash, and per month the
@@ -19,13 +19,15 @@ order and reports:
     a forged record           a hash that needs the key - without it, it cannot be made
     the newest lines removed  the files end before the checkpoint's last seq
     a whole month removed     the checkpoint knows the month, the files do not
-    a different key           "kid" differs: signed with another LOG_SIGNING_KEY,
+    a different key           "kid" differs: signed with another installation's key,
                               reported as such rather than as tampering
 
-What it does NOT do: stop someone who has BOTH write access to the server's
-files AND the signing key from rewriting the log and the checkpoint
-consistently. Keep LOG_SIGNING_KEY out of the logs folder, out of backups
-of it, and out of the repository; for stronger guarantees, copy the
+The signing key is generated at setup and kept inside the encrypted
+database (app/app_secrets.py), so reading it needs the database key.
+What it does NOT do: stop someone who has write access to the server's
+files AND can unlock the database (the machine's key store, or the
+recovery key) from rewriting the log and the checkpoint consistently.
+For stronger guarantees, copy the
 checkpoint (GET /logs/verify shows it) somewhere that person cannot write.
 Nothing in the app can delete or edit log records: there is no endpoint for
 it, admins included.
@@ -34,7 +36,7 @@ it, admins included.
 import hashlib
 import hmac
 import json
-import sqlite3
+from app import database
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,7 +84,7 @@ class AuditChain:
     def __init__(self, key: bytes, db_path: str):
         self.key = key
         self.kid = key_id(key)
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn = database.connect(db_path)
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(_SCHEMA)
@@ -159,7 +161,7 @@ def verify(months_records, key: bytes, checkpoint: Optional[dict]) -> dict:
                 first = seq if first is None else first
                 last, last_hash = seq, record["hash"]
             if record.get("kid") != kid:
-                problem(month, seq, f"signed with another key (kid {record.get('kid')}) - LOG_SIGNING_KEY was changed")
+                problem(month, seq, f"signed with another key (kid {record.get('kid')}) - the signing key was changed")
             elif not hmac.compare_digest(sign(key, record), str(record["hash"])):
                 problem(month, seq, "changed after it was written (the signature does not match)")
             if seq != expected_seq:
@@ -198,7 +200,7 @@ def read_checkpoint(db_path: str) -> Optional[dict]:
     """The checkpoint stored in `db_path`, without needing a running chain (None if there is none)."""
     if db_path != ":memory:" and not Path(db_path).exists():
         return None
-    conn = sqlite3.connect(db_path)
+    conn = database.connect(db_path)
     try:
         conn.executescript(_SCHEMA)
         row = conn.execute("SELECT seq, hash FROM audit_chain WHERE id = 1").fetchone()

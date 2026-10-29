@@ -186,6 +186,23 @@ textarea { resize: vertical; }
 .login-panel .wordmark { font-size: 22px; margin-bottom: 4px; }
 .login-sub { color: var(--ink-soft); margin: 0 0 24px; font-size: 14px; }
 
+/* --- first-start setup (setup.html) --- */
+.setup-panel { max-width: 560px; }
+.setup-steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0 0 20px; font-size: 12px; counter-reset: step; }
+.setup-steps li { flex: 1; padding: 6px 4px; text-align: center; border-bottom: 3px solid var(--line); color: var(--ink-soft); }
+.setup-steps li.done { border-bottom-color: var(--accent); }
+.setup-steps li[aria-current] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
+.setup-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 17px; letter-spacing: 0.04em; word-spacing: 0.2em; line-height: 1.7;
+  padding: 14px 16px; border: 1px dashed var(--accent); border-radius: var(--radius);
+  background: var(--paper); text-align: center; overflow-wrap: anywhere; user-select: all;
+}
+.setup-hint { margin-inline-start: 0; }
+.setup-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.setup-note { background: var(--paper); border-left: 4px solid var(--accent); padding: 10px 12px; border-radius: var(--radius); font-size: 14px; white-space: pre-line; }
+.setup-note.warn { border-left-color: var(--critical); }
+
 /* --- top bar --- */
 .topbar {
   display: flex;

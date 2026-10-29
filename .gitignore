@@ -8,6 +8,8 @@ __pycache__/
 
 # SQLite database (created automatically - see backend/README.md's Persistence section)
 *.db
+# The database's keys file (app/security/installation.py) - never committed
+*.db.keys
 
 # Activity log files and their monthly archives (backend/app/audit.py)
 backend/logs/

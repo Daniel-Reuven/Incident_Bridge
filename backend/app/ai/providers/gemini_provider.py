@@ -81,6 +81,9 @@ class GeminiProvider(HttpProvider):
         self.models = result.models
         return result.summary()
 
+    def list_models(self) -> List[str]:
+        return self.available_models()
+
     def available_models(self) -> List[str]:
         """The models this key can call for text generation, e.g. ["gemini-3.8-flash", ...], in Google's order."""
         names: List[str] = []

@@ -2,7 +2,7 @@
 SQLite-backed persistence for user accounts (v0.5.x).
 
 Same conventions as the other stores (app/persistence.py,
-app/persistence_sites.py): stdlib sqlite3, the same database FILE
+app/persistence_sites.py): SQLite through app/database.py (encrypted), the same database FILE
 (DATABASE_PATH) through its own connection, one connection for the
 process's lifetime (needed for ":memory:"), every access under a
 threading.Lock, upserts. The in-memory UserStore (app/repository.py) is the
@@ -19,7 +19,7 @@ are not stored here - they are defined in code.
 """
 
 import json
-import sqlite3
+from app import database
 import threading
 from datetime import datetime
 from typing import List
@@ -52,7 +52,7 @@ def _json(text):
 class SqliteUserStore:
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn = database.connect(db_path)
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(_SCHEMA)

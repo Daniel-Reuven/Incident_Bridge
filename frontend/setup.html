@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en" data-login-page>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Setup — Incident Bridge</title>
+<link rel="stylesheet" href="/css/styles.css">
+<script src="/js/theme.js"></script>
+</head>
+<!--
+  First-start setup (js/setup.js, backend/app/api/setup.py). Until it is
+  finished, every other page redirects here. Four steps: the setup code from
+  the server console, the recovery key (shown once), the first admin, and
+  the optional AI settings; then the regular users of INCIDENT_BRIDGE_USERS
+  are created and the app starts.
+-->
+<body class="login-body">
+  <main class="login-panel setup-panel">
+    <h1 class="wordmark">Incident Bridge</h1>
+    <p class="login-sub">First-time setup. Nothing else works until it is finished.</p>
+    <ol class="setup-steps" aria-label="Setup steps">
+      <li data-step="code">Setup code</li>
+      <li data-step="recovery">Recovery key</li>
+      <li data-step="admin">Admin account</li>
+      <li data-step="ai">AI analysis</li>
+    </ol>
+
+    <section data-panel="code" class="stack">
+      <p>The server printed a <strong>setup code</strong> in its console window when it started. Enter it here, so only the person running the server can set it up.</p>
+      <form id="code-form" class="stack">
+        <label>Setup code<input name="code" autocomplete="off" required placeholder="ABCD-EFGH" autofocus></label>
+        <p class="form-error" hidden></p>
+        <button type="submit" class="btn btn-primary btn-block">Continue</button>
+      </form>
+    </section>
+
+    <section data-panel="recovery" class="stack" hidden>
+      <p>All data is <strong>encrypted</strong>. This computer keeps the working key in <span data-fill="key-store"></span>, so the app starts by itself. The <strong>recovery key</strong> below is the only other way in — on a new computer, or if that key is lost. <strong>It is shown only now.</strong></p>
+      <p class="setup-key" data-fill="recovery-key"></p>
+      <p class="hint setup-hint">Key fingerprint <code data-fill="fingerprint"></code> — to check a saved copy later (<code>python manage_keys.py status</code>).</p>
+      <div class="setup-actions">
+        <button type="button" class="btn btn-ghost btn-sm" data-action="copy">Copy</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="download">Download as a file</button>
+      </div>
+      <div class="setup-note">Store it <strong>offline and away from this server</strong> — a password manager, or a printout in a safe — and keep a backup copy. Without it, a lost machine key means the data is gone for good.</div>
+      <p class="setup-note warn" data-fill="key-store-warning" hidden></p>
+      <form id="recovery-form" class="stack">
+        <label>To confirm you saved it, type its <strong>last two groups</strong><input name="check" autocomplete="off" required placeholder="XXXX-XXXX"></label>
+        <label class="checkbox"><input type="checkbox" name="stored" required> I stored the recovery key somewhere safe, away from this server</label>
+        <p class="form-error" hidden></p>
+        <button type="submit" class="btn btn-primary btn-block">Continue</button>
+      </form>
+    </section>
+
+    <section data-panel="admin" class="stack" hidden>
+      <p>The first <strong>admin</strong> account. More admins can be added later on the Users page.</p>
+      <form id="admin-form" class="stack">
+        <label>Username<input name="username" autocomplete="username" required></label>
+        <div class="pw-fields"></div>
+        <p class="form-error" hidden></p>
+        <button type="submit" class="btn btn-primary btn-block">Continue</button>
+      </form>
+    </section>
+
+    <section data-panel="ai" class="stack" hidden>
+      <p><strong>AI analysis</strong> of faults is optional. The key is stored encrypted with the data.</p>
+      <p class="hint setup-hint" data-fill="ai-env" hidden></p>
+      <form id="ai-form" class="stack">
+        <label>Provider<select name="provider"></select></label>
+        <div class="stack" data-ai-fields hidden>
+          <label data-ai-key>API key<input name="api_key" type="password" autocomplete="off"></label>
+          <label data-ai-models>Models <span class="hint">best first, separated by commas</span><input name="models" autocomplete="off"></label>
+          <label data-ai-tier>Gemini plan<select name="gemini_tier"><option value="free">Free</option><option value="paid">Paid</option></select></label>
+          <div class="setup-actions">
+            <button type="button" class="btn btn-ghost btn-sm" data-action="test-ai">Test connection</button>
+            <span class="hint" data-fill="ai-result"></span>
+          </div>
+        </div>
+        <div class="setup-note" data-fill="users"></div>
+        <p class="form-error" hidden></p>
+        <button type="submit" class="btn btn-primary btn-block">Finish setup</button>
+      </form>
+    </section>
+
+    <section data-panel="done" class="stack" hidden>
+      <p><strong>Incident Bridge is ready.</strong></p>
+      <p data-fill="done-text"></p>
+      <p class="setup-note warn" data-fill="done-warning" hidden></p>
+      <a class="btn btn-primary btn-block" href="/">Go to the login page</a>
+    </section>
+  </main>
+  <script type="module" src="/js/setup.js"></script>
+  <script type="module" src="/js/footer.js"></script>
+</body>
+</html>

@@ -26,6 +26,9 @@ dependencies = [
     "python-dotenv>=1.2",   # loads .env in serve_app.py / seed_from_jsonl.py
     "httpx>=0.28",          # seed_from_jsonl.py, site availability checks and FastAPI's TestClient
     "requests>=2.32",       # app/api_client.py - the AI providers' REST calls (no AI SDKs)
+    "sqlcipher3>=0.6.4",    # app/database.py - the whole database encrypted (SQLite + SQLCipher)
+    "cryptography>=43",     # app/security/crypto.py - AES-GCM key wrapping, HKDF
+    "keyring>=25",          # app/security/key_providers.py - the OS credential store for the machine key
 ]
 
 [project.optional-dependencies]

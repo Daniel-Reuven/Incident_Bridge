@@ -43,6 +43,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.models import Role, User
+from tests.install_helper import finish_setup
 
 # Speed: the real PBKDF2 cost (600,000 iterations, app/models/user.py) would
 # make every created user and every login take ~0.3s. Tests use a tiny count;
@@ -59,10 +60,23 @@ import dotenv  # noqa: E402
 dotenv.load_dotenv = lambda *args, **kwargs: False
 _APP_SETTINGS = ("INCIDENT_BRIDGE_USERS", "DATABASE_PATH", "ALLOWED_ORIGINS", "HOST", "PORT", "RELOAD")
 _APP_SETTING_PREFIXES = ("AI_", "GEMINI_", "ANTHROPIC_", "OPENAI_", "SESSION_", "LOG_", "SITE_", "SITES_",
-                         "MAILING_LISTS_", "NOTIFICATION_", "REQUIRE_PASSWORD_")
+                         "MAILING_LISTS_", "NOTIFICATION_", "REQUIRE_PASSWORD_", "KEY_", "MACHINE_KEY_",
+                         "DATABASE_KEYS_", "CREDENTIALS_DIRECTORY")
 for _name in list(os.environ):
     if _name in _APP_SETTINGS or _name.startswith(_APP_SETTING_PREFIXES):
         del os.environ[_name]
+
+# Encryption (app/database.py, app/security/): an installed app's machine key
+# goes to a throwaway folder - never the real OS credential store. Code that
+# opens the database without starting the app (AppState.create() in restart
+# tests, the stores) uses a fixed test key, set before every test (below).
+os.environ["KEY_PROVIDER"] = "file"
+os.environ["MACHINE_KEY_DIR"] = tempfile.mkdtemp(prefix="incident-bridge-test-keys-")
+TEST_DATABASE_KEY = bytes(range(32))
+
+# The setup page (tests/install_helper.py's finish_setup()) creates the demo
+# admin and this regular user - the accounts the API tests log in with.
+os.environ["INCIDENT_BRIDGE_USERS"] = '[{"username": "tech1", "password": "Demo#Pass2", "role": "user"}]'
 
 # The demo users must change their password at first login in the real app;
 # the API tests log straight in with them, so that is switched off here
@@ -98,6 +112,17 @@ def regular_user() -> User:
 # Used by tests/test_api/*.py.
 # --------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _fresh_keys():
+    """Every test starts with the test database key, no app secrets and no stored AI settings."""
+    from app import app_secrets, database
+    from app.ai import stored_settings
+    database.use_key(TEST_DATABASE_KEY)
+    app_secrets.forget()
+    stored_settings.use({})
+    yield
+
+
 @pytest.fixture
 def app_client():
     """
@@ -120,6 +145,7 @@ def app_client():
     from app.api.app import app
 
     with TestClient(app) as client:
+        finish_setup(client)
         yield client
 
 

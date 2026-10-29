@@ -28,6 +28,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from app.models.system_users import is_reserved_username  # noqa: E402 - after load_dotenv
 from app.persistence_users import SqliteUserStore  # noqa: E402
+from app.security.installation import Installation, InstallationError  # noqa: E402
 from app.state import database_path  # noqa: E402
 
 
@@ -41,7 +42,7 @@ def _find(store: SqliteUserStore, username: str):
 def cmd_list(store: SqliteUserStore, _args) -> None:
     users = store.load_all()
     if not users:
-        print(f"No users yet in {store.db_path} - they are created from INCIDENT_BRIDGE_USERS at the first start.")
+        print(f"No users yet in {store.db_path} - the setup page creates them.")
         return
     for user in users:
         flags = [flag for flag, on in (("disabled", user.disabled), ("must change password", user.must_change_password))
@@ -84,6 +85,13 @@ def main(argv=None) -> None:
     enable.add_argument("username")
     args = parser.parse_args(argv)
 
+    installation = Installation.from_env()
+    if installation.status() != "installed":
+        sys.exit("Incident Bridge is not set up yet - start the server and finish the setup at /setup.html.")
+    try:
+        installation.unlock()                    # the database is encrypted (app/security/installation.py)
+    except InstallationError as exc:
+        sys.exit(str(exc))
     store = SqliteUserStore(database_path())
     try:
         {"list": cmd_list, "reset-password": cmd_reset_password, "enable": cmd_enable}[args.command](store, args)

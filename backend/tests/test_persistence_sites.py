@@ -146,9 +146,9 @@ def test_site_never_checked_has_no_last_check(store, site):
 
 def test_an_older_database_file_gets_the_new_columns(tmp_path, site):
     """A sites table created by step 3 (without the check columns) is upgraded when the store opens."""
-    import sqlite3
+    from app import database
     db_file = str(tmp_path / "old.db")
-    conn = sqlite3.connect(db_file)
+    conn = database.connect(db_file)
     conn.execute("""CREATE TABLE sites (site_id INTEGER PRIMARY KEY, site_name TEXT NOT NULL,
                     site_url TEXT NOT NULL, site_publish_date TEXT, status TEXT NOT NULL,
                     created_at TEXT NOT NULL, archived_at TEXT, archived_list_ids TEXT NOT NULL DEFAULT '[]')""")

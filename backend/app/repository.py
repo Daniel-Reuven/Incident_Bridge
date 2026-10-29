@@ -83,61 +83,40 @@ class UserStore:
         return sorted((u for u in self._users.values() if not is_reserved_username(u.username)),
                       key=lambda u: (u.created_at, u.username))
 
-_DEFAULT_USERS_WARNING = (
-    "INCIDENT_BRIDGE_USERS is not set - falling back to a demo admin/user pair "
-    "with well-known passwords (admin/Demo#Pass1, tech1/Demo#Pass2). Do NOT use "
-    "this outside local development; set INCIDENT_BRIDGE_USERS before deploying "
-    "anywhere reachable by anyone else."
-)
-
-
 def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = True) -> UserStore:
     """
-    Build the UserStore from an environment variable holding a JSON array,
+    The REGULAR users listed in an environment variable holding a JSON array,
     e.g. (see .env.example):
 
-        INCIDENT_BRIDGE_USERS=[{"username":"admin","password":"Bridge-Start1!","role":"admin"},
-                                {"username":"tech1","password":"Tech-Start1!","role":"user"}]
+        INCIDENT_BRIDGE_USERS=[{"username":"tech1","password":"Tech-Start1!","role":"user"},
+                                {"username":"tech2","password":"Tech-Start2!","role":"user"}]
 
-    This is the "pre-provisioned via env, no self-registration" mechanism
-    from the design doc (README.md section 11). Falls back to an insecure demo
-    pair (with a loud warning, unless warn=False) only so the app can start
-    with zero setup during local development.
+    Read once, by the setup page (app/api/setup.py), which creates them
+    together with the first admin. Admins are never created from a file: the
+    first one on the setup page, more on the Users page - so no admin
+    password ever sits in .env. Unset or empty: no users (an empty store).
+    `warn` is kept for callers that validate without creating.
 
-    Fail-fast: when the variable IS set, every entry is checked and ALL
-    problems are collected - invalid JSON, not a list, an empty list, an
-    entry that User.from_dict() rejects (missing field, bad role, weak
-    password), or a duplicate username (case-insensitive, naming the entry
-    it repeats). If there is any problem, UserProvisioningError is raised
-    with one message listing them all, so the app never starts with a
-    partly-loaded or ambiguous user list.
+    Fail-fast: every entry is checked and ALL problems are collected -
+    invalid JSON, not a list, an entry that User.from_dict() rejects
+    (missing field, bad role, weak password), an admin entry, a reserved
+    name (a built-in system user such as "ai-assistant", case-insensitive)
+    or a duplicate username (case-insensitive, naming the entry it
+    repeats). If there is any problem, UserProvisioningError is raised with
+    one message listing them all.
 
-    Reserved names: a username matching a built-in system user (today only
-    "ai-assistant" - see app/models/system_users.py), compared case-insensitively,
-    is reported as a problem like any other invalid entry.
-
-    System users: whichever way the store is built (from the variable or
-    the demo fallback), every built-in system user is added at the end, so
-    it is always available as a comment author and restored comments it
-    wrote keep their author after a restart. System users can never log in.
-
-    `warn` exists so serve_app.py can validate the variable before starting
-    the server without printing the demo-users warning twice.
+    Every built-in system user is added at the end (they can never log in).
     """
     store = UserStore()
     raw = os.environ.get(env_var)
     if not raw or not raw.strip():
-        if warn:
-            app_log.warning(_DEFAULT_USERS_WARNING)
-        store.add(User(username="admin", role=Role.ADMIN, password="Demo#Pass1"))
-        store.add(User(username="tech1", role=Role.USER, password="Demo#Pass2"))
         _add_system_users(store)
         return store
 
     def fail(problems: List[str]) -> UserProvisioningError:
         listed = "\n".join(f"  - {p}" for p in problems)
         return UserProvisioningError(
-            f"{env_var} has {len(problems)} problem(s) - the app will not start until they are fixed:\n"
+            f"{env_var} has {len(problems)} problem(s) - fix them before the setup:\n"
             f"{listed}\nFix the value in backend/.env (or your environment) and start again."
         )
 
@@ -147,8 +126,6 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = Tru
         raise fail([f"not valid JSON ({exc.msg} at position {exc.pos})"]) from None
     if not isinstance(entries, list):
         raise fail([f"must be a JSON array of users, got {type(entries).__name__}"])
-    if not entries:
-        raise fail(["the array is empty - provision at least one user"])
 
     problems: List[str] = []
     first_entry_of: Dict[str, int] = {}          # lower-cased username -> entry number that defined it
@@ -157,6 +134,10 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = Tru
             user = User.from_dict(entry)
         except ValueError as exc:
             problems.append(f"entry {number}: {exc}")
+            continue
+        if user.role == Role.ADMIN:
+            problems.append(f"entry {number}: {user.username!r} is an admin - admins are not created from "
+                            f"{env_var}: the first one on the setup page, others on the Users page")
             continue
         if is_reserved_username(user.username):
             problems.append(f"entry {number}: username {user.username!r} is reserved for a built-in "
@@ -199,40 +180,38 @@ def first_login_change_required() -> bool:
 
 def load_users(db: SqliteUserStore, warn: bool = True) -> UserStore:
     """
-    The app's user accounts (called once by AppState.create()).
-
-    - Users table EMPTY (first start of a new database): the users from
-      INCIDENT_BRIDGE_USERS - or the demo pair when it is unset - are
-      validated exactly as before (seed_users_from_env(), which raises
-      UserProvisioningError for any problem), marked "must change password
-      at first login" (unless REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN=false)
-      and written to the table.
-    - Users table NOT empty: the table is the source of truth;
-      INCIDENT_BRIDGE_USERS is ignored (a notice says so when it is set),
-      so editing .env no longer changes anyone's password - use the admin
-      Users page or backend/manage_users.py instead.
-
-    Built-in system users are added in memory either way.
+    The app's user accounts (called once by AppState.create()): every
+    account in the users table - the table is the source of truth - plus
+    the built-in system users, in memory. A new installation's table is
+    empty until the setup page creates the first admin and the regular
+    users from INCIDENT_BRIDGE_USERS (create_initial_users()).
     """
     store = UserStore(db)
-    if db.count():
-        for user in db.load_all():
-            store.add(user, save=False)
-        if (os.environ.get("INCIDENT_BRIDGE_USERS") or "").strip():
-            app_log.info("Users are managed in the database - INCIDENT_BRIDGE_USERS is only used for the first "
-                         "start of a new database and is ignored now.")
-    else:
-        must_change = first_login_change_required()
-        initial = [u for u in seed_users_from_env(warn=warn).all_users() if not is_reserved_username(u.username)]
-        for user in initial:
-            user.must_change_password = must_change
-            store.add(user, save=False)
-        db.save_many(initial)
-        app_log.info(f"Created {len(initial)} user(s) in the database from "
-                     f"{'INCIDENT_BRIDGE_USERS' if (os.environ.get('INCIDENT_BRIDGE_USERS') or '').strip() else 'the demo pair'}"
-                     f"{' - each must change their password at first login' if must_change else ''}.")
+    for user in db.load_all():
+        store.add(user, save=False)
     _add_system_users(store)
     return store
+
+
+def create_initial_users(users: UserStore, admin: User) -> List[User]:
+    """
+    The setup page's accounts: `admin` (who chose their own password) and
+    the regular users of INCIDENT_BRIDGE_USERS, who must change their
+    password at first login unless REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN
+    is false. Validates everything before saving anything (raises
+    UserProvisioningError or ValueError). Returns the regular users created.
+    """
+    regular = [u for u in seed_users_from_env(warn=False).all_users() if not is_reserved_username(u.username)]
+    clash = next((u for u in regular if u.username.lower() == admin.username.lower()), None)
+    if clash is not None:
+        raise UserProvisioningError(f"INCIDENT_BRIDGE_USERS also lists {clash.username!r}, the admin's username "
+                                    f"- remove it there or choose another admin name.")
+    must_change = first_login_change_required()
+    users.add(admin)
+    for user in regular:
+        user.must_change_password = must_change
+        users.add(user)
+    return regular
 
 
 @dataclass
