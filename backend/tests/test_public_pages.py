@@ -155,3 +155,12 @@ def test_the_license_is_mit_and_names_the_team():
     assert team, "no team members found in site-info.js"
     for member in team:
         assert member in license_text, f"{member} is on the About page but not in LICENSE"
+
+
+@pytest.mark.parametrize("path", ["/", "/index.html"])
+def test_the_login_page_sends_a_logged_in_user_straight_to_the_dashboard(admin_client, second_client, path):
+    """Decided by the server, so the login form never shows for a moment first."""
+    response = admin_client.get(path, follow_redirects=False)
+    assert response.status_code == 303 and response.headers["location"] == "/dashboard.html"
+    logged_out = second_client.get(path, follow_redirects=False)          # its own cookies: not logged in
+    assert logged_out.status_code == 200 and 'id="login-form"' in logged_out.text

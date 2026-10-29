@@ -26,10 +26,11 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import analysis, auth, events, incidents, logs, setup, sites, users
+from app.api.deps import get_session_user
 from app.api.lifecycle import start_services, stop_services
 from app.api.request_log import RequestLogMiddleware
 from app.api.security import SecurityHeadersMiddleware, SessionFromSecrets, session_settings_from_env
@@ -193,6 +194,21 @@ if _screenshots_dir.is_dir():
 # own), this is skipped and only the API is served.
 _frontend_dir = Path(__file__).resolve().parents[3] / "frontend"
 if _frontend_dir.is_dir():
+    @app.get("/", include_in_schema=False)
+    @app.get("/index.html", include_in_schema=False)
+    def login_page(request: Request):
+        """
+        The login page - or, for someone already logged in, straight on to the
+        dashboard, decided here before any HTML is sent. Left to the page's
+        script, the login form showed for a moment first (a link to "/" from
+        the Guide, About and Terms pages, or the address typed by hand).
+        """
+        try:
+            get_session_user(request)
+        except Exception:                      # no valid session (or no app state yet): the login page
+            return FileResponse(_frontend_dir / "index.html", headers={"Cache-Control": "no-cache"})
+        return RedirectResponse("/dashboard.html", status_code=303)
+
     app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
 else:
     app_log.info(f"No frontend/ directory found at {_frontend_dir} - serving the API only.")
