@@ -71,6 +71,9 @@ def connect(db_path: str, check_same_thread: bool = False):
         raise DatabaseLocked("The database is locked - the setup is not finished (see /setup.html).")
     conn = _sqlcipher.connect(db_path, check_same_thread=check_same_thread)
     try:
+        # SQLCipher's own diagnostics would print to stderr ("ERROR CORE sqlite3Codec ...", garbled as UTF-16
+        # on Windows) next to the app's clear message; the error itself still reaches the caller.
+        conn.execute("PRAGMA cipher_log_level = NONE")
         conn.execute(f"PRAGMA key = \"x'{key.hex()}'\"")       # a raw key: no passphrase derivation
         conn.execute("SELECT count(*) FROM sqlite_master").fetchone()   # fails now if the key is wrong
     except Exception:

@@ -818,6 +818,27 @@ body > main { flex: 1 0 auto; }
 .details-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 14px; }
 @media (max-width: 720px) { .format-editor { grid-template-columns: 1fr; } }
 
+/* Server settings page (js/server.js) */
+.mode-tag { font-size: 13px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); }
+.mode-tag.mode-production { color: var(--accent); border-color: var(--accent); }
+.mode-tag.mode-testing { color: var(--major); border-color: var(--major); }
+.server-running { font-size: 14px; margin: 8px 0 12px; }
+.source-tag { font-size: 11px; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 999px;
+              padding: 0 6px; margin-inline-start: 4px; font-weight: 400; }
+.source-tag:empty { display: none; }
+.source-tag[data-kind="page"] { color: var(--accent); border-color: var(--accent); }
+.cert-fields { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 14px 4px; margin: 4px 0 14px; }
+.cert-fields[disabled] { opacity: 0.6; }
+.cert-fields legend { font-size: 13px; color: var(--ink-soft); padding: 0 4px; }
+.cert-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.cert-actions:has(> :not([hidden])) { margin-top: 2px; }
+.cert-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; font-size: 13px; margin: 6px 0 10px; }
+.cert-info dt { color: var(--ink-soft); }
+.cert-info dd { margin: 0; overflow-wrap: anywhere; }
+.cert-report .setup-note { margin: 6px 0; }
+.fingerprint { font-size: 11px; }
+.field-hint { display: block; margin: 2px 0 6px; }
+
 .users-table { width: 100%; background: var(--surface); }
 .users-table tbody tr { cursor: default; }
 .users-table .user-actions-inner { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }

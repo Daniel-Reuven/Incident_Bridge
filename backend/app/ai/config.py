@@ -2,7 +2,7 @@
 AI analysis settings: those saved on the setup page (encrypted in the database),
 else the environment (backend/.env) - see app/ai/stored_settings.py.
 
-    AI_PROVIDER=gemini                 # gemini (default) | claude | openai | fake
+    AI_PROVIDER=gemini                 # gemini (default) | claude | openai | fake | off
     GEMINI_API_KEY=...    GEMINI_TIER=free | paid    (optional: GEMINI_MODELS=a,b,c)
     ANTHROPIC_API_KEY=... ANTHROPIC_MODEL=...
     OPENAI_API_KEY=...    OPENAI_MODEL=...
@@ -51,6 +51,8 @@ class AIConfig:
     def from_env(cls) -> Optional["AIConfig"]:
         """The configured settings, or None if the feature is off (the selected provider has no API key)."""
         provider = (setting("AI_PROVIDER") or DEFAULT_PROVIDER).strip().lower()
+        if provider == "off":                             # turned off on purpose (e.g. the Server settings page)
+            return None
         if provider not in PROVIDERS:
             raise ValueError(f"AI_PROVIDER={provider!r} is not supported - use one of: {', '.join(PROVIDERS)}.")
         info = PROVIDERS[provider]
@@ -71,6 +73,8 @@ class AIConfig:
     def off_reason() -> str:
         """One line saying why the feature is off - printed at startup when from_env() returns None."""
         provider = (setting("AI_PROVIDER") or DEFAULT_PROVIDER).strip().lower()
+        if provider == "off":
+            return "AI analysis is off (AI_PROVIDER=off)."
         info = PROVIDERS.get(provider)
         key = info.key_env if info else "the API key"
         return f"AI analysis is off: AI_PROVIDER={provider}, but {key} is not set."

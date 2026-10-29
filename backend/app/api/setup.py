@@ -34,11 +34,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from app.ai import stored_settings
+from app.ai import choice, stored_settings
 from app.ai.config import AIConfig
-from app.ai.providers import PROVIDERS, build_provider
+from app.ai.providers import PROVIDERS
 from app.api.lifecycle import start_services
-from app.api_client import ApiError
 from app.audit import audit
 from app.logs import app_log
 from app.models import Role, User
@@ -128,28 +127,10 @@ def _session(request: Request) -> SetupSession:
 
 
 def _ai_values(ai: Optional[AISettings]) -> dict:
-    """The AI choice as .env-style names (how app/ai/config.py reads it). {} = no AI settings stored."""
-    if ai is None or ai.provider in ("", "none"):
+    """The AI choice as .env-style names (app/ai/choice.py). {} = no AI settings stored."""
+    if ai is None:
         return {}
-    if ai.provider not in PROVIDERS:
-        raise ValueError(f"Unknown AI provider {ai.provider!r} - use one of: {', '.join(PROVIDERS)}.")
-    info = PROVIDERS[ai.provider]
-    values = {"AI_PROVIDER": ai.provider}
-    if info.key_env:
-        if not (ai.api_key or "").strip():
-            raise ValueError(f"Enter the {info.display_name} API key, or choose no AI analysis for now.")
-        values[info.key_env] = ai.api_key.strip()
-    if info.models_env and (ai.models or "").strip():
-        values[info.models_env] = ai.models.strip()
-    if ai.provider == "gemini" and ai.gemini_tier:
-        values["GEMINI_TIER"] = ai.gemini_tier.strip()
-    return values
-
-
-def _ai_config(values: dict) -> Optional[AIConfig]:
-    """The AIConfig these values give (ValueError for an invalid one, e.g. a key without a model)."""
-    with stored_settings.trying(values):
-        return AIConfig.from_env()
+    return choice.ai_values(ai.provider, ai.api_key, ai.models, ai.gemini_tier)
 
 
 def _key_store_preview() -> dict:
@@ -198,8 +179,7 @@ def start(body: StartRequest, request: Request):
             "regular_users": regular,
             "users_problem": users_problem,
             "ai_from_env": env_ai,
-            "providers": [{"id": key, "name": info.display_name, "needs_key": bool(info.key_env),
-                           "models_setting": info.models_env} for key, info in PROVIDERS.items()],
+            "providers": choice.provider_list(),
         }
 
 
@@ -207,16 +187,7 @@ def start(body: StartRequest, request: Request):
 def test_ai(body: TestAIRequest, request: Request):
     """Check an AI provider key with a real GET of its model list (nothing is saved)."""
     _session(request).check(body.code)
-    config = _ai_config(_ai_values(body.ai))
-    if config is None:
-        raise ValueError("Enter an API key to test.")
-    try:
-        models = build_provider(config).list_models()
-    except ApiError as exc:
-        return {"ok": False, "detail": f"{PROVIDERS[config.provider].display_name} refused or could not be reached: "
-                                       f"{exc}"}
-    return {"ok": True, "models": models[:25],
-            "detail": f"Connected to {PROVIDERS[config.provider].display_name}: {len(models)} model(s) available."}
+    return choice.test_connection(_ai_values(body.ai))
 
 
 @router.post("/complete")
@@ -255,7 +226,7 @@ async def complete(body: CompleteRequest, request: Request):
         except UserProvisioningError as exc:
             raise ValueError(str(exc)) from None
         ai_values = _ai_values(body.ai)
-        _ai_config(ai_values)
+        choice.ai_config(ai_values)
 
         # --- then do it -----------------------------------------------------------------------
         if session.keys_exist:

@@ -15,6 +15,7 @@ from app.ai import stored_settings
 from app.ai.setup import create_analysis_worker
 from app.audit import audit, close_audit_log, configure_audit_log, record_published_event
 from app.events import EventBroadcaster, install_shutdown_hook
+from app.security import tls
 from app.security.data_folders import remove_lock, write_lock
 from app.settings_store import SqliteSettingsStore
 from app.state import AppState, database_path
@@ -40,6 +41,8 @@ async def start_services(app, settings: SqliteSettingsStore) -> None:
     configure_audit_log(installation["id"])
     if first_start:
         settings.record_all()        # the settings saved before the log ran: fingerprinted now (app/data_integrity.py)
+    elif tls.saved_before_log():
+        settings.record(tls.SETTING)  # serve_app.py made the HTTPS certificate before the log ran
     # Built once per process - see app/state.py for why this must stay a
     # single process (in-memory queues aren't shared across workers).
     app.state.incident_bridge = AppState.create()

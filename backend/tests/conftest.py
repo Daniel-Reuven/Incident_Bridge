@@ -37,7 +37,9 @@ queue. Worth the trade-off at this project's size.
 """
 
 import os
+import re
 import tempfile
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -87,6 +89,27 @@ os.environ["REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN"] = "false"
 # backend/logs; tests that read it point LOG_DIR at their own tmp_path.
 os.environ["LOG_DIR"] = tempfile.mkdtemp(prefix="incident-bridge-test-logs-")
 os.environ.pop("LOG_ARCHIVE_DIR", None)
+
+_BACKEND = Path(__file__).resolve().parents[1]
+
+
+def env_without_dotenv(**overrides) -> dict:
+    """
+    The environment for a test that runs serve_app.py as its own process.
+    That process loads backend/.env, which the clearing above cannot reach -
+    so every setting .env could hold (the names in .env.example and in .env)
+    is set here: to the test's value, else empty. python-dotenv never
+    overrides a variable that is set, so the developer's .env never applies
+    (e.g. a DATABASE_KEYS_PATH pointing at their real installation).
+    """
+    names = set()
+    for path in (_BACKEND / ".env.example", _BACKEND / ".env"):
+        if path.is_file():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                match = re.match(r"\s*#?\s*([A-Z][A-Z0-9_]*)\s*=", line)
+                if match:
+                    names.add(match.group(1))
+    return {**{name: "" for name in names}, **os.environ, **overrides}
 
 
 # --------------------------------------------------------------------

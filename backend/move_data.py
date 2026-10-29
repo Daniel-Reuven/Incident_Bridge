@@ -8,9 +8,10 @@ What it does:
   1. refuses while the server is running (it keeps the database and the
      current log file open);
   2. checks the new folder(s) are empty or do not exist yet;
-  3. copies the database and its keys file into the new data folder, and the
-     activity log - when it lives inside the data folder (the default), or to
-     --logs when given; the folder markers (.incident-bridge) go along;
+  3. copies the database and its keys file into the new data folder (with the
+     generated HTTPS certificate, tls/, when there is one), and the activity
+     log - when it lives inside the data folder (the default), or to --logs
+     when given; the folder markers (.incident-bridge) go along;
   4. checks the copy: the database opens with the key and is the same
      installation, and every log line decrypts;
   5. prints the lines to put in backend/.env.
@@ -84,6 +85,8 @@ def main(argv=None) -> None:
     marker = old_data / ".incident-bridge"
     if marker.exists():
         shutil.copy2(marker, target / marker.name)
+    if (old_data / "tls").is_dir():                       # the generated HTTPS certificate (app/security/tls.py)
+        shutil.copytree(old_data / "tls", target / "tls", dirs_exist_ok=True)
     if new_logs and logs_enabled and log_root.exists():
         shutil.copytree(log_root, new_logs, dirs_exist_ok=True)
 

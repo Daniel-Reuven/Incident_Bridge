@@ -161,6 +161,15 @@ class Installation:
         if crypto.fingerprint(db_key) != data.get("fingerprint"):
             raise InstallationError("The keys file does not belong to this database key (fingerprint differs).")
         database.use_key(db_key)
+        if self.db_path != ":memory:" and Path(self.db_path).is_file():
+            try:
+                database.connect(self.db_path).close()
+            except database.DatabaseError:
+                database.forget_key()
+                raise InstallationError(
+                    f"The database {self.db_path} does not open with the key from {self.keys_path}: the keys file "
+                    f"belongs to another database, or this file is not an Incident Bridge database (or is damaged). "
+                    f"Check DATA_DIR / DATABASE_PATH / DATABASE_KEYS_PATH in backend/.env.") from None
         return db_key
 
     def machine_warning(self) -> Optional[str]:

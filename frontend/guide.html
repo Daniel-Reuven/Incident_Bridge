@@ -42,6 +42,7 @@
         <li><a href="#users">Users</a></li>
         <li><a href="#logs">Activity log</a></li>
         <li><a href="#sites">The site portal</a></li>
+        <li><a href="#server">Server settings: HTTPS and AI</a></li>
         <li><a href="#setup">First-time setup and the recovery key</a></li>
         <li><a href="#data">What is recorded and stored</a></li>
         <li><a href="#good-to-know">Good to know</a></li>
@@ -110,6 +111,7 @@
           <tr><td>Site portal: sites, mailing lists, notifications</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Users: create accounts, change roles, disable, reset passwords</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Activity log: read it and check its integrity (nobody can edit or delete it)</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Server settings: HTTPS, the certificate, the AI analysis settings</td><td class="no">—</td><td class="yes">✓</td></tr>
         </tbody>
       </table>
     </div>
@@ -257,6 +259,21 @@
       <li>Sent, dismissed and skipped notifications move to the <em>Archive</em> tab after a set time (30 days unless the operator changed it), where they can only be viewed. Notifications waiting for a decision stay in <em>Notifications</em>.</li>
     </ul>
 
+    <h2 id="server">Server settings: HTTPS and AI <span class="role-tag admin">Admin</span></h2>
+    <p><strong>Server</strong> in the top bar sets how the server is reached and which AI provider analyzes faults. The tag at the top shows the server's <strong>mode</strong>, set by the operator in <code>backend/.env</code> (<code>APP_MODE</code>): <em>Testing</em> or <em>Production</em>.</p>
+    <figure class="doc-figure">
+      <a href="/screenshots/13-server-settings.png"><img src="/screenshots/13-server-settings.png" alt="The Server settings page: what is running now, the HTTP and HTTPS ports, HTTPS only for remote connections, the generated certificate with its details, trusted proxies, and the AI analysis provider" width="1440" height="1363" loading="lazy"></a>
+      <figcaption>Server settings while testing: HTTPS with the generated certificate.</figcaption>
+    </figure>
+    <ul>
+      <li><strong>HTTPS</strong> — <em>Serve HTTPS</em> adds an encrypted address next to the plain one, on its own port (for example <code>https://your-server:8443</code>). <em>HTTPS only for remote connections</em> sends anyone on another computer who uses the plain address on to the HTTPS one. From the server computer itself the plain address always keeps working, so a wrong setting can never lock you out.</li>
+      <li><strong>Certificate</strong> — while testing, the app can make its own (<em>self-signed</em>): each browser warns about it once, then lets you continue. In <strong>production</strong> it must be a certificate from a certificate authority — your organization, your hosting company, or a public one such as Let's Encrypt, DigiCert or GoDaddy. Enter the paths of its certificate file (with the intermediate certificates after it, as the authority provides them) and its key file, and <em>Check the files</em>. In production the server will not start without HTTPS, a valid certificate from an authority, and <em>HTTPS only for remote connections</em>.</li>
+      <li><strong>Trusted proxies</strong> — only when another server (a reverse proxy) sits in front of the app: its address, so the app believes what it reports about the visitor. Leave it empty otherwise.</li>
+      <li>Each field shows where its value comes from: <em>set here</em>, <em>from .env</em> or <em>default</em>. Values saved here win over <code>.env</code>; <em>Use .env instead</em> removes them. These settings take effect when the server starts: the page says <strong>Restart the server to apply</strong> until then.</li>
+      <li><strong>AI analysis</strong> — the provider, its API key and models, as at setup; <em>Off</em> turns the analysis off, <em>Use the .env settings</em> goes back to the operator's. Saved changes apply <strong>at once</strong>. The key is stored encrypted and never shown again; leave the field empty to keep it.</li>
+    </ul>
+    <div class="doc-note admin">A login made at the HTTPS address is never sent back over the plain one. In production, browsers are also told to use only HTTPS for this server from then on.</div>
+
     <h2 id="setup">First-time setup and the recovery key <span class="role-tag admin">Admin</span></h2>
     <p>A new installation shows only its <strong>setup page</strong> until it is finished; every other page leads there.</p>
     <figure class="doc-figure narrow">
@@ -271,7 +288,7 @@
     </ol>
     <p>Regular users that the operator listed in the server's settings are created at the same time and choose their own password at their first login.</p>
     <h3 id="move-data">Moving the data to another folder</h3>
-    <p>The data folder holds the database, its keys file and the activity log, each marked as belonging to this installation; the app refuses to start if a folder in its settings belongs to something else. To move it:</p>
+    <p>The data folder holds the database, its keys file, the activity log and the generated HTTPS certificate, each marked as belonging to this installation; the app refuses to start if a folder in its settings belongs to something else. To move it:</p>
     <ol>
       <li><strong>Stop the server</strong> — it keeps the database and the log open (the tool refuses while it runs).</li>
       <li>In the <code>backend</code> folder run <code>python move_data.py D:\IncidentBridge\data</code> — any new folder that is empty or does not exist yet. Add <code>--logs &lt;folder&gt;</code> to keep the activity log in a folder of its own.</li>

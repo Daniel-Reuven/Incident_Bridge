@@ -19,6 +19,18 @@ SecurityHeadersMiddleware adds to every response:
                              at once - no manual cache clearing after an
                              upgrade. Without it, browsers guess a lifetime
                              for the JS/CSS files and keep serving old ones.
+HttpsOnlyRemoteMiddleware - "HTTPS only for remote connections" (the
+Server settings page, app/server_settings.py): a request over plain HTTP
+from another computer is redirected (308) to the HTTPS port; HTTP from this
+computer itself stays open, so a broken certificate can never lock the admin
+out. In production, HTTPS responses carry Strict-Transport-Security (not for
+localhost, and not while testing - a browser would then refuse plain HTTP to
+that host for a year).
+
+The session cookie is marked Secure whenever the request came over HTTPS
+(or always, with SESSION_COOKIE_SECURE=true), so a login made over HTTPS is
+never sent back over plain HTTP.
+
 FastAPI's own API docs (/docs, /redoc) load their page from a CDN with an
 inline script, so they get every header except the CSP.
 
@@ -29,8 +41,11 @@ The frontend has no inline <script> code, so 'unsafe-inline' is only
 allowed for STYLES (a few pages use style="..." attributes).
 """
 
+import ipaddress
 import os
 from typing import Tuple
+
+from app import server_settings
 
 CONTENT_SECURITY_POLICY = "; ".join([
     "default-src 'self'",
@@ -82,6 +97,57 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_headers)
 
 
+HSTS_HEADER = (b"strict-transport-security", b"max-age=31536000")
+
+
+def is_loopback(host: str) -> bool:
+    if host in ("localhost",):
+        return True
+    try:
+        return ipaddress.ip_address(host.strip("[]").split("%")[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def _host_name(scope) -> str:
+    for name, value in scope.get("headers", []):
+        if name == b"host":
+            host = value.decode("latin-1")
+            return host[1:].split("]")[0] if host.startswith("[") else host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    server = scope.get("server") or ("localhost", None)
+    return server[0]
+
+
+class HttpsOnlyRemoteMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        running = server_settings.RUNNING
+        if scope["type"] != "http" or not running.https_port:
+            await self.app(scope, receive, send)
+            return
+        client = (scope.get("client") or ("", 0))[0]
+        if scope.get("scheme") == "http" and running.https_only_remote and not is_loopback(client):
+            host = _host_name(scope)
+            host = f"[{host}]" if ":" in host else host
+            port = "" if running.https_port == 443 else f":{running.https_port}"
+            query = scope.get("query_string", b"").decode("latin-1")
+            location = f"https://{host}{port}{scope.get('path', '/')}" + (f"?{query}" if query else "")
+            await send({"type": "http.response.start", "status": 308,
+                        "headers": [(b"location", location.encode("latin-1")), (b"content-length", b"0")]})
+            await send({"type": "http.response.body", "body": b""})
+            return
+        if scope.get("scheme") == "https" and running.mode == "production" and not is_loopback(_host_name(scope)):
+            async def send_with_hsts(message):
+                if message["type"] == "http.response.start":
+                    message = {**message, "headers": list(message.get("headers", [])) + [HSTS_HEADER]}
+                await send(message)
+            await self.app(scope, receive, send_with_hsts)
+            return
+        await self.app(scope, receive, send)
+
+
 def session_settings_from_env() -> Tuple[int, bool]:
     """
     (max_age_seconds, https_only) for the session cookie, from
@@ -115,8 +181,9 @@ class SessionFromSecrets:
 
     def __init__(self, app, **options):
         self.app = app
+        self.always_secure = options.pop("https_only", False)
         self.options = options
-        self._inner = None
+        self._inner = {}                        # Secure flag -> SessionMiddleware
         self._secret = None
 
     async def __call__(self, scope, receive, send):
@@ -126,7 +193,8 @@ class SessionFromSecrets:
         if scope["type"] not in ("http", "websocket") or secret is None:
             await self.app(scope, receive, send)
             return
-        if self._inner is None or secret != self._secret:
-            self._inner = SessionMiddleware(self.app, secret_key=secret, **self.options)
+        if secret != self._secret:
+            self._inner = {secure: SessionMiddleware(self.app, secret_key=secret, https_only=secure, **self.options)
+                           for secure in (False, True)}
             self._secret = secret
-        await self._inner(scope, receive, send)
+        await self._inner[self.always_secure or scope.get("scheme") in ("https", "wss")](scope, receive, send)

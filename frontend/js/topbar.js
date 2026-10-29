@@ -8,7 +8,7 @@ import { openSettings } from "./settings.js";
  * session isn't valid, redirects to the login page and returns null
  * instead of throwing, so callers can just check the return value.
  *
- * Buttons: the username; for admins "Site portal", "Users" and "Logs" (styled with
+ * Buttons: the username; for admins "Site portal", "Users", "Logs" and "Server" (styled with
  * the admin-action color, so they read as admin-only areas - not rendered
  * for other roles, and their APIs refuse them with 403 anyway); "Settings"
  * (password and interface - js/settings.js); and "Log out" on its own, as
@@ -41,6 +41,7 @@ export async function mountTopbar() {
     `<a class="btn btn-admin btn-sm" href="${href}"${here === href ? ' aria-current="page"' : ""}>${label}</a>`;
   const adminButtons = user.role === "admin"
     ? adminButton("/sites.html", "Site portal") + adminButton("/users.html", "Users") + adminButton("/logs.html", "Logs")
+      + adminButton("/server.html", "Server")
     : "";
 
   const el = document.getElementById("topbar");

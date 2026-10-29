@@ -7,6 +7,8 @@ app_settings), so no secret has to sit in a file:
     "ai"        the AI analysis settings chosen on the setup page, by their
                 .env names (AI_PROVIDER, GEMINI_API_KEY, ANTHROPIC_MODEL, ...);
                 they take precedence over .env (app/ai/stored_settings.py)
+    "server"    the Server settings page's HTTPS settings (app/server_settings.py)
+    "tls_generated"  the password of the generated certificate's key (app/security/tls.py)
 
 Values are JSON. Same conventions as the other stores: one connection
 through app/database.py, guarded by a lock.
@@ -57,6 +59,11 @@ class SqliteSettingsStore:
             names = [row[0] for row in self._conn.execute("SELECT name FROM app_settings")]
             for name in names:
                 data_integrity.saved(self._conn, "setting", name)
+
+    def record(self, name: str) -> None:
+        """Fingerprint one setting now - saved by serve_app.py before the activity log was running."""
+        with self._lock:
+            data_integrity.saved(self._conn, "setting", name)
 
     def close(self) -> None:
         with self._lock:

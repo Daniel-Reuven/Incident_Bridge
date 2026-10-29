@@ -55,6 +55,14 @@ export const api = {
   previewDisplay: (body) => request("/users/display-preview", { method: "POST", body }),
   updateUserDetails: (username, details) =>
     request(`/users/${encodeURIComponent(username)}/details`, { method: "PATCH", body: details }),
+  serverSettings: () => request("/server/settings"),
+  saveServerSettings: (changes) => request("/server/settings", { method: "PUT", body: changes }),
+  resetServerSettings: () => request("/server/settings", { method: "DELETE" }),
+  checkCertificate: (body) => request("/server/certificate/check", { method: "POST", body }),
+  generateCertificate: () => request("/server/certificate/generate", { method: "POST" }),
+  serverAI: () => request("/server/ai"),
+  saveServerAI: (body) => request("/server/ai", { method: "PUT", body }),
+  testServerAI: (body) => request("/server/ai/test", { method: "POST", body }),
   savePreferences: (changes) => request("/auth/preferences", { method: "PATCH", body: changes }),
   changePassword: (current_password, new_password, confirm_password) =>
     request("/auth/change-password", { method: "POST", body: { current_password, new_password, confirm_password } }),

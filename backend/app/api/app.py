@@ -29,11 +29,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import analysis, auth, events, incidents, logs, setup, sites, users
+from app.api import analysis, auth, events, incidents, logs, server, setup, sites, users
 from app.api.deps import get_session_user
 from app.api.lifecycle import start_services, stop_services
 from app.api.request_log import RequestLogMiddleware
-from app.api.security import SecurityHeadersMiddleware, SessionFromSecrets, session_settings_from_env
+from app.api.security import (HttpsOnlyRemoteMiddleware, SecurityHeadersMiddleware, SessionFromSecrets,
+                              session_settings_from_env)
 from app.api.setup import SetupGateMiddleware, SetupSession
 from app.logs import app_log, apply_console_format
 from app.version import app_version
@@ -106,6 +107,8 @@ app.add_middleware(SetupGateMiddleware)
 
 # Security headers on every response (CSP, no framing, nosniff, referrer policy).
 app.add_middleware(SecurityHeadersMiddleware)
+# Outermost: remote plain HTTP -> HTTPS, when the Server settings say so (app/server_settings.py).
+app.add_middleware(HttpsOnlyRemoteMiddleware)
 
 # --- CORS: only needed if the frontend is served from a different origin ---
 # than this API during development. The normal setup (frontend served by
@@ -129,6 +132,7 @@ app.include_router(incidents.router)
 app.include_router(events.router)
 app.include_router(sites.router)   # admin-only site portal (Sites & Mailing Lists)
 app.include_router(analysis.router)   # AI analysis of faults (app/ai/)
+app.include_router(server.router)     # admin-only Server settings (HTTPS, AI)
 
 
 # --- centralized exception -> HTTP status mapping ---

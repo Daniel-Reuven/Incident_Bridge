@@ -126,7 +126,7 @@ def test_the_guide_uses_every_readme_screenshot():
 def test_the_readme_screenshots_exist():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     links = set(re.findall(r"\((docs/screenshots/[^)]+)\)", readme))
-    assert len(links) == 12         # 5 until Settings / dark theme / Users, 9 until Logs, 10 until Setup, 11 until names
+    assert len(links) == 13         # 5 until Settings / dark theme / Users, 9 until Logs, 10 until Setup, 12 until Server
     for link in links:
         assert (ROOT / link).is_file(), link
 
@@ -142,7 +142,7 @@ def png_size(path):
 def test_every_guide_image_exists_with_its_real_size():
     guide = (FRONTEND / "guide.html").read_text(encoding="utf-8")
     images = re.findall(r'<img src="/screenshots/([^"]+)"[^>]* width="(\d+)" height="(\d+)"', guide)
-    assert len(images) == 12
+    assert len(images) == 13
     for name, width, height in images:
         assert png_size(SCREENSHOTS / name) == (int(width), int(height)), name
 

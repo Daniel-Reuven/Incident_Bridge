@@ -14,7 +14,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "incident-bridge"
 # The project's single version number - bump it here (there is no separate VERSION file).
-version = "0.7.0"
+version = "0.5.0"
 description = "Incident Bridge - incident management backend (FastAPI)"
 requires-python = ">=3.9"
 
@@ -29,6 +29,7 @@ dependencies = [
     "sqlcipher3>=0.6.4",    # app/database.py - the whole database encrypted (SQLite + SQLCipher)
     "cryptography>=43",     # app/security/crypto.py - AES-GCM key wrapping, HKDF
     "keyring>=25",          # app/security/key_providers.py - the OS credential store for the machine key
+    "certifi>=2024.2",      # app/security/tls.py - the public certificate authorities (production certificate check)
 ]
 
 [project.optional-dependencies]

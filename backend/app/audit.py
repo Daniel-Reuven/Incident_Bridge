@@ -100,7 +100,7 @@ FILE_PREFIX = "incident_bridge"
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
-CATEGORIES = ("http", "auth", "users", "incident", "site", "external", "data", "setup", "app")
+CATEGORIES = ("http", "auth", "users", "incident", "site", "external", "data", "setup", "server", "app")
 _FIELD_ORDER = ("ts", "level", "category", "event", "user", "ip", "message")
 MONTH_FILE = re.compile(rf"^{FILE_PREFIX}-(\d{{4}}-\d{{2}})\.jsonl$")
 MONTH_ARCHIVE = re.compile(rf"^{FILE_PREFIX}-(\d{{4}}-\d{{2}})\.zip(\.enc)?$")

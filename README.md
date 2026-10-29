@@ -101,9 +101,13 @@ The web app as of v0.5.0 (with the dashboard tabs, Settings and Users page), wit
 
 [![Details dialog](docs/screenshots/12-user-details.png)](docs/screenshots/12-user-details.png)
 
+**13. Server settings (admin only)** — HTTPS running next to HTTP with the generated certificate (testing mode), where each value comes from, trusted proxies, and the AI analysis provider; saved values win over `.env` and apply at the next restart, the AI settings at once.
+
+[![Server settings page](docs/screenshots/13-server-settings.png)](docs/screenshots/13-server-settings.png)
+
 The same images illustrate the app's own **Guide** page (`/guide.html`), which serves them from this folder at `/screenshots/` — one copy for both.
 
-*Updating the screenshots:* run the app with a fresh database (`AI_PROVIDER=fake`, `SITES_SEED_PATH` and `MAILING_LISTS_SEED_PATH` set), finish the setup page (capturing its panel at the recovery-key step), import the sample data, press *Check all sites* and analyze `seed-075`, then capture each page in a 1440×900 browser window — the login page cropped to its card (580×477), the pressing page and the Users page to 1440×720, the Logs page (after a failed and a successful login and a claim from another browser, *Check integrity*, one record opened) at 1440×900, the fault page as a full-page capture, the two Settings tabs cropped to the dialog, and the dark dashboard on its *Faults* tab — and save each under the same file name in `docs/screenshots/`. Then update the `width`/`height` of the matching `<img>` in `frontend/guide.html` if a size changed.
+*Updating the screenshots:* run the app through `serve_app.py` with a fresh database (`AI_PROVIDER=fake`, `SITES_SEED_PATH` and `MAILING_LISTS_SEED_PATH` set, `HTTPS_ENABLED=true`, `HTTPS_ONLY_REMOTE=true`), finish the setup page (capturing its panel at the recovery-key step) and restart once (so the lasting certificate exists), import the sample data, give the users their details and the format `{first-name} {last-name} ({location})`, press *Check all sites* and analyze `seed-075`, then capture each page in a 1440×900 browser window — the login page cropped to its card (580×477), the pressing page to 1440×720, the Users page at 1440×900, the Details dialog of `tech1` with a format of their own, the Server settings page as a full-page capture, the Logs page (after a failed and a successful login and a claim from another browser, *Check integrity*, one record opened) at 1440×900, the fault page as a full-page capture, the two Settings tabs cropped to the dialog, and the dark dashboard on its *Faults* tab — and save each under the same file name in `docs/screenshots/`. Then update the `width`/`height` of the matching `<img>` in `frontend/guide.html` if a size changed.
 
 ---
 
@@ -575,6 +579,7 @@ Both live in `backend/app/context.py`; neither ever suppresses an exception (`__
 - **Passwords:** the character-mix policy in `PasswordPolicy` — 8–128 characters with an uppercase letter, a lowercase letter, a digit and a symbol, not containing the username, not on a list of common passwords, and (when changing) different from the current one; served as data by `GET /auth/password-policy` for the live checklist and tooltip, and described on the Guide page (`/guide.html#password-policy`). Stored as PBKDF2-HMAC-SHA256 with a random salt and **600,000 iterations** (the count is stored with each hash; an older, weaker hash is re-hashed at the next login), compared in constant time. Changing a password needs the current one and a matching confirmation (checked by the server).
 - **Sessions and login hardening:** a signed cookie holding the username and the user's *session version*; the user, role and version are checked on every request, never trusted from the browser. A password change/reset or disabling the account bumps the version, which ends every other session. The cookie lasts `SESSION_MAX_AGE_HOURS` (default 12) and is `Secure` when `SESSION_COOKIE_SECURE=true`. Failed logins are limited (`app/services/login_guard.py`): 5 per username or 20 per address in 15 minutes lock that username/address for 15 minutes (HTTP 429). An unknown or disabled username gets the same answer in the same time as a wrong password. A user who must change their password gets 403 from every endpoint except `/auth/me` and `/auth/change-password` until they do.
 - **Security headers** on every response (`app/api/security.py`): a Content-Security-Policy (scripts, styles, images and API calls only from the app itself, Google Fonts for the two web fonts, no framing), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and a restrictive `Permissions-Policy`.
+- **HTTPS and the Server settings page** (`app/server_settings.py`, `app/security/tls.py`, `app/api/server.py`, `server.html`): `serve_app.py` runs **HTTP and HTTPS side by side** in one process (two Uvicorn servers sharing the app; HTTPS turns auto-reload off). **APP_MODE** (`.env` only): `testing` (default) allows a **generated self-signed certificate** — EC P-256, one year, names `localhost`, the computer's name, `127.0.0.1`, `::1` and its own addresses, its key encrypted on disk under `<data folder>/tls/` with the password in the encrypted database; `production` refuses to start unless HTTPS is on, with **certificate files from a certificate authority** (checked before anything starts: the key fits, not expired, the chain verifies against the public authorities in `certifi` — Mozilla's list — with the intermediates in the same file) and "HTTPS only for remote connections". **HTTPS only for remote connections** (`HttpsOnlyRemoteMiddleware`): plain HTTP from another computer gets a 308 redirect to the HTTPS port; loopback HTTP always stays open, so a wrong setting cannot lock the admin out. **HSTS** (`max-age=31536000`) only in production, on HTTPS, never for localhost. The **session cookie is `Secure` whenever the request came over HTTPS** (or always, with `SESSION_COOKIE_SECURE=true`). **Trusted proxies**: forwarded headers (`X-Forwarded-For`, `X-Forwarded-Proto`) are believed only from the listed addresses or networks (Uvicorn's `forwarded_allow_ips`); none by default. The **Server settings page** (admin) shows what is running, the settings with where each comes from (*set here* / *from .env* / *default*), the certificate's details and problems, *Check the files* and *Make a new self-signed certificate*; values saved there (encrypted, `app_settings["server"]`) **win over `.env`** and apply at the next restart (the page says so). The same page holds the **AI analysis settings after setup** (provider, key — kept if left empty, never shown — models, *Test the connection*, `Off`, or back to `.env`), applied at once by swapping the analysis worker. Every change is in the activity log (category `server`).
 - **Data folders** (`app/security/data_folders.py`): the installation keeps its database, keys file and log in folders of its own — by default all inside `DATA_DIR` (`backend/instance/`). At setup every one of them must be **empty or not exist yet**; the setup page lists each folder with ✓ or what is in it, and refuses to continue until it is emptied or `.env` points elsewhere ("Check again" after emptying; restart after changing `.env`). After setup each folder holds a marker, `.incident-bridge`, with the installation's id; at every start the markers must name this installation, so a path pointed at the wrong folder stops the app with that message. The running server leaves a lock file, and **`move_data.py <new folder> [--logs <folder>]`** — server stopped — copies the database, keys file, log and markers, checks the copy opens as the same installation and every log line decrypts, and prints the `.env` lines; the old folder is left for you to delete. The machine key file (if `KEY_PROVIDER=file`) stays in the user's app-data folder, never with the data.
 - **Display names** (`app/display_names.py`, `js/people.js`): accounts have optional first / middle / last name, job title and location; how people are shown comes from a template such as `{first-name} {last-name} - {job-title} ({location})` — one format for everyone (admin, Users page; kept in the encrypted settings) and an optional format of a person's own, picked from presets or written with placeholder buttons, with a live preview. Empty fields leave no stray `()` or ` - `; nothing left → the username. The **location** part is drawn lighter and smaller. Pages show display names wherever a username used to appear (top bar, reporter, update authors, pressing calls, site portal, live-update toasts) from `GET /users/directory`; the username stays the identity — logins, the activity log, the integrity checks and the AI prompt use it, and the Users page shows it under the name.
 - **Encryption at rest and the first-start setup** (`app/database.py`, `app/security/`, `app/api/setup.py`, `frontend/setup.html`): the **whole database file is encrypted** with SQLCipher (`sqlcipher3`: AES-256, every page checked with an HMAC); there is no unencrypted mode. Keys work like a disk-encryption tool's: a **recovery key** (256 random bits, shown once at setup), the **database key** derived from it (HKDF), and a **machine key** kept by the operating system that unlocks a wrapped copy of the database key at every start — Windows Credential Manager (DPAPI), macOS Keychain or a Linux desktop's Secret Service through `keyring`, `systemd-creds` for a Linux service (TPM2 when present), else a key file readable only by the app's user (with a warning at every start). The keys file next to the database (`<DATABASE_PATH>.keys`) holds no secret on its own. A **new installation** answers nothing but the setup page until it is done: the console prints a one-time **setup code**; the page shows the recovery key (copy / download, confirmed by typing its last two groups), creates the first admin, optionally stores the AI provider settings (with a *Test connection* that GETs the provider's model list), creates the regular users, generates the app's secrets (session cookie key, log signing key — kept in the encrypted `app_settings` table, never in `.env`) and starts the app without a restart. `manage_keys.py` shows the key status, **restores** access with the recovery key (new machine, lost key store) and issues a **new recovery key** (re-encrypting the database). A database without its keys file is refused at startup with that advice.
@@ -610,6 +615,7 @@ Both live in `backend/app/context.py`; neither ever suppresses an exception (`__
 | Maintenance | `GET /incidents/maintenance/queue`, `POST /incidents/maintenance`, `POST .../start-next`, `POST .../{id}/start`, `POST .../complete-current`, `POST .../{id}/close`, `GET .../reopen-options`, `POST .../{id}/reopen`, `GET .../pressing` |
 | Faults | `GET /incidents/faults/queue`, `POST /incidents/faults`, `POST .../claim-next`, `GET .../{id}/claim-status`, `POST .../{id}/claim`, `PATCH .../{id}/severity`, `POST .../{id}/close`, `POST .../{id}/reopen` |
 | Site portal (admin) | `GET`/`POST /sites`, `GET /sites/report`, `POST /sites/check-all`, `GET`/`PATCH /sites/{id}`, `POST /sites/{id}/status`, `POST /sites/{id}/check`, `POST /sites/{id}/archive` and `/restore`; `GET`/`POST /sites/mailing-lists`, `PATCH /sites/mailing-lists/{id}`, `.../archive`, `.../restore`; `GET /sites/notifications`, `POST /sites/notifications/{id}/send` and `/dismiss` |
+| Server settings (admin) | `GET`/`PUT`/`DELETE /server/settings` (HTTPS; `DELETE` = back to `.env`), `POST /server/certificate/check`, `POST /server/certificate/generate` (testing only), `GET`/`PUT /server/ai`, `POST /server/ai/test` |
 | Activity log (admin) | `GET /logs/months`, `GET /logs?month=&category=&event=&user=&level=&q=&limit=&offset=` (`category=!http,data`: all but those categories), `GET /logs/verify` |
 | AI analysis | `GET /incidents/faults/{id}/analysis`, `POST /incidents/faults/{id}/analysis` (`?force=true`: admin re-analysis), `POST /incidents/faults/{id}/analysis/cancel` |
 | Live updates | `GET /events?client_id=...` |
@@ -635,7 +641,7 @@ Incident_Bridge/
 ├── backend/
 │   ├── pyproject.toml            # dependencies, version, pytest settings
 │   ├── .env.example              # copy to .env - users, secrets, optional settings
-│   ├── serve_app.py              # starts the web app (loads .env, checks users and AI settings, runs uvicorn)
+│   ├── serve_app.py              # starts the web app (loads .env, checks users, AI and HTTPS settings, runs HTTP + HTTPS)
 │   ├── seed_from_jsonl.py        # imports a JSONL file into a RUNNING server, live
 │   ├── manage_users.py           # list users / reset a password / enable an account (server stopped)
 │   ├── manage_keys.py            # encryption keys: status / restore with the recovery key / new recovery key
@@ -671,11 +677,11 @@ Incident_Bridge/
 │   │   │   └── reanalysis.py     #   when a fault may be analyzed again
 │   │   ├── api/
 │   │   │   ├── app.py            # FastAPI app: middleware, routers, error mapping, frontend files
-│   │   │   ├── auth.py, users.py, incidents.py, events.py, sites.py, analysis.py, logs.py   # routers
+│   │   │   ├── auth.py, users.py, incidents.py, events.py, sites.py, analysis.py, logs.py, server.py   # routers
 │   │   │   ├── request_log.py    # ASGI middleware: one activity record per HTTP request
 │   │   │   ├── setup.py          # first-start setup endpoints + the gate that holds everything else back
 │   │   │   ├── lifecycle.py      # start/stop the services once the database is unlocked
-│   │   │   ├── security.py       # security headers + session cookie settings
+│   │   │   ├── security.py       # security headers, HTTPS-only redirect + HSTS, session cookie settings
 │   │   │   ├── deps.py           # shared dependencies (state, current user/admin, broadcaster, AI worker)
 │   │   │   ├── schemas.py, site_schemas.py                  # request bodies
 │   │   │   └── serializers.py, site_serializers.py          # objects -> JSON-ready dicts
@@ -686,8 +692,9 @@ Incident_Bridge/
 │   │   ├── persistence_sites.py  # SqliteSiteStore
 │   │   ├── persistence_users.py  # SqliteUserStore (user accounts)
 │   │   ├── database.py           # connect(): every store's SQLCipher connection (encrypted, needs the key)
-│   │   ├── security/             # crypto.py (key wrap, recovery key), key_providers.py (OS store / systemd / file), installation.py (keys file, unlock, restore), data_folders.py (dedicated folders, markers, lock)
-│   │   ├── settings_store.py     # app_settings table: the app's secrets and the AI settings, encrypted
+│   │   ├── security/             # crypto.py (key wrap, recovery key), key_providers.py (OS store / systemd / file), installation.py (keys file, unlock, restore), data_folders.py (dedicated folders, markers, lock), tls.py (HTTPS certificate: generated / files, checks)
+│   │   ├── settings_store.py     # app_settings table: the app's secrets, the AI and server settings, encrypted
+│   │   ├── server_settings.py    # how the server listens: ports, HTTPS, certificate, trusted proxies, APP_MODE
 │   │   ├── display_names.py      # display-name templates: placeholders, presets, render() with the lighter location
 │   │   ├── app_secrets.py        # session cookie key + log signing key, generated at setup
 │   │   ├── sites.py              # SiteDirectory: sites, lists, notifications, checks, seed loading
@@ -706,7 +713,7 @@ Incident_Bridge/
 │   ├── logs/                     # activity log files + archive/ (LOG_DIR; created at startup, not in git)
 │   └── tests/                    # automated tests (see §14)
 ├── frontend/
-│   ├── index.html, setup.html, dashboard.html, incident.html, pressing.html, sites.html, users.html, logs.html
+│   ├── index.html, setup.html, dashboard.html, incident.html, pressing.html, sites.html, users.html, logs.html, server.html
 │   ├── guide.html, about.html, terms.html   # public pages - no login needed
 │   ├── css/styles.css
 │   └── js/
@@ -726,6 +733,7 @@ Incident_Bridge/
 │       ├── people.js             # display names for every page (GET /users/directory)
 │       ├── users.js              # admin user management
 │       ├── logs.js               # admin activity log: filters, details, integrity check
+│       ├── server.js             # admin Server settings: HTTPS, certificate, AI
 │       └── sites.js, sites-format.js   # site portal
 ```
 
@@ -764,9 +772,9 @@ Incident_Bridge/
 
 ## 14. Automated testing
 
-`backend/tests/` holds **1351 tests** (pytest), all passing, with **96% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
+`backend/tests/` holds **1382 tests** (pytest), all passing, with **96% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
 
-- **Isolated from your settings** — `tests/conftest.py` clears every app setting from the environment and stops `backend/.env` from being loaded, so the suite gives the same result with or without your own `.env` (users, AI provider, database, log options).
+- **Isolated from your settings** — `tests/conftest.py` clears every app setting from the environment and stops `backend/.env` from being loaded, so the suite gives the same result with or without your own `.env` (users, AI provider, database, data folders, HTTPS, log options). Tests that start `serve_app.py` as a process of its own (which does load `.env`) pass it `env_without_dotenv()`: every setting named in `.env.example` or `.env` is set — to the test's value, else empty — so nothing from your `.env` (such as a path to your real installation) applies.
 - **Unit tests** — the domain classes directly, no HTTP and no database: models (`tests/test_models/`), services (`tests/test_services/`), queues (`tests/test_queues/`), iterators, the generator, context managers, the scan, the report, the site directory, user provisioning and JSONL validation.
 - **Integration tests** (`tests/test_api/`) — the real app over HTTP with FastAPI's `TestClient` and a fresh in-memory database per test: permissions, error codes, every endpoint, live-update audiences. The `admin_client` and `user_client` fixtures are two separately logged-in users sharing the same backend.
 - **Restart tests** — two app instances on the same database file, proving data survives a restart.
@@ -776,6 +784,7 @@ Incident_Bridge/
 - **Encryption and keys** (`test_installation.py`) — the file is unreadable without the key (and by plain `sqlite3`), a wrong key is refused, key wrapping, the recovery key format, status new / installed / orphan, unlocking at every start, restoring a lost machine key or keys file with the recovery key, the OS credential store (with a stand-in), `manage_keys.py` restore / status / new recovery key (re-encryption).
 - **First-start setup** (`test_setup.py`) — the gate (pages redirected, API 503, setup files open), the setup code and its replacement after 10 wrong tries, the recovery key, every refused completion changing nothing, an admin in `INCIDENT_BRIDGE_USERS` refused, the accounts created, AI settings stored and winning over `.env`, a restart that unlocks by itself and keeps logins valid, an interrupted setup, a database without its keys file.
 - **Data folders** (`test_data_folders.py`) — the default folder, a folder counting as empty, the setup refusing folders that are not empty (and continuing once emptied), the markers and a wrong folder stopping the start, `move_data.py` (refused while running or into a used folder; the app starts from the moved copy).
+- **HTTPS** (`test_https.py`) — settings from `.env` and the page (which wins), bad values, the production rules; the generated certificate (key encrypted, refused in production, wrong password), a certificate chain from a test authority (passes; refused without its intermediate, from an unknown authority, with a wrong key, expired; a renewal warning); the remote redirect (not for this computer, not over HTTPS), HSTS only in production and never for localhost, the `Secure` cookie over HTTPS; the Server settings API (admins only, restart needed, unusable settings not saved, the key password kept and never shown, a new certificate), the AI settings applied at once (on, off, `.env`, a kept key); `serve_app.py`'s plan (the pre-setup certificate stays out of the data folder; production refuses the generated one) and a certificate made before the start not reported as added by hand.
 - **Display names** (`test_display_names.py`) — the template and its tidying of empty fields, the lighter location part, invalid formats, the directory, the default and own formats, admin-only changes, the preview, names at creation, setup and from `.env`, the log naming changed fields but not their values, a restart.
 - **Interface preferences** (`test_preferences.py`) — defaults, saved per user and returned at login in another browser, invalid values refused, logged-out and forced-change users refused, survival across a restart, bad stored values, the column added to an older database, the activity record.
 - **`test_main_demo.py`** — runs `main.py` and checks every section prints and it finishes cleanly.
@@ -808,7 +817,7 @@ No extra package is needed for AI analysis: every provider is called through `re
 |---|---|---|
 | `INCIDENT_BRIDGE_USERS` | No | **Regular** users the setup page creates: JSON array of `username`, `password` (must follow the password policy), `role` = `user` (an `admin` entry is refused — the first admin is created on the setup page). Not read after the setup. |
 | `REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN` | No | `true` (default): a password chosen by someone else must be changed at the next login — the first users, accounts an admin creates and passwords an admin resets. `false` turns this off for passwords set from then on; accounts already flagged keep the flag |
-| `SESSION_MAX_AGE_HOURS`, `SESSION_COOKIE_SECURE` | No | Login lifetime (default 12 hours) and the cookie's `Secure` flag (default `false`; set `true` behind HTTPS) |
+| `SESSION_MAX_AGE_HOURS`, `SESSION_COOKIE_SECURE` | No | Login lifetime (default 12 hours) and the cookie's `Secure` flag (default `false`: `Secure` whenever the request came over HTTPS; `true`: always) |
 | `LOG_DIR`, `LOG_ARCHIVE_DIR` | No | Activity log root (default `<DATA_DIR>/logs`; each installation writes to `<LOG_DIR>/<installation id>/`) and archive root (default: an `archive` folder inside the installation's folder); relative paths are resolved against `backend/` |
 | `LOG_FILE_ENABLED` | No | `true` (default); `false` writes no log files |
 | `LOG_IP_MODE` | No | How client addresses appear in the activity log and on the console: `hashed` (default, a stable pseudonym), `masked` (`***.***.***.1`), `full` or `off`. Anything else stops startup |
@@ -816,7 +825,11 @@ No extra package is needed for AI analysis: every provider is called through `re
 | `DATABASE_PATH` | No | The encrypted database file; default `<DATA_DIR>/incident_bridge.db`; relative paths are resolved against `backend/` |
 | `DATABASE_KEYS_PATH` | No | The keys file (no secret on its own); default `<DATABASE_PATH>.keys` |
 | `KEY_PROVIDER`, `MACHINE_KEY_DIR` | No | Where the machine key goes at setup / restore: `auto` (default: systemd credential if present, else the OS credential store, else a key file), `keyring`, `systemd` or `file`; `MACHINE_KEY_DIR` is the key file's folder (default: the user's app-data folder, never the project) |
-| `HOST`, `PORT`, `RELOAD` | No | Used by `serve_app.py` (defaults `0.0.0.0`, `8000`, auto-reload on) |
+| `HOST`, `PORT`, `RELOAD` | No | Used by `serve_app.py` (defaults `0.0.0.0`, `8000`, auto-reload on — off while HTTPS is on) |
+| `APP_MODE` | No | `testing` (default) or `production` — production requires HTTPS with certificate files from a certificate authority and "HTTPS only for remote connections", or the server will not start |
+| `HTTPS_ENABLED`, `HTTPS_PORT`, `HTTPS_ONLY_REMOTE` | No | Serve HTTPS too (default `false`) on `HTTPS_PORT` (default `8443`); `HTTPS_ONLY_REMOTE=true` redirects other computers' HTTP to HTTPS. The Server settings page's values win over these |
+| `TLS_CERT_FILE`, `TLS_KEY_FILE`, `TLS_KEY_PASSWORD` | No | The certificate (PEM, intermediates after it) and its key; without them, testing uses a generated self-signed certificate |
+| `TRUSTED_PROXIES` | No | Comma-separated addresses or networks of a reverse proxy whose `X-Forwarded-*` headers are believed (default: none) |
 | `ALLOWED_ORIGINS` | No | Only if the frontend is served from another origin |
 | `SITES_SEED_PATH`, `MAILING_LISTS_SEED_PATH` | No | Import `data/sites.jsonl` / `data/mailing_lists.jsonl` at startup (relative to the repository root) |
 | `SITE_CHECK_TIMEOUT_SECONDS`, `SITE_CHECK_SLOW_MS` | No | Site check timeout (default 5 s) and "slow" threshold (default 2000 ms) |
@@ -955,7 +968,8 @@ We plan to implement more features in the future, such as performance improvemen
 - **Backend:** Python 3.9+, FastAPI, Uvicorn; packaging, dependencies and test settings in `backend/pyproject.toml`
 - **Frontend:** HTML / CSS / vanilla JavaScript (no build step, no framework), served by the same app
 - **Data structures:** `collections.deque` (maintenance FIFO), `heapq` (shared fault priority queue), plus `dict`, `set`, `tuple`/`NamedTuple` and `list` where each fits ([§3](#3-data-structures--what-is-used-where-and-why))
-- **Encryption:** SQLCipher (`sqlcipher3`) for the whole database; `cryptography` (AES-GCM key wrapping, HKDF); `keyring` for the OS credential store (or `systemd-creds` / a protected key file)
+- **Encryption:** SQLCipher (`sqlcipher3`) for the whole database; `cryptography` (AES-GCM key wrapping, HKDF; the HTTPS certificate: generation and chain verification); `keyring` for the OS credential store (or `systemd-creds` / a protected key file); `certifi` (the public certificate authorities)
+- **HTTPS:** Uvicorn's TLS, HTTP and HTTPS listeners in one process; redirect, HSTS and the `Secure` cookie in ASGI middleware
 - **Auth:** users in the encrypted database (the first admin from the setup page, regular users optionally from `.env`, fail-fast validation), admin user management, signed session cookie with a session version (Starlette `SessionMiddleware`, `itsdangerous`), two roles (Admin/User), character-mix password policy, PBKDF2 (600,000 iterations), login lockout, security headers
 - **Persistence:** SQLite encrypted with SQLCipher (`app/database.py`), one connection per store guarded by a `threading.Lock`
 - **Live updates:** Server-Sent Events with role-based audiences; `asyncio.Queue` per browser tab, bridged from worker threads with `loop.call_soon_threadsafe`

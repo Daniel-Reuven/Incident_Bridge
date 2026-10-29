@@ -8,7 +8,6 @@ Run from backend/:  python -m pytest tests/test_user_provisioning.py -v
 """
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +16,7 @@ import pytest
 
 from app.models import Role, User
 from app.repository import UserProvisioningError, UserStore, seed_users_from_env
+from tests.conftest import env_without_dotenv
 
 ADMIN = {"username": "admin", "password": "Passw0rd!1", "role": "admin"}
 TECH = {"username": "tech1", "password": "Passw0rd!2", "role": "user"}
@@ -132,8 +132,8 @@ def test_unset_blank_or_empty_means_no_regular_users(monkeypatch, app_log, value
 
 def test_serve_app_exits_with_the_message_and_no_traceback(tmp_path):
     backend = Path(__file__).resolve().parents[1]
-    # Real values beat backend/.env (load_dotenv never overrides); a new installation, so the users are checked.
-    env = {**os.environ, "INCIDENT_BRIDGE_USERS": json.dumps([TECH, TECH]), "DATABASE_PATH": str(tmp_path / "t.db")}
+    # Every setting is set (backend/.env never applies - tests/conftest.py); a new installation, so the users are checked.
+    env = env_without_dotenv(INCIDENT_BRIDGE_USERS=json.dumps([TECH, TECH]), DATABASE_PATH=str(tmp_path / "t.db"))
     result = subprocess.run([sys.executable, "serve_app.py"], cwd=backend, env=env,
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 1
@@ -144,9 +144,28 @@ def test_serve_app_exits_with_the_message_and_no_traceback(tmp_path):
 def test_serve_app_refuses_a_database_without_its_keys_file(tmp_path):
     backend = Path(__file__).resolve().parents[1]
     (tmp_path / "t.db").write_bytes(b"not a database")
-    env = {**os.environ, "DATABASE_PATH": str(tmp_path / "t.db")}
+    env = env_without_dotenv(DATABASE_PATH=str(tmp_path / "t.db"))
     result = subprocess.run([sys.executable, "serve_app.py"], cwd=backend, env=env,
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 1
     assert "has no keys file" in result.stderr and "manage_keys.py restore" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_serve_app_refuses_a_keys_file_from_another_database(tmp_path, monkeypatch):
+    """A keys file and a database that do not belong together: the message, not a traceback."""
+    from app.security.installation import Installation
+    backend = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "a" / "ib.db"))
+    installation = Installation.from_env()
+    _, key, data = installation.create()
+    installation.save_new(key, data)                            # a real keys file (installation "a")
+    (tmp_path / "b").mkdir()
+    (tmp_path / "b" / "ib.db").write_bytes(b"not this installation's database")
+    env = env_without_dotenv(DATABASE_PATH=str(tmp_path / "b" / "ib.db"),
+                             DATABASE_KEYS_PATH=str(tmp_path / "a" / "ib.db.keys"))
+    result = subprocess.run([sys.executable, "serve_app.py"], cwd=backend, env=env,
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 1
+    assert "does not open with the key from" in result.stderr
+    assert "Traceback" not in result.stderr and "sqlite3Codec" not in result.stderr
