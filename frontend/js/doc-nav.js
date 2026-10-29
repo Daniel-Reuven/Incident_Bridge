@@ -1,6 +1,7 @@
 /**
- * Navigation for the long public pages that have an "On this page" list
- * (<nav class="doc-toc"> - guide.html, terms.html):
+ * Navigation for the long pages that have an "On this page" list
+ * (<nav class="doc-toc"> - guide.html, terms.html; demo.html marks its list
+ * data-built-later and calls mountDocNavigation() once it has filled it):
  *
  * 1. Side contents: on a wide window the list moves to a column beside the
  *    text and stays in view while scrolling (CSS position: sticky). The
@@ -123,9 +124,12 @@ function mountJumpButtons() {
   update();
 }
 
-const toc = document.querySelector("main .doc-toc");
-if (toc) {
+/** Everything above, for a page that builds its list after loading (js/demo.js). */
+export function mountDocNavigation(toc) {
   mountSideContents(toc);
   highlightCurrentSection(toc);
   mountJumpButtons();
 }
+
+const toc = document.querySelector("main .doc-toc:not([data-built-later])");
+if (toc) mountDocNavigation(toc);

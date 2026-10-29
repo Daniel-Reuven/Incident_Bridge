@@ -55,6 +55,8 @@ export const api = {
   previewDisplay: (body) => request("/users/display-preview", { method: "POST", body }),
   updateUserDetails: (username, details) =>
     request(`/users/${encodeURIComponent(username)}/details`, { method: "PATCH", body: details }),
+  demoRequirements: () => request("/demo/requirements"),
+  runDemo: (id) => request(`/demo/requirements/${encodeURIComponent(id)}/run`, { method: "POST" }),
   serverSettings: () => request("/server/settings"),
   saveServerSettings: (changes) => request("/server/settings", { method: "PUT", body: changes }),
   resetServerSettings: () => request("/server/settings", { method: "DELETE" }),

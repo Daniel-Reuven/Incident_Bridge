@@ -29,7 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import analysis, auth, events, incidents, logs, server, setup, sites, users
+from app.api import analysis, auth, demo, events, incidents, logs, server, setup, sites, users
 from app.api.deps import get_session_user
 from app.api.lifecycle import start_services, stop_services
 from app.api.request_log import RequestLogMiddleware
@@ -133,6 +133,7 @@ app.include_router(events.router)
 app.include_router(sites.router)   # admin-only site portal (Sites & Mailing Lists)
 app.include_router(analysis.router)   # AI analysis of faults (app/ai/)
 app.include_router(server.router)     # admin-only Server settings (HTTPS, AI)
+app.include_router(demo.router)       # the requirements demo page (any logged-in user)
 
 
 # --- centralized exception -> HTTP status mapping ---

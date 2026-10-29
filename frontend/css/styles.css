@@ -681,6 +681,26 @@ body > main { flex: 1 0 auto; }
 .jump-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .jump-btn[hidden] { display: none; }
 
+/* Requirements demo page (js/demo.js) */
+.demo-item { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 28px; }
+.demo-item h2 { margin-top: 18px; }
+.demo-number { color: var(--ink-soft); font-weight: 500; }
+.demo-run { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+.demo-status { margin-inline-start: 0; }
+.demo-output, .demo-code pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px; line-height: 1.5; background: var(--paper); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 10px 12px; margin: 0 0 10px; overflow-x: auto; white-space: pre;
+}
+.demo-output { border-left: 4px solid var(--accent); }
+.demo-output.failed { border-left-color: var(--critical); }
+.demo-code { margin: 0 0 6px; }
+.demo-code summary { cursor: pointer; font-size: 14px; color: var(--ink-soft); padding: 4px 0; }
+.demo-code summary:hover { color: var(--accent); }
+.demo-code[open] summary { color: var(--ink); }
+.demo-uses li { max-width: 72ch; }
+.demo-page .doc-note:empty { display: none; }
+
 /* a screenshot with its caption */
 .doc-figure { margin: 18px 0 8px; }
 .doc-figure a { display: block; }

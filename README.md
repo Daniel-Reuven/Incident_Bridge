@@ -619,6 +619,7 @@ Both live in `backend/app/context.py`; neither ever suppresses an exception (`__
 | Activity log (admin) | `GET /logs/months`, `GET /logs?month=&category=&event=&user=&level=&q=&limit=&offset=` (`category=!http,data`: all but those categories), `GET /logs/verify` |
 | AI analysis | `GET /incidents/faults/{id}/analysis`, `POST /incidents/faults/{id}/analysis` (`?force=true`: admin re-analysis), `POST /incidents/faults/{id}/analysis/cancel` |
 | Live updates | `GET /events?client_id=...` |
+| Requirements page (any user) | `GET /demo/requirements`, `POST /demo/requirements/{id}/run` |
 
 ## 12. Project structure (file map)
 
@@ -677,7 +678,7 @@ Incident_Bridge/
 │   │   │   └── reanalysis.py     #   when a fault may be analyzed again
 │   │   ├── api/
 │   │   │   ├── app.py            # FastAPI app: middleware, routers, error mapping, frontend files
-│   │   │   ├── auth.py, users.py, incidents.py, events.py, sites.py, analysis.py, logs.py, server.py   # routers
+│   │   │   ├── auth.py, users.py, incidents.py, events.py, sites.py, analysis.py, logs.py, server.py, demo.py   # routers
 │   │   │   ├── request_log.py    # ASGI middleware: one activity record per HTTP request
 │   │   │   ├── setup.py          # first-start setup endpoints + the gate that holds everything else back
 │   │   │   ├── lifecycle.py      # start/stop the services once the database is unlocked
@@ -695,6 +696,7 @@ Incident_Bridge/
 │   │   ├── security/             # crypto.py (key wrap, recovery key), key_providers.py (OS store / systemd / file), installation.py (keys file, unlock, restore), data_folders.py (dedicated folders, markers, lock), tls.py (HTTPS certificate: generated / files, checks)
 │   │   ├── settings_store.py     # app_settings table: the app's secrets, the AI and server settings, encrypted
 │   │   ├── server_settings.py    # how the server listens: ports, HTTPS, certificate, trusted proxies, APP_MODE
+│   │   ├── requirements_demo.py  # the Requirements page: each Stage 1 requirement, its demo, code and uses
 │   │   ├── display_names.py      # display-name templates: placeholders, presets, render() with the lighter location
 │   │   ├── app_secrets.py        # session cookie key + log signing key, generated at setup
 │   │   ├── sites.py              # SiteDirectory: sites, lists, notifications, checks, seed loading
@@ -713,7 +715,7 @@ Incident_Bridge/
 │   ├── logs/                     # activity log files + archive/ (LOG_DIR; created at startup, not in git)
 │   └── tests/                    # automated tests (see §14)
 ├── frontend/
-│   ├── index.html, setup.html, dashboard.html, incident.html, pressing.html, sites.html, users.html, logs.html, server.html
+│   ├── index.html, setup.html, dashboard.html, incident.html, pressing.html, sites.html, users.html, logs.html, server.html, demo.html
 │   ├── guide.html, about.html, terms.html   # public pages - no login needed
 │   ├── css/styles.css
 │   └── js/
@@ -734,6 +736,7 @@ Incident_Bridge/
 │       ├── users.js              # admin user management
 │       ├── logs.js               # admin activity log: filters, details, integrity check
 │       ├── server.js             # admin Server settings: HTTPS, certificate, AI
+│       ├── demo.js               # the Requirements page: run each demo, show its code
 │       └── sites.js, sites-format.js   # site portal
 ```
 
@@ -772,7 +775,7 @@ Incident_Bridge/
 
 ## 14. Automated testing
 
-`backend/tests/` holds **1382 tests** (pytest), all passing, with **96% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
+`backend/tests/` holds **1421 tests** (pytest), all passing, with **96% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
 
 - **Isolated from your settings** — `tests/conftest.py` clears every app setting from the environment and stops `backend/.env` from being loaded, so the suite gives the same result with or without your own `.env` (users, AI provider, database, data folders, HTTPS, log options). Tests that start `serve_app.py` as a process of its own (which does load `.env`) pass it `env_without_dotenv()`: every setting named in `.env.example` or `.env` is set — to the test's value, else empty — so nothing from your `.env` (such as a path to your real installation) applies.
 - **Unit tests** — the domain classes directly, no HTTP and no database: models (`tests/test_models/`), services (`tests/test_services/`), queues (`tests/test_queues/`), iterators, the generator, context managers, the scan, the report, the site directory, user provisioning and JSONL validation.
@@ -785,6 +788,7 @@ Incident_Bridge/
 - **First-start setup** (`test_setup.py`) — the gate (pages redirected, API 503, setup files open), the setup code and its replacement after 10 wrong tries, the recovery key, every refused completion changing nothing, an admin in `INCIDENT_BRIDGE_USERS` refused, the accounts created, AI settings stored and winning over `.env`, a restart that unlocks by itself and keeps logins valid, an interrupted setup, a database without its keys file.
 - **Data folders** (`test_data_folders.py`) — the default folder, a folder counting as empty, the setup refusing folders that are not empty (and continuing once emptied), the markers and a wrong folder stopping the start, `move_data.py` (refused while running or into a used folder; the app starts from the moved copy).
 - **HTTPS** (`test_https.py`) — settings from `.env` and the page (which wins), bad values, the production rules; the generated certificate (key encrypted, refused in production, wrong password), a certificate chain from a test authority (passes; refused without its intermediate, from an unknown authority, with a wrong key, expired; a renewal warning); the remote redirect (not for this computer, not over HTTPS), HSTS only in production and never for localhost, the `Secure` cookie over HTTPS; the Server settings API (admins only, restart needed, unusable settings not saved, the key password kept and never shown, a new certificate), the AI settings applied at once (on, off, `.env`, a kept key); `serve_app.py`'s plan (the pre-setup certificate stays out of the data folder; production refuses the generated one) and a certificate made before the start not reported as added by hand.
+- **Requirements page** (`test_requirements_demo.py`) — every demo runs and shows output, one entry per Stage 1 requirement, every piece of code shown is the app's own and every page linked exists, a broken demo reports why, logged-in users only, an unknown id, and a run of every demo leaving the app's incidents and users unchanged.
 - **Display names** (`test_display_names.py`) — the template and its tidying of empty fields, the lighter location part, invalid formats, the directory, the default and own formats, admin-only changes, the preview, names at creation, setup and from `.env`, the log naming changed fields but not their values, a restart.
 - **Interface preferences** (`test_preferences.py`) — defaults, saved per user and returned at login in another browser, invalid values refused, logged-out and forced-change users refused, survival across a restart, bad stored values, the column added to an older database, the activity record.
 - **`test_main_demo.py`** — runs `main.py` and checks every section prints and it finishes cleanly.
@@ -880,6 +884,8 @@ python -m pytest -q
 ```
 
 ## 16. Requirements map (where each Stage 1 item lives)
+
+The same items are on the app's **Requirements** page (`/demo.html`, any logged-in user; linked from About and the Guide): for each one, what it asks, a **Run** button that runs a short demo on the server on fresh sample data held in memory (the app's own data is never touched), the demo's code, the app's code that meets it — read from the running code with `inspect`, so it never goes out of date — and where the app uses it (`app/requirements_demo.py`, `app/api/demo.py`, `frontend/demo.html`, `js/demo.js`). Only the demos listed there can run; nothing sent by the browser is executed. Stage 2 entries are added after the team's merge.
 
 | Requirement | Code | Shown in `main.py` |
 |---|---|---|
