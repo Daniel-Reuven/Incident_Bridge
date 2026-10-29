@@ -13,7 +13,7 @@ Incident Bridge started as an idea and was **designed and built by the Project's
 - write follow-up documentation, code comments/docstrings and usage instructions for the code files;
 - generate the synthetic sample data where needed as required by the project's requirements document and help check it.
 
-Every AI suggestion was **run, tested and reviewed by us before it was kept** (the project has 1106 automated tests, run on every push since implementation). Responsibility for the code and the decisions stays with the team members, and we can explain every part of the business process behind it.
+Every AI suggestion was **run, tested and reviewed by us before it was kept** (the project has over 1100 automated tests, run on every push since implementation). Responsibility for the code and the decisions stays with the team members, and we can explain every part of the business process behind it.
 
 **Tool used:** Claude (Anthropic), in chat sessions.
 
@@ -105,3 +105,35 @@ The final decision was always the team's; these are the places where an AI answe
 | Merging a teammate's branch | Found that a merge silently dropped existing features (the import dialog, queue labels, maintenance API calls) | Restored them before merging |
 | Server shutdown | Found that stopping the server hung while browser tabs were open | Added a short graceful-shutdown timeout |
 | Version number | Explained that setuptools cannot read a version file outside `backend/` | The version lives only in `backend/pyproject.toml` |
+
+---
+
+## 3. Stage 2 (brief §7.3)
+
+<!-- Maintained by Person C. A and B: send C what you asked, what the tool suggested, what you checked
+     and what you changed or kept. Every "TODO(C)" must be resolved before the final 0.6.0 tag. -->
+
+### How we worked
+
+For the Stage 2 tasks we followed the brief's rule: **first ask the AI for a plan and test cases only, without code changes**; each of us wrote the expected results of at least two test cases ourselves, from the business rule and not by running the code under test; then the code was written, checked against the existing test suite, and we never changed an expected result just to make a test pass.
+
+**v0.5.0 is the exception, and we say so:** the move from the providers' SDKs to our own `requests`-based client (`backend/app/api_client.py`, `app/ai/providers/http_provider.py` and their tests) was written with AI help **before** we started asking for a plan first. It was reviewed and run (the whole suite passed), but the plan-first steps above were not followed for it.
+
+### Person A — AI findings → Sites subsystem → report
+
+<!-- TODO(C): from Person A - what was asked, what the tool suggested, the two expected results A wrote, what was checked, what was changed or kept -->
+
+### Person B — TDD archive rule, async, threads + Lock
+
+<!-- TODO(C): from Person B - same points; the TDD cycle itself is documented by the Red/Green/Refactor commits (README, שלב 2) -->
+
+### Person C (Roi) — Stage 2 demo, documentation, integration
+
+| Topic | What the AI pointed out or suggested | What we checked | What we decided |
+|---|---|---|---|
+| Plan | Read the Stage 2 brief and our team plan, listed Part C's tasks, and pointed out that the brief puts `pyproject.toml` and `.env.example` in the repository root, while ours are in `backend/` | The brief, sections 2.3 and 7.1 | Asked the lecturer (question 1) instead of moving files on our own; a move, if needed, is the last merge |
+| Starting point | Noticed that the uploaded branch was v0.4.9 and contained only `backend/`, not v0.5.0 with the root files | `git log origin/feature/Gemini_API`, the version in `backend/pyproject.toml` | Fast-forwarded our branch to v0.5.0 before writing anything |
+| `main.py --live` | Suggested `--live` calls only the configured AI provider, and stops with a clear message when no real provider is configured | That `.env` keys are never printed; the brief: no simulated data shown as if it came from the network | Kept: no silent fallback; every Stage 2 result is tagged SIMULATED or REAL; site checks stay simulated (the sample sites are not real) |
+| Demo content | Suggested showing the same steps the worker runs (prompt → `analyze()` → comments), a service failure that changes nothing but the error comment, and the patterns | Ran `main.py` offline and the `--live` error cases | Kept; sections for Persons A and B print "pending" until their code is merged |
+| Tests for the demo | Suggested extending `tests/test_main_demo.py` | Our own expected results: <!-- TODO(C): Roi - confirm these are the two you wrote --> (1) an offline run prints SIMULATED and never `[REAL]`; (2) `--live` with `GEMINI_API_KEY` empty exits with an error, prints the reason and nothing else | Kept both |
+| Verification limits | The AI's sandbox could not install FastAPI/pytest (no network), so it ran `main.py` and the two demo tests directly, not the whole suite | Ran the full suite locally: <!-- TODO(C): Roi - paste the pytest summary line --> | — |
