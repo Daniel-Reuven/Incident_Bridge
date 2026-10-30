@@ -59,3 +59,48 @@ def test_every_listener_runs_even_when_every_one_raises(event, ai_log):
 
 def test_no_listeners_is_fine(event):
     notify_listeners([], event)   # must not raise
+
+
+class RecordingBroadcaster:
+    def __init__(self):
+        self.published = []
+
+    def publish(self, event, exclude_client_id=None, roles=None):
+        self.published.append((event, roles))
+
+
+def test_an_ai_triggered_check_is_published_like_one_from_the_portal(event, admin_user, caplog):
+    """So it is in the activity log (site.site_checked by ai-assistant) and open portal pages update."""
+    from app.audit import record_published_event
+    from app.services.availability import FakeChecker
+    from app.sites import SiteDirectory
+    from app.analysis_service import SiteImpactListener
+
+    directory = SiteDirectory(checker=FakeChecker({"https://hr.example.com": [503]}))
+    site = directory.create_site(admin_user, "HR portal", "https://hr.example.com")
+    broadcaster = RecordingBroadcaster()
+    found = AnalysisCompleted(event.incident, AnalysisFindings("major", (site.site_id,), 0.9), "Fake AI", "m")
+    SiteImpactListener(directory, broadcaster).on_analysis_completed(found)
+
+    [(published, roles)] = broadcaster.published
+    assert roles == {"admin"}
+    assert published["scope"] == "sites" and published["action"] == "site_checked"
+    assert published["actor"] == "ai-assistant" and published["site_id"] == site.site_id
+    assert published["status"] == site.status.value and published["changed"] is True
+    caplog.set_level("INFO", logger="incident_bridge.audit")
+    record_published_event(published)
+    record = next(r.audit for r in caplog.records if getattr(r, "audit", {}).get("event") == "site.site_checked")
+    assert record["user"] == "ai-assistant" and event.incident.id in record["reason"]
+
+
+def test_without_a_broadcaster_the_check_still_runs(event, admin_user):
+    from app.services.availability import FakeChecker
+    from app.sites import SiteDirectory
+    from app.analysis_service import SiteImpactListener
+
+    checker = FakeChecker({"https://hr.example.com": [200]})
+    directory = SiteDirectory(checker=checker)
+    site = directory.create_site(admin_user, "HR portal", "https://hr.example.com")
+    found = AnalysisCompleted(event.incident, AnalysisFindings("major", (site.site_id,), 0.9), "Fake AI", "m")
+    SiteImpactListener(directory).on_analysis_completed(found)
+    assert checker.calls == ["https://hr.example.com"]

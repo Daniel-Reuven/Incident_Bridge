@@ -23,19 +23,23 @@ Two listeners ship here:
   - an admin still has to send it. An id that does not exist, or belongs to
   an archived site, is an invalid cross-reference: it is logged and nothing
   about that site changes, the same stance app/sites.py already takes
-  towards a mailing list's bad site links.
+  towards a mailing list's bad site links. Each check is published like a
+  check from the site portal ("site_checked", by ai-assistant), so it is
+  in the activity log and open portal pages update at once.
 - AnalysisStatsListener: counts, per site, how many completed analyses
   named it - for a report.
 """
 
 import threading
 from dataclasses import dataclass
-from typing import Dict, Iterable, Protocol
+from typing import Dict, Iterable, Optional, Protocol
 
 from app.ai.log import log
 from app.ai.result import AnalysisFindings
+from app.events import EventBroadcaster
 from app.models import Fault
 from app.models.enums import SiteStatus
+from app.models.system_users import AI_USERNAME
 from app.sites import SiteDirectory
 
 
@@ -65,8 +69,9 @@ def notify_listeners(listeners: Iterable[AnalysisListener], event: AnalysisCompl
 class SiteImpactListener:
     """Runs a real availability check on every affected site the AI findings name - see the module docstring."""
 
-    def __init__(self, directory: SiteDirectory):
+    def __init__(self, directory: SiteDirectory, broadcaster: Optional[EventBroadcaster] = None):
         self._directory = directory
+        self._broadcaster = broadcaster      # the app's: each check is published like one from the portal
 
     def on_analysis_completed(self, event: AnalysisCompleted) -> None:
         for site_id in event.findings.affected_site_ids:
@@ -91,6 +96,20 @@ class SiteImpactListener:
                 continue
             log.info(f"Fault {event.incident.id}: AI findings named {site.label} - checked, "
                      f"{outcome.check.summary}")
+            self._publish(site_id, outcome, event)
+
+    def _publish(self, site_id: int, outcome, event: AnalysisCompleted) -> None:
+        """The same "site_checked" event as a check from the portal (app/api/sites.py), by ai-assistant."""
+        if self._broadcaster is None:
+            return
+        site = self._directory.get_site(site_id)
+        self._broadcaster.publish(
+            {"scope": "sites", "action": "site_checked", "actor": AI_USERNAME,
+             "subject": f"{site.label} ({site.site_name})", "site_id": site_id, "status": site.status.value,
+             "changed": outcome.change is not None,
+             "notification": outcome.notification.state.value if outcome.notification else None,
+             "reason": f"named by the AI analysis of fault {event.incident.id}"},
+            roles={"admin"})
 
 
 class AnalysisStatsListener:

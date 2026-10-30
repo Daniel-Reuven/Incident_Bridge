@@ -50,7 +50,7 @@ def create_analysis_worker(state, broadcaster: EventBroadcaster, db_path: str) -
              f"- the worker starts on the first request")
     stats = AnalysisStatsListener()
     worker = AnalysisWorker(state, loader, SqliteAnalysisJobStore(db_path), broadcaster, config.delay_seconds,
-                            config.cooldown_seconds, listeners=[SiteImpactListener(state.sites), stats])
+                            config.cooldown_seconds, listeners=[SiteImpactListener(state.sites, broadcaster), stats])
     worker.stats = stats              # kept reachable for a future report (app.state.analysis_worker.stats)
     worker.start_if_restored()        # restored jobs should not wait for a new request
     return worker
