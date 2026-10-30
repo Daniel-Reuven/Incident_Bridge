@@ -27,6 +27,7 @@ from app.services.availability import FakeChecker
 from app.services.notifier import OutboxNotifier
 from app.sites import SiteDirectory
 from app.state import AppState
+from tests.install_helper import add_demo_users
 
 SITE_URL = "https://s1007.example.com"
 
@@ -49,7 +50,7 @@ def db_path(tmp_path, monkeypatch):
 def make_state(db_path):
     """A real AppState whose SiteDirectory uses the given FakeChecker (no network) instead of an HttpChecker."""
     def make(checker: FakeChecker) -> AppState:
-        state = AppState.create()
+        state = add_demo_users(AppState.create())     # accounts come from the setup page, not built in
         state.sites = SiteDirectory(checker=checker, notifier=OutboxNotifier())
         return state
     return make

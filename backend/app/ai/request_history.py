@@ -22,11 +22,11 @@ done with it (AnalysisWorker.cancel() / _finish()):
 """
 
 import json
-import sqlite3
 import threading
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set
 
+from app import database
 from app.ai.jobs import AnalysisJob
 
 OUTCOME_SUCCESS = "success"
@@ -53,8 +53,8 @@ CREATE TABLE IF NOT EXISTS analysis_requests (
 class SqliteRequestHistoryStore:
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        self._conn = database.connect(db_path)          # the encrypted database (app/database.py)
+        self._conn.row_factory = database.Row
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(_SCHEMA)
