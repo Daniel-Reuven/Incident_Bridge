@@ -35,6 +35,12 @@ def test_main_py_runs_every_section_cleanly():
     # Stage 2 (offline by default): every external-service result is marked SIMULATED, never REAL
     assert "(SIMULATED: no server" in out and "[REAL]" not in out
     assert "[SIMULATED] Answered by: Fake AI" in out                   # the analysis posted its answer
+    assert "[SIMULATED] Structured findings: none" in out             # the canned answer has no findings line
+    # section 13: findings -> real (scripted) checks -> report metric; an unknown site changes nothing
+    assert "Site 1005 (Online store): operational -> operational" in out
+    assert "Site 4242: does not exist - an invalid cross-reference" in out
+    assert "Site 1005: 1/1/0" in out
+    assert "AI-flagged sites now Operational or never notified: [1005]" in out
     assert "failed: timed out after 180 seconds." in out               # failure -> error comment
     assert "Fault status, severity and assignee unchanged: True" in out  # ... and no business change
     assert "Factory - build_provider(AIConfig(provider='fake', ...)) creates: FakeProvider" in out

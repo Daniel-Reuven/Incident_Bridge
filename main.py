@@ -85,7 +85,16 @@ sys.path.insert(0, str(ROOT / "backend"))  # make the `app` package importable w
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(errors="replace")
 
+from dataclasses import asdict  # noqa: E402
+import secrets  # noqa: E402
+
+from app import database  # noqa: E402
 from app.ai.config import AIConfig  # noqa: E402
+from app.ai.jobs import AnalysisJob  # noqa: E402
+from app.ai.request_history import OUTCOME_SUCCESS, SqliteRequestHistoryStore  # noqa: E402
+from app.ai.result import extract_findings  # noqa: E402
+from app.analysis_service import (AnalysisCompleted, AnalysisStatsListener, SiteImpactListener,  # noqa: E402
+                                  notify_listeners)
 from app.ai.prompt import build_incident_data, build_instructions  # noqa: E402
 from app.ai.providers import PROVIDERS, AnalysisError, AnalysisProvider, build_provider  # noqa: E402
 from app.ai.providers.fake_provider import FakeProvider  # noqa: E402
@@ -114,12 +123,16 @@ DEMO_USERS = [
 # code, None is "no response". Sites not listed always answer 200.
 HR_PORTAL_URL = "https://hr.incident-bridge.invalid"        # Site 1007
 DEMO_SITE_URL = "https://status-demo.example.com"           # created in section 9
-CHECK_SCRIPT = {HR_PORTAL_URL: [None, None], DEMO_SITE_URL: [None, None]}
+CHECK_SCRIPT = {HR_PORTAL_URL: [None, None, None], DEMO_SITE_URL: [None, None]}   # HR: 2 in section 9, 1 in 13
 
 # Stage 2: the fault sent to the AI provider (it names Site 1007, the HR
 # portal), and the fault used to show what happens when the service fails.
 ANALYZED_FAULT_ID = "seed-079"
 FAILING_FAULT_ID = "seed-075"
+# Section 13: the simulated answer's findings name the Online store (answers
+# normally), the HR portal (still down) and a site that does not exist.
+COMBINED_FAULT_ID = "seed-075"
+ONLINE_STORE_ID, HR_PORTAL_ID, UNKNOWN_SITE_ID = 1005, 1007, 4242
 SIMULATED, REAL = "SIMULATED", "REAL"
 
 
@@ -437,11 +450,14 @@ def external_service(incidents, provider, mode):
         fault.add_comment(ai_user, error_comment(provider.label(), str(exc)))
         tagged(mode, "The call failed - an error comment was posted instead", exc)
         return
-    texts = split_answer(result.text, provider.label(result.model))
+    text, findings = extract_findings(result.text)                 # the trailing JSON line (app/ai/result.py)
+    texts = split_answer(text, provider.label(result.model))
     for text in texts:
         fault.add_comment(ai_user, text)                            # posted by the ai-assistant system user
     tagged(mode, "Answered by", provider.label(result.model))
     tagged(mode, "Posted on the fault", f"{len(texts)} comment(s) by {AI_USERNAME}, {len(result.text):,} characters")
+    tagged(mode, "Structured findings", asdict(findings) if findings else
+           "none - the answer is posted as text only (outcome success_unstructured)")
     for line in first_lines(texts[0], 4):
         print(f"      | {line[:100]}")
 
@@ -484,8 +500,9 @@ def design_patterns(incidents, provider):
     show("Factory - build_provider(AIConfig(provider='fake', ...)) creates", type(build_provider(fake_config)).__name__)
     built = sorted({(i.kind, type(i).__name__) for i in incidents.list_all()})
     show("Factory - each JSONL record's 'kind' chose the class built", ", ".join(f"{k} -> {c}" for k, c in built))
-    pending_part("Observer - an analysis event notifying the Sites subsystem and the statistics",
-                 "app.analysis_service", "Person A")
+    show("Observer - AnalysisWorker notifies the listeners it was given after a structured answer",
+         f"{SiteImpactListener.__name__} (Sites subsystem), {AnalysisStatsListener.__name__} (statistics) - "
+         f"section 13 shows them at work")
 
 
 def pending_part(what: str, module: str, owner: str) -> None:
@@ -496,10 +513,49 @@ def pending_part(what: str, module: str, owner: str) -> None:
         show(what, f"{module} is merged - its demo is still to be wired into main.py")
 
 
-def combined_flow():
-    section(13, "Stage 2 - Combined flow: AI findings -> site check -> report")
-    pending_part("AI findings drive a real availability check, and the report's new metric",
-                 "app.analysis_service", "Person A")
+def combined_flow(users, incidents, directory):
+    section(13, f"Stage 2 - Combined flow: AI findings -> site check -> report ({SIMULATED})")
+    fault = incidents.get(COMBINED_FAULT_ID)
+    requester = users.get("tech1")
+    named = [ONLINE_STORE_ID, HR_PORTAL_ID, UNKNOWN_SITE_ID]
+    answer = (f"Summary:\n- Checkout failures seem to come from the shared login service.\n\n"
+              f'{{"suggested_severity": "critical", "affected_site_ids": {named}, "confidence": 0.8}}')
+    provider = FakeProvider(answer=answer)                         # a simulated answer that names three sites
+    show("Trigger", f"an analysis of fault {fault.id} - {fault.title!r}, requested by {requester.username}")
+    database.use_key(secrets.token_bytes(32))                      # the request history, in memory only
+    history = SqliteRequestHistoryStore(":memory:")
+    job = AnalysisJob(incident_id=fault.id, requested_by=requester.username)
+    history.record_requested(job, provider.label())
+    result = provider.analyze(build_instructions(total_answer_budget()), build_incident_data(fault, AI_USERNAME))
+    text, findings = extract_findings(result.text)                 # JSON line -> validated AnalysisFindings
+    for comment in split_answer(text, provider.label(result.model)):
+        fault.add_comment(SystemUser(AI_USERNAME), comment)
+    history.record_finished(job.id, OUTCOME_SUCCESS, model=result.model, findings=asdict(findings))
+    tagged(SIMULATED, "Data passed on", f"findings {asdict(findings)}")
+
+    stats = AnalysisStatsListener()
+    before = {site.site_id: site.status.value for site in directory.sites()}
+    notify_listeners([SiteImpactListener(directory), stats],      # the Observer: the worker does exactly this
+                     AnalysisCompleted(fault, findings, provider.label(), result.model))
+    show("What changed - each named site that exists was checked for real; the check decides, never the AI")
+    for site_id in named:
+        try:
+            site = directory.get_site(site_id)
+        except KeyError:
+            print(f"    Site {site_id}: does not exist - an invalid cross-reference, nothing changed")
+            continue
+        print(f"    {site.label} ({site.site_name}): {before[site_id]} -> {site.status.value}, "
+              f"last check {site.last_check.summary}")
+    show("Statistics listener - analyses naming each site", stats.counts())
+
+    report = build_site_report(directory, incidents.list_all(), history)
+    counted = [row for row in report.rows if row.ai_analyses_requested]
+    show("In the report - AI analyses requested / succeeded / failed, over the incidents that mention each site",
+         ", ".join(f"Site {row.site_id}: {row.ai_analyses_requested}/{row.ai_analyses_succeeded}/"
+                   f"{row.ai_analyses_failed}" for row in counted) or "none")
+    show("New decision metric - AI-flagged sites now Operational or never notified",
+         f"{report.ai_resolved_or_unnotified_sites} (the HR portal is down AND its outage was sent, so it is not "
+         f"flagged; the Online store answered normally, so the AI's reading needs a second look)")
 
 
 def async_collection():
@@ -530,7 +586,7 @@ def main(argv=None) -> None:
     external_service(incidents, provider, mode)
     service_failure(incidents)
     design_patterns(incidents, provider)
-    combined_flow()
+    combined_flow(users, incidents, directory)
     async_collection()
     threads_and_lock()
     print("\nDemo finished.")

@@ -13,7 +13,7 @@ Incident Bridge started as an idea and was **designed and built by the Project's
 - write follow-up documentation, code comments/docstrings and usage instructions for the code files;
 - generate the synthetic sample data where needed as required by the project's requirements document and help check it.
 
-Every AI suggestion was **run, tested and reviewed by us before it was kept** (the project has over 1100 automated tests, run on every push since implementation). Responsibility for the code and the decisions stays with the team members, and we can explain every part of the business process behind it.
+Every AI suggestion was **run, tested and reviewed by us before it was kept** (the project has 1451 automated tests, run on every push since implementation). Responsibility for the code and the decisions stays with the team members, and we can explain every part of the business process behind it.
 
 **Tool used:** Claude (Anthropic), in chat sessions.
 
@@ -25,7 +25,7 @@ Every AI suggestion was **run, tested and reviewed by us before it was kept** (t
 
 | File | Records | Contents |
 |---|---|---|
-| `data/sample_data.jsonl` | 74 | Incidents: maintenance tasks and faults, several of them mentioning org sites |
+| `data/sample_data.jsonl` | 35 | Incidents: 15 maintenance tasks and 20 faults (6 of them closed), several of them mentioning org sites — reduced from the original set in v0.5.x by keeping a subset of the records |
 | `data/sites.jsonl` | 12 | Org sites for the Sites & Mailing Lists subsystem |
 | `data/mailing_lists.jsonl` | 6 | Mailing lists, each related to some of the sites |
 
@@ -56,7 +56,7 @@ The fields and rules match the validation in our classes (`from_dict` constructo
 
 ### How the data was verified
 
-- **The app's own validation:** every file is loaded line by line (`json.loads`, then the class's `from_dict`), which rejects duplicate or missing ids, missing fields, invalid values and broken JSON, and reports each skipped record with its reason. All 82 incidents, 12 sites and 6 lists load with **0 skipped**.
+- **The app's own validation:** every file is loaded line by line (`json.loads`, then the class's `from_dict`), which rejects duplicate or missing ids, missing fields, invalid values and broken JSON, and reports each skipped record with its reason. All 35 incidents, 12 sites and 6 lists load with **0 skipped**.
 - **Automated tests:** `test_the_bundled_sample_data_has_valid_details_and_ids` and `test_the_real_seed_files_load_without_any_problem` fail if any bundled record stops passing validation.
 - **The demo:** `python main.py` loads all three files and prints what was loaded and what was skipped.
 
