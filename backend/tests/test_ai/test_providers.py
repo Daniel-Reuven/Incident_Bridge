@@ -191,8 +191,19 @@ def test_a_broken_or_empty_reply_fails_without_trying_other_models(stub, make, _
 
 
 def test_an_unreachable_api_fails_with_a_clear_message():
+    """
+    A refused connection, simulated with a mocked requests.Session: connecting
+    to a closed local port is refused at once on Linux but only times out on
+    Windows, so a real socket would make this test depend on the OS.
+    """
+    from unittest.mock import Mock
+    import requests
     from app.ai.providers.claude_provider import ClaudeProvider
-    provider = ClaudeProvider(models=("m",), api_key="k", timeout_seconds=2, base_url="http://127.0.0.1:9/v1")
+    from app.api_client import ApiClient
+    session = Mock(spec=requests.Session)
+    session.request.side_effect = requests.ConnectionError("connection refused")
+    client = ApiClient("http://api.invalid/v1", timeout_seconds=2, session=session, name="the Claude API")
+    provider = ClaudeProvider(models=("m",), api_key="k", timeout_seconds=2, client=client)
     with pytest.raises(AnalysisError, match="could not reach the Claude API"):
         provider.analyze("i", "{}")
 
@@ -266,3 +277,25 @@ def test_the_listing_sends_the_page_size_and_follows_page_tokens():
     assert provider.available_models() == ["gemini-a", "gemini-b"]
     first, second = (call.kwargs["params"] for call in client.get_json.call_args_list)
     assert first == {"pageSize": 100} and second == {"pageSize": 100, "pageToken": "page2"}
+
+
+@pytest.mark.parametrize("module, cls, reply, expected", [
+    ("claude_provider", "ClaudeProvider", {"data": [{"id": "claude-a"}, {"id": "claude-b"}]}, ["claude-a", "claude-b"]),
+    ("openai_provider", "OpenAIProvider", {"data": [{"id": "gpt-x"}, {"other": 1}]}, ["gpt-x"]),
+])
+def test_list_models_is_a_get_of_the_model_list(module, cls, reply, expected):
+    """The setup page's "Test connection": one GET (with the client's retry), the key in its header only."""
+    import importlib
+    from unittest.mock import Mock
+    import requests
+    from app.api_client import ApiClient
+    response = Mock(status_code=200)
+    response.json.return_value = reply
+    session = Mock(spec=requests.Session)
+    session.request.return_value = response
+    provider_class = getattr(importlib.import_module(f"app.ai.providers.{module}"), cls)
+    client = ApiClient("https://api.example.test/v1", timeout_seconds=2, session=session)
+    provider = provider_class(models=("m",), api_key="secret-key", timeout_seconds=2, client=client)
+    assert provider.list_models() == expected
+    method, url = session.request.call_args.args
+    assert method == "GET" and url == "https://api.example.test/v1/models" and "secret-key" not in url

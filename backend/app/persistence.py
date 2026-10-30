@@ -10,7 +10,7 @@ app/repository.py (which calls into this store on every save) and
 app/state.py (which loads from it once, at startup, and feeds the results
 back into the queues).
 
-Uses the stdlib sqlite3 module directly rather than an ORM - "zero setup"
+Uses SQLite (encrypted with SQLCipher - app/database.py) directly rather than an ORM - "zero setup"
 was the explicit choice for this step, and the schema is small enough
 that hand-written SQL stays perfectly readable.
 
@@ -26,7 +26,7 @@ not a contrived example.
 """
 
 import json
-import sqlite3
+from app import data_integrity, database
 import threading
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
@@ -88,25 +88,25 @@ _unknown_user_cache: dict = {}
 def _unknown_user(original_username: str) -> User:
     """
     Fallback for a persisted created_by/assigned_to/author username that
-    no longer matches any currently-provisioned user (e.g. someone was
-    removed from INCIDENT_BRIDGE_USERS between restarts). Keeps a restart
+    no longer matches any account (e.g. the users table was replaced
+    between restarts). Keeps a restart
     from crashing over one stale reference; the placeholder is clearly
     labeled rather than silently reassigned to a real account.
     """
     if original_username not in _unknown_user_cache:
         app_log.warning(f"Persisted data references unknown user {original_username!r} "
-                        f"(not in current INCIDENT_BRIDGE_USERS) - using a placeholder account for it.")
-        _unknown_user_cache[original_username] = User(
-            username=f"{original_username} (removed)", role=Role.USER, password="PlaceholderPassw0rd"
-        )
+                        f"(no such account) - using a placeholder account for it.")
+        # No password hash at all: the placeholder can never log in.
+        _unknown_user_cache[original_username] = User.from_record(
+            f"{original_username} (removed)", Role.USER, password_hash="", disabled=True)
     return _unknown_user_cache[original_username]
 
 
 class SqliteIncidentStore:
     def __init__(self, db_path: str = "incident_bridge.db"):
         self.db_path = db_path
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        self._conn = database.connect(db_path)
+        self._conn.row_factory = database.Row
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(_SCHEMA)
@@ -165,6 +165,7 @@ class SqliteIncidentStore:
                     (comment.id, incident.id, comment.author.username, comment.text, comment.created_at.isoformat()),
                 )
             self._conn.commit()
+            data_integrity.saved(self._conn, "incident", incident.id)     # tamper evidence (app/data_integrity.py)
 
     def load_all(self, user_store: "UserStore") -> List[Incident]:
         """
@@ -194,7 +195,7 @@ class SqliteIncidentStore:
             return None
         return user_store.get(username) or _unknown_user(username)
 
-    def _row_to_incident(self, row: sqlite3.Row, user_store: "UserStore") -> Incident:
+    def _row_to_incident(self, row: database.Row, user_store: "UserStore") -> Incident:
         created_by = self._resolve_user(row["created_by"], user_store)
         assigned_to = self._resolve_user(row["assigned_to"], user_store)
 
@@ -224,7 +225,7 @@ class SqliteIncidentStore:
         incident.updated_at = datetime.fromisoformat(row["updated_at"])
         return incident
 
-    def _row_to_comment(self, row: sqlite3.Row, user_store: "UserStore") -> Comment:
+    def _row_to_comment(self, row: database.Row, user_store: "UserStore") -> Comment:
         author = self._resolve_user(row["author"], user_store)
         comment = Comment(author=author, text=row["text"])
         comment.id = row["id"]

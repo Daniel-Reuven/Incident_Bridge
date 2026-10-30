@@ -8,8 +8,14 @@ from app.events import EventBroadcaster
 from app.models import Role, User
 from app.state import AppState
 
-# Key used inside the signed session cookie (see SessionMiddleware in app/api/app.py).
+# Keys inside the signed session cookie (see SessionMiddleware in app/api/app.py):
+# the username, and the user's session_version at login (app/models/user.py) -
+# a password change/reset or disabling the account bumps the version, which
+# ends every session that still carries the old one.
 SESSION_USERNAME_KEY = "username"
+SESSION_VERSION_KEY = "sv"
+
+PASSWORD_CHANGE_REQUIRED = "You must change your password before you can continue."
 
 
 def get_state(request: Request) -> AppState:
@@ -42,21 +48,42 @@ def get_client_id(request: Request) -> Optional[str]:
     return request.headers.get("x-client-id")
 
 
-def get_current_user(request: Request) -> User:
+def start_session(request: Request, user: User) -> None:
+    """Log `user` in on this request's session (a fresh session, carrying their current session_version)."""
+    request.session.clear()
+    request.session[SESSION_USERNAME_KEY] = user.username
+    request.session[SESSION_VERSION_KEY] = user.session_version
+
+
+def get_session_user(request: Request) -> User:
     """
-    Reads the signed session cookie for a username and looks it up in the
-    current AppState's UserStore. Raises 401 if there's no valid session -
-    either because the cookie is missing, or because it names a user that
-    no longer exists (in which case the stale session is also cleared).
+    The logged-in user, from the signed session cookie. Raises 401 (and
+    clears the session) when there is no session, the user no longer
+    exists, is disabled, or the session's version is older than the user's
+    (their password was changed or reset elsewhere). Does NOT check
+    must_change_password - only the endpoints a forced password change
+    needs use this directly (GET /auth/me, POST /auth/change-password).
     """
     state = get_state(request)
     username = request.session.get(SESSION_USERNAME_KEY)
     if not username:
         raise HTTPException(status_code=401, detail="Not authenticated.")
     user = state.users.get(username)
-    if user is None:
+    if user is None or not user.can_log_in or request.session.get(SESSION_VERSION_KEY) != user.session_version:
         request.session.clear()
         raise HTTPException(status_code=401, detail="Not authenticated.")
+    return user
+
+
+def get_current_user(request: Request) -> User:
+    """
+    get_session_user(), plus: a user who must change their password (first
+    login, or after an admin reset) gets 403 for everything else until they
+    do - the frontend opens the Settings dialog's Password tab for them.
+    """
+    user = get_session_user(request)
+    if user.must_change_password:
+        raise HTTPException(status_code=403, detail=PASSWORD_CHANGE_REQUIRED)
     return user
 
 
@@ -71,4 +98,12 @@ def get_current_admin(request: Request) -> User:
     user = get_current_user(request)
     if user.role != Role.ADMIN:
         raise HTTPException(status_code=403, detail="The site portal is available to admins only.")
+    return user
+
+
+def get_user_admin(request: Request) -> User:
+    """Like get_current_admin, for the admin-only user management (app/api/users.py)."""
+    user = get_current_user(request)
+    if user.role != Role.ADMIN:
+        raise HTTPException(status_code=403, detail="User management is available to admins only.")
     return user

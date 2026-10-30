@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Requirements — Incident Bridge</title>
+<meta name="description" content="Every course requirement: what it asks, the code that meets it, where the app uses it, and a demo you can run.">
+<link rel="stylesheet" href="/css/styles.css">
+<script src="/js/theme.js"></script>
+</head>
+<!--
+  The requirements demo page (any logged-in user). Filled in by js/demo.js
+  from /demo (backend/app/api/demo.py, backend/app/requirements_demo.py):
+  for each requirement its summary, a demo that runs on the server on fresh
+  in-memory data, the app's code that meets it and where the app uses it.
+-->
+<body>
+  <header id="topbar"></header>
+  <main class="doc-page demo-page" id="demo-page" hidden>
+    <h1>Course requirements</h1>
+    <p class="doc-lead">
+      Each requirement of the course brief (Stage 1), in our words: <strong>Run</strong> shows it working on
+      fresh sample data, held in memory only — the app's own data is never touched. Under it, the demo's code,
+      the app's code that meets the requirement (read from the running app, so it is always current), and
+      where the app uses it. The same ground as <code>python main.py</code>, one requirement at a time.
+    </p>
+    <nav class="doc-toc" aria-label="On this page" data-built-later>
+      <strong>Requirements</strong>
+      <ol id="demo-toc"></ol>
+    </nav>
+    <div id="demo-list"></div>
+    <p class="doc-note" id="demo-note"></p>
+  </main>
+
+  <script type="module" src="/js/demo.js"></script>
+  <script type="module" src="/js/footer.js"></script>
+</body>
+</html>

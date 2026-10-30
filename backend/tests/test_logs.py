@@ -40,7 +40,8 @@ def test_the_level_is_padded_like_uvicorns():
 def test_access_lines_are_tagged_http_and_get_the_status_text():
     rec = record("uvicorn.access", logging.INFO, '%s - "%s %s HTTP/%s" %d',
                  ("127.0.0.1:63317", "GET", "/auth/me", "1.1", 304))
-    assert re.fullmatch(rf'INFO:     {TIME} HTTP 127\.0\.0\.1:63317 - "GET /auth/me HTTP/1\.1" 304 Not Modified',
+    # The default LOG_IP_MODE=hashed shows a token instead of the address (app/ip_privacy.py).
+    assert re.fullmatch(rf'INFO:     {TIME} HTTP ip-[0-9a-f]{{12}} - "GET /auth/me HTTP/1\.1" 304 Not Modified',
                         fmt(rec))
 
 

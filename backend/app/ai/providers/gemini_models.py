@@ -41,9 +41,10 @@ added only when GEMINI_TIER=paid says so.
 This module makes no network call, so the settings can be checked at startup.
 """
 
-import os
 import re
 from typing import Iterable, List, NamedTuple, Optional, Sequence, Tuple
+
+from app.ai.stored_settings import setting
 
 # Free of charge on the free tier, best first.
 FREE_TIER_MODELS: Tuple[str, ...] = (
@@ -76,7 +77,7 @@ _ANY_NAME = re.compile(r"^gemini-(\d+(?:\.\d+)*)-(flash-lite|flash|pro)(?:-.*)?$
 
 def gemini_tier() -> str:
     """GEMINI_TIER, lower-cased (default "free"). Raises ValueError for an unknown tier."""
-    tier = (os.environ.get("GEMINI_TIER") or DEFAULT_TIER).strip().lower()
+    tier = (setting("GEMINI_TIER") or DEFAULT_TIER).strip().lower()
     if tier not in TIERS:
         raise ValueError(f"GEMINI_TIER={tier!r} is not supported - use one of: {', '.join(TIERS)}.")
     return tier
@@ -88,7 +89,7 @@ def default_gemini_models() -> Tuple[str, ...]:
     if it is set, otherwise the list for GEMINI_TIER.
     Raises ValueError for an unknown GEMINI_TIER.
     """
-    single = (os.environ.get("GEMINI_MODEL") or "").strip()
+    single = (setting("GEMINI_MODEL") or "").strip()
     if single:
         return (single,)
     return TIERS[gemini_tier()]
@@ -104,10 +105,10 @@ def gemini_settings() -> dict:
                   then discovery only removes retired models, never adds
     Raises ValueError for an unknown GEMINI_TIER or GEMINI_MODEL_DISCOVERY.
     """
-    mode = (os.environ.get("GEMINI_MODEL_DISCOVERY") or DEFAULT_DISCOVERY).strip().lower()
+    mode = (setting("GEMINI_MODEL_DISCOVERY") or DEFAULT_DISCOVERY).strip().lower()
     if mode not in DISCOVERY_MODES:
         raise ValueError(f"GEMINI_MODEL_DISCOVERY={mode!r} is not supported - use one of: {', '.join(DISCOVERY_MODES)}.")
-    set_by_hand = any((os.environ.get(name) or "").strip() for name in ("GEMINI_MODELS", "GEMINI_MODEL"))
+    set_by_hand = any((setting(name) or "").strip() for name in ("GEMINI_MODELS", "GEMINI_MODEL"))
     return {"tier": gemini_tier(), "discovery": mode == "auto", "extend": not set_by_hand}
 
 

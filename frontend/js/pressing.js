@@ -1,7 +1,9 @@
+import { formatWhen } from "./datetime.js";
 import { api } from "./api.js";
 import { mountTopbar } from "./topbar.js";
 import { connectLiveUpdates } from "./events.js";
 import { showToast, describeEvent } from "./toast.js";
+import { personHtml } from "./people.js";
 
 const table = document.getElementById("pressing-table");
 const tbody = table.querySelector("tbody");
@@ -71,8 +73,8 @@ function renderRows(results) {
       tr.innerHTML = `
         <td class="num">${index + 1}</td>
         <td>${escapeHtml(call.title)}</td>
-        <td>${escapeHtml(call.created_by)}</td>
-        <td>${new Date(call.created_at).toLocaleDateString()}</td>
+        <td>${personHtml(call.created_by)}</td>
+        <td>${formatWhen(call.created_at)}</td>
         <td>${call.days_open} days</td>`;
       tr.dataset.sig = sig;
     }

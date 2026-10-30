@@ -4,6 +4,7 @@
  * or re-renders anything else on the page, so it can't cause flicker
  * elsewhere.
  */
+import { personText } from "./people.js";
 
 let stack;
 
@@ -50,23 +51,23 @@ export function describeEvent(event) {
 
   switch (event.action) {
     case "created":
-      return `${event.actor} opened a new ${subject}`;
+      return `${personText(event.actor)} opened a new ${subject}`;
     case "commented":
-      return `${event.actor} commented on ${subject}`;
+      return `${personText(event.actor)} commented on ${subject}`;
     case "claimed":
-      return `${event.actor} claimed ${subject}`;
+      return `${personText(event.actor)} claimed ${subject}`;
     case "started":
-      return `${event.actor} started ${subject}`;
+      return `${personText(event.actor)} started ${subject}`;
     case "closed":
-      return `${event.actor} closed ${subject}${shifted}`;
+      return `${personText(event.actor)} closed ${subject}${shifted}`;
     case "reopened":
-      return `${event.actor} reopened ${subject}${shifted}`;
+      return `${personText(event.actor)} reopened ${subject}${shifted}`;
     case "severity_changed":
-      return `${event.actor} changed the severity of ${subject}`;
+      return `${personText(event.actor)} changed the severity of ${subject}`;
     case "ai_analysis_requested":
-      return `${event.actor} requested an AI analysis of ${subject}`;
+      return `${personText(event.actor)} requested an AI analysis of ${subject}`;
     case "ai_analysis_cancelled":
-      return `${event.actor} cancelled the AI analysis of ${subject}`;
+      return `${personText(event.actor)} cancelled the AI analysis of ${subject}`;
     case "ai_analysis_posted":
       return `AI analysis posted on ${subject}`;
     case "ai_analysis_failed":

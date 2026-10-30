@@ -6,6 +6,7 @@
 <title>Terms of Use — Incident Bridge</title>
 <meta name="description" content="The terms for using Incident Bridge: accounts, acceptable use, what happens to your data, AI analysis and site checks.">
 <link rel="stylesheet" href="/css/styles.css">
+<script src="/js/theme.js"></script>
 </head>
 <!--
   The Terms of Use - a public page (no login needed), linked from the footer
@@ -18,7 +19,7 @@
   <header id="public-header"></header>
   <main class="doc-page">
     <h1>Terms of Use</h1>
-    <p class="doc-updated">Last updated: 12 October 2026</p>
+    <p class="doc-updated">Last updated: 29 October 2026</p>
     <p class="doc-lead">
       These terms apply to everyone who uses this installation of Incident Bridge.
       By logging in, you agree to them. They are written to be short and plain — please read them once.
@@ -33,7 +34,7 @@
         <li><a href="#content">What you enter, and who sees it</a></li>
         <li><a href="#ai">AI analysis</a></li>
         <li><a href="#sites">Site checks and notifications</a></li>
-        <li><a href="#storage">Storage and cookies</a></li>
+        <li><a href="#storage">What is stored, and cookies</a></li>
         <li><a href="#warranty">No warranty</a></li>
         <li><a href="#changes">Changes and contact</a></li>
       </ol>
@@ -46,8 +47,8 @@
     <h2 id="accounts">2. Accounts</h2>
     <ul>
       <li>Accounts are created by the operator; there is no self-registration. Each account is either a <em>user</em> or an <em>admin</em> (see the <a href="/guide.html#roles">Guide</a>).</li>
-      <li>Your account is personal. Keep your password secret, do not share it, and change it with <em>Account</em> if you think someone else knows it.</li>
-      <li>Everything done while logged in as you is recorded under your name.</li>
+      <li>Your account is personal. Keep your password secret, do not share it, and change it with <em>Settings</em> if you think someone else knows it.</li>
+      <li>Everything done while logged in as you is recorded under your name, in the incidents themselves and in the activity log (section 7).</li>
       <li>The operator may change or remove an account at any time.</li>
     </ul>
 
@@ -83,11 +84,17 @@
       <li>Mailing lists store email addresses. Notifications are only sent when an admin chooses <em>Send to lists</em>.</li>
     </ul>
 
-    <h2 id="storage">7. Storage and cookies</h2>
+    <h2 id="storage">7. What is stored, and cookies</h2>
+    <p>Everything is stored on the operator's server, in two places:</p>
     <ul>
-      <li>All data is stored on the operator's server, in a single database file.</li>
+      <li><strong>The database</strong> (a single file, <strong>encrypted</strong>, in a folder kept to the app alone — unreadable without its key, which is kept by the server's protected key store and by a recovery key the operator stores offline; the app's own secrets and the AI provider's key are kept inside it): accounts — username, role, the optional name, job title and location shown to other users as the display name, a salted hash of the password (never the password itself), and its interface settings (color scheme, text size, updates order), whether the account is disabled or must change its password; incidents, their details, updates and history; sites, mailing lists with their email addresses, and notifications; the AI analysis queue and its answers; and the activity log's checkpoint (below).</li>
+      <li><strong>The activity log</strong> (files, one per month, <strong>encrypted</strong> like the database): for every action, request to the server and call to an outside service, the time, the username, the network address it came from (by default replaced by a code that cannot be turned back into it; the operator may instead keep only its last part, keep it in full, or leave it out), what happened and the ids it concerns — including incident and site titles, and for requests the method, path, query, status and duration; and a fingerprint (never the content) of every database record the app saves, so changes made outside the app can be detected. It never contains passwords, API keys, cookies, request or reply bodies, incident descriptions or the text of updates. Finished months are compressed into an archive. Admins can read the log in the app; nobody can edit or delete it there, and every record is signed and chained so that changes made outside the app are detected.</li>
+      <li>The operator decides how long the database and the log are kept (nothing is removed automatically) and who may read them outside the app.</li>
+    </ul>
+    <p>In your browser:</p>
+    <ul>
       <li>Logging in sets one <strong>session cookie</strong>, signed by the server so it cannot be forged. It keeps you logged in for up to two weeks, or until you log out. There are no advertising or tracking cookies.</li>
-      <li>Your browser also remembers two small things, on your device only: an ID for each open tab (so live updates are not sent back to the tab that made the change), and whether you prefer updates oldest or newest first.</li>
+      <li>On your device only: while you are logged in, a copy of your interface settings, so pages open in your theme at once (it is deleted when you log out); and, until you close the tab or log out, an ID for the tab (so live updates are not sent back to the tab that made the change) and your dashboard and log filters.</li>
     </ul>
 
     <h2 id="warranty">8. No warranty</h2>
@@ -97,6 +104,7 @@
     <p>These terms may change; the date at the top shows the latest version, and continuing to use the app means accepting it. Questions about your account or your data go to your administrator. Questions about the software itself can be raised on its <a data-site="repository" target="_blank" rel="noopener">GitHub repository</a>.</p>
   </main>
   <script type="module" src="/js/public-page.js"></script>
+  <script type="module" src="/js/doc-nav.js"></script>
   <script type="module" src="/js/footer.js"></script>
 </body>
 </html>

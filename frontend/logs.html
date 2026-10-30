@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Activity log — Incident Bridge</title>
+<link rel="stylesheet" href="/css/styles.css">
+<script src="/js/theme.js"></script>
+</head>
+<!--
+  Activity log (admin only). Filled in by js/logs.js from the /logs API
+  (backend/app/api/logs.py), which refuses non-admins with 403; logs.js also
+  sends non-admins back to the dashboard. The records come from the log
+  files written by backend/app/audit.py.
+-->
+<body>
+  <header id="topbar"></header>
+  <main class="dashboard" id="logs-page" hidden>
+    <a href="/dashboard.html" class="back-link">← Back to dashboard</a>
+    <div class="portal-header">
+      <h1>Activity log</h1>
+      <div class="actions-row" style="margin-bottom:0">
+        <button class="btn btn-ghost" id="verify-btn">Check integrity</button>
+        <button class="btn btn-ghost" id="refresh-btn">Refresh</button>
+      </div>
+    </div>
+    <p class="hint">Every action, request and call to an outside service, newest first, one month at a time.
+      Times are in your time zone. Click a row for all its details.</p>
+
+    <div class="log-integrity" id="log-integrity" role="status" hidden></div>
+
+    <div class="filters log-filters">
+      <label>Month<select id="f-month"></select></label>
+      <label>Category<select id="f-category"></select></label>
+      <label>Event<select id="f-event"></select></label>
+      <label>User<select id="f-user"></select></label>
+      <label>Level
+        <select id="f-level">
+          <option value="">All</option>
+          <option value="WARNING">Warnings and errors</option>
+          <option value="ERROR">Errors only</option>
+        </select>
+      </label>
+      <label class="filter-search">Search<input type="search" id="f-text" placeholder="Any text in the record" autocomplete="off"></label>
+    </div>
+
+    <p class="log-summary" id="log-summary" aria-live="polite">Loading…</p>
+    <div class="table-wrap">
+      <table class="data-table log-table">
+        <thead><tr><th>Time</th><th>Level</th><th>Event</th><th>User</th><th>Address</th><th>What happened</th></tr></thead>
+        <tbody id="log-body"></tbody>
+      </table>
+    </div>
+    <div class="actions-row log-more"><button class="btn btn-ghost" id="more-btn" hidden>Show older records</button></div>
+  </main>
+
+  <script type="module" src="/js/logs.js"></script>
+  <script type="module" src="/js/footer.js"></script>
+</body>
+</html>

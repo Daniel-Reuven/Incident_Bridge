@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Server settings — Incident Bridge</title>
+<link rel="stylesheet" href="/css/styles.css">
+<script src="/js/theme.js"></script>
+</head>
+<!--
+  Server settings (admin only): HTTPS and the AI analysis settings. Filled in
+  by js/server.js from /server (backend/app/api/server.py), which refuses
+  non-admins with 403. Network settings take effect at the next restart;
+  the AI settings at once.
+-->
+<body>
+  <header id="topbar"></header>
+  <main class="dashboard" id="server-page" hidden>
+    <a href="/dashboard.html" class="back-link">← Back to dashboard</a>
+    <div class="portal-header">
+      <h1>Server settings</h1>
+      <span class="mode-tag" id="mode-tag"></span>
+    </div>
+    <p class="setup-note" id="restart-note" hidden>Saved. Restart the server to apply: stop it (Ctrl+C) and run <code>python serve_app.py</code> again.</p>
+
+    <section class="format-panel" aria-labelledby="https-title">
+      <h2 id="https-title">HTTPS</h2>
+      <p class="hint">Saved here, these win over <code>backend/.env</code> and take effect when the server starts. HTTP from this computer itself always stays open, so a wrong setting cannot lock you out.</p>
+      <p class="server-running" id="running"></p>
+      <form id="https-form">
+        <div class="details-grid">
+          <label>HTTP port <span class="source-tag" data-source="http_port"></span><input type="number" name="http_port" min="1" max="65535" required></label>
+          <label>HTTPS port <span class="source-tag" data-source="https_port"></span><input type="number" name="https_port" min="1" max="65535" required></label>
+          <label>Listen on <span class="source-tag" data-source="host"></span><input type="text" name="host" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <label class="checkbox"><input type="checkbox" name="https_enabled"> Serve HTTPS <span class="source-tag" data-source="https_enabled"></span></label>
+        <label class="checkbox"><input type="checkbox" name="https_only_remote"> HTTPS only for remote connections <span class="hint">other computers' HTTP is redirected to HTTPS</span> <span class="source-tag" data-source="https_only_remote"></span></label>
+
+        <fieldset class="cert-fields">
+          <legend>Certificate <span class="source-tag" data-source="certificate"></span></legend>
+          <label class="checkbox"><input type="radio" name="certificate" value="generated"> Generated self-signed certificate <span class="hint">testing only - each browser warns once</span></label>
+          <label class="checkbox"><input type="radio" name="certificate" value="files"> Certificate files from a certificate authority</label>
+          <div class="details-grid" data-files hidden>
+            <label>Certificate file <span class="hint">PEM, with the intermediates after it</span><input type="text" name="cert_file" autocomplete="off" spellcheck="false" placeholder="C:\certs\fullchain.pem"></label>
+            <label>Key file<input type="text" name="key_file" autocomplete="off" spellcheck="false" placeholder="C:\certs\privkey.pem"></label>
+            <label>Key password <span class="hint" data-fill="key-password-hint">only if the key is encrypted</span><input type="password" name="key_password" autocomplete="new-password"></label>
+          </div>
+          <div class="cert-actions">
+            <button type="button" class="btn btn-ghost btn-sm" data-action="check-cert" data-files hidden>Check the files</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="generate-cert" data-generated hidden>Make a new self-signed certificate</button>
+          </div>
+          <div class="cert-report" id="cert-report"></div>
+        </fieldset>
+
+        <label>Trusted proxies <span class="source-tag" data-source="trusted_proxies"></span>
+          <span class="hint field-hint">A reverse proxy in front of the app: its IP addresses or networks, comma-separated. Only these may tell the app the visitor's real address and whether they used HTTPS (X-Forwarded-For / X-Forwarded-Proto).</span>
+          <input type="text" name="trusted_proxies" autocomplete="off" spellcheck="false" placeholder="e.g. 10.0.0.5, 10.1.0.0/16"></label>
+        <p class="form-error" id="https-error" hidden></p>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="reset">Use .env instead</button>
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="format-panel" aria-labelledby="ai-title">
+      <h2 id="ai-title">AI analysis</h2>
+      <p class="hint">Applied at once. Saved here, it wins over <code>backend/.env</code>; the API key is stored encrypted and never shown again.</p>
+      <p class="server-running" id="ai-status"></p>
+      <form id="ai-form">
+        <label>Provider
+          <select name="provider"></select></label>
+        <div class="details-grid" data-ai-fields hidden>
+          <label data-ai-key>API key <span class="hint" data-fill="ai-key-hint"></span><input type="password" name="api_key" autocomplete="off"></label>
+          <label data-ai-models>Models <span class="hint">best first, separated by commas</span><input type="text" name="models" autocomplete="off" spellcheck="false"></label>
+          <label data-ai-tier>Gemini plan<select name="gemini_tier"><option value="free">Free</option><option value="paid">Paid</option></select></label>
+        </div>
+        <p class="hint" data-fill="ai-result"></p>
+        <p class="form-error" id="ai-error" hidden></p>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="test-ai" data-ai-fields hidden>Test the connection</button>
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script type="module" src="/js/server.js"></script>
+  <script type="module" src="/js/footer.js"></script>
+</body>
+</html>

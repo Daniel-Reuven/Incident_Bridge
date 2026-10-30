@@ -166,7 +166,8 @@ def import_jsonl(body: ImportJsonlRequest, state: AppState = Depends(get_state),
 
     for incident_id in result.created_ids:
         incident = state.incidents.get(incident_id)
-        add_to_queue[incident.kind](incident)
+        if incident.status == IncidentStatus.OPEN:     # a record seeded as closed belongs in no queue
+            add_to_queue[incident.kind](incident)
         _publish(broadcaster, client_id, incident, "created", current_user)
 
     _persist_maintenance_queue(state, state.maintenance.get_queue())

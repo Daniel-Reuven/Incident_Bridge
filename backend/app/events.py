@@ -38,7 +38,7 @@ timeout_graceful_shutdown stays only as a safety net.
 import asyncio
 import signal
 import threading
-from typing import Dict, Iterable, List, NamedTuple, Optional
+from typing import Callable, Dict, Iterable, List, NamedTuple, Optional
 
 # Put on a subscriber's queue by EventBroadcaster.close(): the stream reading
 # that queue (app/api/events.py) ends as soon as it sees this object.
@@ -88,6 +88,16 @@ class EventBroadcaster:
         self._subscribers: Dict[str, _Subscriber] = {}
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._closed = False
+        self._listeners: List[Callable[[dict], None]] = []
+
+    def add_listener(self, listener: Callable[[dict], None]) -> None:
+        """
+        Also hand every published event to `listener` (called in the
+        publishing thread, before the tabs get it) - e.g. the activity log
+        (app/audit.py's record_published_event). A listener that raises never
+        stops the event or the other listeners.
+        """
+        self._listeners.append(listener)
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Called once at startup, from inside the running event loop (see app/api/app.py)."""
@@ -125,6 +135,11 @@ class EventBroadcaster:
         directly without going through the FastAPI lifespan) - live
         updates are a UI nicety, not something correctness depends on.
         """
+        for listener in self._listeners:
+            try:
+                listener(event)
+            except Exception:            # noqa: BLE001 - a listener must not break live updates
+                pass
         if self._loop is None:
             return
         allowed = set(roles) if roles is not None else None

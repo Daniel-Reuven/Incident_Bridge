@@ -35,7 +35,10 @@ replace them with fakes and run without a network and without real waits.
 
 Logging: every request, retry and failure is logged WITHOUT headers, query
 values or bodies, so API keys and incident data never reach the console
-(keys are always sent in headers, never in the URL).
+(keys are always sent in headers, never in the URL). Every attempt is also
+recorded in the activity log (app/audit.py, event "external.request"): the
+service, method, host and path, status, duration and outcome, plus the
+caller's `log_fields` (an AI provider adds its name and model).
 
 Usage:
     client = ApiClient("https://api.example.com/v1", headers={"x-api-key": key}, timeout_seconds=15)
@@ -47,8 +50,11 @@ Usage:
 import logging
 import time
 from typing import Any, Callable, Dict, Mapping, Optional
+from urllib.parse import urlsplit
 
 import requests
+
+from app.audit import audit
 
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_WAIT_SECONDS = 1.0
@@ -56,6 +62,8 @@ DEFAULT_RETRY_WAIT_SECONDS = 1.0
 
 class ApiError(Exception):
     """Base class of every ApiClient failure. The message is short and readable (no secrets)."""
+
+    status_code: Optional[int] = None    # the HTTP status, when a reply arrived
 
 
 class ApiConnectionError(ApiError):
@@ -143,7 +151,7 @@ class ApiClient:
         self._log = logger or logging.getLogger(__name__)
 
     def get_json(self, path: str, params: Optional[Mapping[str, Any]] = None,
-                 timeout_seconds: Optional[float] = None) -> dict:
+                 timeout_seconds: Optional[float] = None, log_fields: Optional[Mapping[str, Any]] = None) -> dict:
         """
         GET base_url + path and return the JSON object. Retries a timeout or a
         connection error (see the module docstring); raises the last error
@@ -152,7 +160,7 @@ class ApiClient:
         """
         for attempt in range(1, self.max_attempts + 1):
             try:
-                return self._send("GET", path, timeout_seconds, params=params)
+                return self._send("GET", path, timeout_seconds, log_fields, params=params)
             except ApiConnectionError as exc:
                 if attempt == self.max_attempts:
                     self._log.warning(f"GET {path} to {self.name} failed after {attempt} attempt(s): {exc}")
@@ -163,11 +171,48 @@ class ApiClient:
                 self._sleep(wait)
         raise AssertionError("unreachable")     # the loop always returns or raises
 
-    def post_json(self, path: str, body: Mapping[str, Any], timeout_seconds: Optional[float] = None) -> dict:
+    def post_json(self, path: str, body: Mapping[str, Any], timeout_seconds: Optional[float] = None,
+                  log_fields: Optional[Mapping[str, Any]] = None) -> dict:
         """POST `body` as JSON to base_url + path and return the JSON object. One attempt, no retry."""
-        return self._send("POST", path, timeout_seconds, json=body)
+        return self._send("POST", path, timeout_seconds, log_fields, json=body)
 
-    def _send(self, method: str, path: str, timeout_seconds: Optional[float], **kwargs) -> dict:
+    def _send(self, method: str, path: str, timeout_seconds: Optional[float],
+              log_fields: Optional[Mapping[str, Any]] = None, **kwargs) -> dict:
+        """One request, recorded in the activity log whatever its outcome (see _record())."""
+        started = time.perf_counter()
+        outcome, status = "ok", None
+        try:
+            data, status = self._send_once(method, path, timeout_seconds, **kwargs)
+            return data
+        except ApiHTTPError as exc:
+            outcome, status = "http_error", exc.status_code
+            raise
+        except ApiTimeout:
+            outcome = "timeout"
+            raise
+        except ApiConnectionError:
+            outcome = "connection_error"
+            raise
+        except ApiInvalidJSON as exc:
+            outcome, status = "invalid_json", exc.status_code
+            raise
+        except ApiInvalidData as exc:
+            outcome, status = "invalid_data", exc.status_code
+            raise
+        finally:
+            self._record(method, path, outcome, status, (time.perf_counter() - started) * 1000, log_fields)
+
+    def _record(self, method, path, outcome, status, duration_ms, log_fields) -> None:
+        """The activity-log record of one attempt - never headers, query values or bodies."""
+        base = urlsplit(self.base_url)
+        full_path = base.path + path
+        duration_ms = round(duration_ms, 1)
+        level = logging.INFO if outcome == "ok" else logging.WARNING
+        audit("external.request", level=level, service=self.name, method=method, host=base.netloc,
+              path=full_path, status=status, outcome=outcome, duration_ms=duration_ms, **dict(log_fields or {}),
+              message=f"{method} {base.netloc}{full_path} -> {status or outcome} ({duration_ms:g} ms, {self.name})")
+
+    def _send_once(self, method: str, path: str, timeout_seconds: Optional[float], **kwargs) -> dict:
         """One request: send it, check the status, decode the JSON. Raises an ApiError subclass."""
         timeout = timeout_seconds or self.timeout_seconds
         self._log.debug(f"{method} {path} to {self.name} (timeout {timeout:g}s)")
@@ -189,10 +234,14 @@ class ApiClient:
         try:
             data = response.json()
         except ValueError:
-            raise ApiInvalidJSON(f"{self.name} returned a reply that is not valid JSON") from None
+            error = ApiInvalidJSON(f"{self.name} returned a reply that is not valid JSON")
+            error.status_code = response.status_code
+            raise error from None
         if not isinstance(data, dict):
-            raise ApiInvalidData(f"{self.name} returned JSON that is not an object")
-        return data
+            error = ApiInvalidData(f"{self.name} returned JSON that is not an object")
+            error.status_code = response.status_code
+            raise error
+        return data, response.status_code
 
     def __repr__(self) -> str:
         return (f"ApiClient({self.base_url!r}, timeout_seconds={self.timeout_seconds:g}, "
