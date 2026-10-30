@@ -27,7 +27,8 @@ def server(passwords, status_for_wrong=401, must_change=False):
         if body["password"] in passwords:
             return httpx.Response(200, json={"username": body["username"], "must_change_password": must_change})
         return httpx.Response(status_for_wrong, json={"detail": "Too many failed logins - try again in about 15 minute(s)."
-                                                      if status_for_wrong == 429 else "Invalid username or password."})
+        if status_for_wrong == 429 else "Invalid username or password."})
+
     return httpx.Client(transport=httpx.MockTransport(handle), base_url="http://test"), sent
 
 
@@ -42,7 +43,7 @@ def typed(monkeypatch):
 def test_the_env_password_is_used_when_it_still_works(typed):
     client, sent = server({"Start#Pass1"})
     seed_from_jsonl._login(client, "admin", "Start#Pass1", ask_first=False)
-    assert sent == ["Start#Pass1"]                    # nothing asked
+    assert sent == ["Start#Pass1"]  # nothing asked
 
 
 def test_a_changed_password_is_asked_for_once(typed, capsys):
@@ -78,3 +79,30 @@ def test_an_admin_who_must_change_the_password_is_told_so(typed):
     client, _ = server({"Start#Pass1"}, must_change=True)
     with pytest.raises(SystemExit, match="must change the password first"):
         seed_from_jsonl._login(client, "admin", "Start#Pass1", ask_first=False)
+
+
+def test_without_a_real_terminal_the_password_is_read_as_visible_input(monkeypatch, capsys):
+    """An IDE's Run window: no TTY - getpass would wait on an invisible console, so plain input is used."""
+    import io
+
+    class FakeStdin(io.StringIO):
+        def isatty(self):
+            return False
+
+    monkeypatch.setattr(sys, "stdin", FakeStdin("Typed#Pass1\n"))
+    monkeypatch.setattr(seed_from_jsonl.getpass, "getpass", lambda *a, **k: pytest.fail("getpass must not be used"))
+    assert seed_from_jsonl._ask_password("admin") == "Typed#Pass1"
+    out = capsys.readouterr().out
+    assert "WILL BE VISIBLE" in out and "Password for 'admin'" in out
+
+
+def test_in_a_real_terminal_getpass_hides_the_typing(monkeypatch):
+    class Tty:
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(sys, "stdin", Tty())
+    monkeypatch.setattr(sys, "stdout", type("Out", (), {"isatty": lambda self: True, "flush": lambda self: None,
+                                                        "write": lambda self, s: None})())
+    monkeypatch.setattr(seed_from_jsonl.getpass, "getpass", lambda prompt, **kwargs: "Hidden#Pass1")
+    assert seed_from_jsonl._ask_password("admin") == "Hidden#Pass1"
