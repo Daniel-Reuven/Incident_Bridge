@@ -17,13 +17,14 @@ cd backend
 pip install -e ".[dev]"      # the app plus its test tools, from pyproject.toml
 cp .env.example .env         # then edit it
 python serve_app.py          # web app on http://127.0.0.1:8000
-cd .. && python main.py      # offline demo of every Stage 1 requirement
+cd .. && python main.py      # offline demo of every Stage 1 and Stage 2 requirement (--live: real AI call)
 ```
 
 ---
 
 ## Contents
 
+- [שלב 2 (Stage 2)](#שלב-2-stage-2)
 - [Screenshots](#screenshots)
 - [Part A – Project Proposal](#part-a--project-proposal)
 - [1. Business process](#1-business-process)
@@ -46,6 +47,82 @@ cd .. && python main.py      # offline demo of every Stage 1 requirement
 - [18. Future Development](#18-future-development)
 - [Tech stack](#tech-stack)
 - [License](#license)
+
+---
+
+## שלב 2 (Stage 2)
+
+<!-- Maintained by Person C. A and B: put your text in your pull-request description; C folds it in here.
+     Every "TODO(C)" comment below must be resolved before the final 0.6.0 tag. -->
+
+### 1. What was added, and the business value
+
+- **External service — AI analysis of faults.** Any user can ask an AI model (Gemini by default, or Claude / OpenAI) to analyze a fault; the fault and its whole update thread go out as JSON, and the answer comes back as comments by the built-in `ai-assistant` user. Since v0.5.0 the providers' REST APIs are called with `requests` through our own client, `backend/app/api_client.py` (no company SDK).
+- **The answer drives a decision in the Sites subsystem** (group-of-four). The model ends its answer with a small JSON findings block (suggested severity, affected site ids, confidence). A finished analysis triggers a **real availability check** of every site it names; the measured check — never the AI — decides the site's status, and the existing rules draft a notification that an admin still has to send. <!-- TODO(C): confirm against Person A's merged code -->
+- **Every analysis request is recorded** (who, when, provider, model, outcome), and the **site report gains a decision metric**: sites the AI named as affected whose check found them Operational, or that have no sent notification — i.e. "AI says there is a problem, but nothing was done or measured". <!-- TODO(C): exact metric name/wording from Person A -->
+- **Archive rule built with TDD:** an analysis request is archived `AI_REQUEST_ARCHIVE_DAYS` after it finished; archived requests leave the live counts. <!-- TODO(C): Person B -->
+- **Concurrency:** site statuses collected sequentially vs. concurrently with `asyncio`, and a `threading.Lock` that stops two technicians claiming the same fault at the same moment. <!-- TODO(C): Person B -->
+
+### 2. How to run
+
+- **Python 3.9+.** Install from `backend/`: `pip install -e ".[dev]"` (adds `requests`; no AI SDK).
+- **Settings:** copy `backend/.env.example` to `backend/.env`. For a real AI call set `AI_PROVIDER` (`gemini` default, `claude`, `openai`) and that provider's key (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`, or `OPENAI_API_KEY` + `OPENAI_MODEL`). Optional: `GEMINI_TIER`, `GEMINI_MODEL_DISCOVERY=auto`, `AI_REQUEST_TIMEOUT_SECONDS`, `AI_REQUEST_ARCHIVE_DAYS`. Keys are sent only in request headers and never printed or logged; `.env` is git-ignored.
+- **Commands** (from the repository root):
+
+```bash
+python main.py               # offline demo, no network or key - every Stage 2 result is marked SIMULATED
+python main.py --live        # calls the AI provider set in backend/.env - marked REAL
+cd backend && python -m pytest -q    # the test suite: no network, no key, no real retry waits
+cd backend && python serve_app.py    # the web app (the "Analyze using ..." button on a fault page)
+```
+
+`--live` never falls back to simulated data: without a real provider configured it stops with one clear message. Only the AI provider is real in `--live`; site checks stay simulated because the sample sites use `example`/`.invalid` addresses.
+
+### 3. How the code is organized
+
+The full tree is in [§12](#12-project-structure-file-map). The layout differs from the brief's (`backend/` holds `pyproject.toml`, `.env.example`, `app/` and `tests/`) because the project is a web app with a separate `frontend/`. <!-- TODO(C): lecturer's answer to question 1; if "no", move pyproject.toml/.env.example to the root as the last merge -->
+
+| Module (in `backend/app/`) | Role in Stage 2 |
+|---|---|
+| `api_client.py` | `ApiClient`: timeout, `raise_for_status()`, JSON decoding, `require()` field checks, GET retry; one exception class per kind of failure |
+| `ai/providers/` | `AnalysisProvider` (Strategy), `build_provider()` (Factory), `http_provider.py` (shared REST call), one small file per provider |
+| `ai/worker.py`, `ai/prompt.py`, `ai/splitter.py` | the analysis queue + its one worker thread; what is sent; how the answer becomes comments |
+| `ai/result.py`, `ai/request_history.py`, `analysis_service.py` | findings block, request history, `AnalysisCompleted` event and its listeners (Observer) <!-- TODO(C): Person A --> |
+| `sites.py`, `site_scan.py`, `reports.py` | the Sites subsystem (Stage 1) and the site report with the new metric |
+| `archive_rules.py` | TDD capability: when an analysis request is archived <!-- TODO(C): Person B --> |
+| `async_processing.py`, `threaded_processing.py` | async collection; the claim Lock <!-- TODO(C): Person B --> |
+| `main.py` (repository root) | the demo: sections 1–9 Stage 1, sections 10–15 Stage 2 |
+
+- **The 4 extra tests (brief 6.4):** `backend/tests/test_integration.py` and `backend/tests/test_reports.py` — full flow succeeds, service failure, invalid cross-reference, the new metric's value. <!-- TODO(C): exact test names from Person A -->
+- **Who did what:** Person A — AI findings → Sites subsystem → report (Observer, the 4 tests); Person B — TDD archive rule, async, threads + Lock; Roi (roi2109, Person C) — Stage 1 fixes, demo (`main.py`), README, `AI_USAGE.md`, final integration; v0.5.0 (REST client) — <!-- TODO(C): author -->.
+
+### 4. Main design decisions
+
+- **The external service:** the AI provider's REST API — [Gemini `generateContent`](https://ai.google.dev/api/generate-content) and [`models.list`](https://ai.google.dev/api/models), [Claude Messages](https://docs.claude.com/en/api/messages), [OpenAI Responses](https://platform.openai.com/docs/api-reference/responses). The business data (the analysis) comes from a JSON **POST**; the **GET** with parameters, timeout and retry is Gemini's model listing; the site availability check is a real GET whose result drives the site's status. <!-- TODO(C): lecturer's answer to question 2 -->
+- **Communication vs. decision are separate:** `api_client.py` only talks HTTP and validates the reply; the providers turn a reply into text; the worker and the listeners decide what to do with it.
+- **Failure handling:** a timeout or connection error on a GET is retried (3 attempts in total, waiting 1 s then 2 s); an HTTP error, a rejected key, invalid JSON or a missing field is never retried. A busy model (429/503/…) falls back to the next model. Any failure posts one error comment, records the request as `failed`, and changes nothing else — no check, no status change, no notification. A missing or invalid findings block is not a failure: the text is posted as before (`success_unstructured`) and no site is touched.
+- **Design patterns** — dependencies are passed in from outside (constructor arguments), so tests swap in `FakeProvider`, `FakeChecker` or a mocked `requests.Session` and run without network, keys or real waits:
+
+| Pattern | Where | Why |
+|---|---|---|
+| Strategy | `AnalysisProvider` (`ai/providers/base.py`) injected into `AnalysisWorker`; `AvailabilityChecker` (`services/availability.py`) injected into `SiteDirectory` | swap Gemini / Claude / OpenAI / Fake, or the real HTTP check / a scripted one, with no change to the code that uses them |
+| Factory | `build_provider()` (`ai/providers/__init__.py`): `AI_PROVIDER` → provider class; `IncidentRepository._incident_from_jsonl_line()` (`repository.py`): `kind` → `Fault` / `MaintenanceTask` | the only places that turn data into a class choice |
+| Observer | `AnalysisCompleted` → `SiteImpactListener`, `AnalysisStatsListener` (`analysis_service.py`) — **serves the subsystem** | the worker does not know the Sites subsystem; a failing listener is logged and does not stop the others <!-- TODO(C): Person A --> |
+
+- **Data flow between the systems:** analysis requested → worker calls the AI (POST) → answer posted as comments + findings parsed → `AnalysisCompleted` → each named, active, non-maintenance site is checked (real GET) → status by the existing rules → notification drafted for an admin → request history + report metric. Unknown or archived site ids are recorded as invalid cross-references and change nothing. <!-- TODO(C): Person A -->
+- **Async:** <!-- TODO(C): Person B - the independent tasks and why they are independent (simulated with asyncio.sleep, no network) -->
+- **Shared resource and the Lock:** <!-- TODO(C): Person B - two technicians claiming the same open fault: both pass the "is it claimable?" check before either writes; the Lock makes check + claim + remove one step -->
+
+### 5. Proof that it works
+
+- **Tests:** <!-- TODO(C): final count --> 1451 tests, all passing — `cd backend && python -m pytest -q` (GitHub Actions runs them on every push). Coverage per area in [§14](#14-automated-testing).
+- **Real run** (`python main.py --live`, <!-- TODO(C): date -->, no secrets in the output):
+
+```
+TODO(C): paste the [REAL] lines of sections 10 (answer + Gemini model listing) here
+```
+
+- **TDD (`AI_REQUEST_ARCHIVE_DAYS`):** Red <!-- TODO(C): hash -->, Green <!-- TODO(C): hash -->, Refactor <!-- TODO(C): hash -->.
 
 ---
 
@@ -627,7 +704,7 @@ The structure differs from the brief's suggested layout because the project is a
 
 ```
 Incident_Bridge/
-├── main.py                       # offline demo of every Stage 1 requirement - `python main.py`
+├── main.py                       # demo of Stage 1 and Stage 2 - `python main.py` (offline) / `--live`
 ├── README.md                     # this file
 ├── LICENSE                       # MIT
 ├── AI_USAGE.md                   # how AI tools were used
@@ -775,7 +852,7 @@ Incident_Bridge/
 
 ## 14. Automated testing
 
-`backend/tests/` holds **1421 tests** (pytest), all passing, with **96% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
+`backend/tests/` holds **1451 tests** (pytest), all passing, with **96% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
 
 - **Isolated from your settings** — `tests/conftest.py` clears every app setting from the environment and stops `backend/.env` from being loaded, so the suite gives the same result with or without your own `.env` (users, AI provider, database, data folders, HTTPS, log options). Tests that start `serve_app.py` as a process of its own (which does load `.env`) pass it `env_without_dotenv()`: every setting named in `.env.example` or `.env` is set — to the test's value, else empty — so nothing from your `.env` (such as a path to your real installation) applies.
 - **Unit tests** — the domain classes directly, no HTTP and no database: models (`tests/test_models/`), services (`tests/test_services/`), queues (`tests/test_queues/`), iterators, the generator, context managers, the scan, the report, the site directory, user provisioning and JSONL validation.
@@ -791,7 +868,7 @@ Incident_Bridge/
 - **Requirements page** (`test_requirements_demo.py`) — every demo runs and shows output, one entry per Stage 1 requirement, every piece of code shown is the app's own and every page linked exists, a broken demo reports why, logged-in users only, an unknown id, and a run of every demo leaving the app's incidents and users unchanged.
 - **Display names** (`test_display_names.py`) — the template and its tidying of empty fields, the lighter location part, invalid formats, the directory, the default and own formats, admin-only changes, the preview, names at creation, setup and from `.env`, the log naming changed fields but not their values, a restart.
 - **Interface preferences** (`test_preferences.py`) — defaults, saved per user and returned at login in another browser, invalid values refused, logged-out and forced-change users refused, survival across a restart, bad stored values, the column added to an older database, the activity record.
-- **`test_main_demo.py`** — runs `main.py` and checks every section prints and it finishes cleanly.
+- **`test_main_demo.py`** — runs `main.py` and checks every section prints and it finishes cleanly, that Stage 2 results are marked SIMULATED offline, that the combined flow (section 13) checks the sites the findings name, ignores an unknown one and shows the report's new metric, and that `--live` without a real provider stops with a clear message.
 - **Notification archive** (`test_notification_archive.py`) — drafts are never archived; sent, dismissed and skipped ones archive after the period; the `NOTIFICATION_ARCHIVE_DAYS` setting; `?archived=true` and the view-only rule over HTTP.
 - **Public pages and files** (`test_public_pages.py`) — the Guide, About and Terms pages open without logging in, the screenshots are served, `/health` reports the version from `pyproject.toml`; and static checks: every local link and image in `frontend/*.html` exists, every `#section` link has its target, every page loads the footer, the README's screenshots exist, and `LICENSE` names the same team as the About page.
 
@@ -868,13 +945,14 @@ Open `http://127.0.0.1:8000/`. `serve_app.py` loads `.env`, checks the installat
 
 Re-importing is safe: records whose id already exists are skipped. Every username in the file (`created_by`, `assigned_to`, comment authors) must be an existing account, or that record is skipped with the reason: the sample data uses `admin`, `tech1`, `tech2` and `tech3`, so name the first admin `admin` on the setup page and create the technicians (e.g. with `INCIDENT_BRIDGE_USERS`, as in `.env.example`) before importing it.
 
-**5. Run the Stage 1 demo** (offline — no server, database or network; nothing on disk changes):
+**5. Run the demo** (offline by default — no server, database or network; nothing on disk changes):
 
 ```bash
 python main.py              # from the repository root
+python main.py --live       # the same, but the AI provider in backend/.env is really called
 ```
 
-It loads the three data files and walks through every requirement in nine titled sections: loading and validation, the OOP model, data structures, sorting and comprehensions, iterators, the generator, the lazy pipeline, context managers, and the Sites & Mailing Lists subsystem ending with the site health report.
+Sections 1–9 walk through every Stage 1 requirement: loading and validation, the OOP model, data structures, sorting and comprehensions, iterators, the generator, the lazy pipeline, context managers, and the Sites & Mailing Lists subsystem ending with the site health report. Sections 10–15 are Stage 2 (see [שלב 2](#שלב-2-stage-2)); each external-service result is marked SIMULATED or REAL.
 
 **6. Run the tests:**
 

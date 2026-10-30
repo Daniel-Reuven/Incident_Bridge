@@ -1,9 +1,10 @@
 """
-Incident Bridge - Stage 1 demo scenario.
+Incident Bridge - demo scenario for Stage 1 and Stage 2.
 
 Run from the repository root (where it belongs, per the brief):
 
-    python main.py
+    python main.py           # offline: no network, no key - every Stage 2 result is marked SIMULATED
+    python main.py --live    # the AI provider set in backend/.env is really called - marked REAL
 
 Data is always read from <repository root>/data, found by walking up from
 this file's folder (see find_repo_root), so it does not matter which folder
@@ -22,10 +23,26 @@ Stage 1 requirement, one titled section at a time, printing what happens:
     8. Context managers (normal exit and exit by exception)
     9. Sites & Mailing Lists subsystem (process, notifications, scan, report)
 
-It runs completely offline: no web server, no database and no network. All
-data lives in memory, site availability checks use FakeChecker (scripted
-results instead of real HTTP requests) and notifications use OutboxNotifier
-(recorded, not emailed). Nothing on disk is changed.
+  Stage 2:
+   10. External service - AI analysis of a fault (SIMULATED, or REAL with --live)
+   11. Failure of the external service and the business response
+   12. Design patterns (Strategy, Factory; Observer once Person A's part is merged)
+   13. Combined flow across both systems (Person A - shown once merged)
+   14. Async collection (Person B - shown once merged)
+   15. Threads and a Lock on a shared resource (Person B - shown once merged)
+
+By default it runs completely offline: no web server, no database and no
+network. All data lives in memory, site availability checks use FakeChecker
+(scripted results instead of real HTTP requests), notifications use
+OutboxNotifier (recorded, not emailed) and the AI provider is FakeProvider
+(canned answers). Nothing on disk is changed.
+
+--live replaces ONLY the AI provider with the real one configured in
+backend/.env (AI_PROVIDER + its API key; never printed). It stops with a
+clear message if no real provider is configured, instead of silently falling
+back to simulated data. With Gemini it also lists the key's models (a GET with
+retry). Site checks stay simulated in both modes: the sample sites use
+example/.invalid addresses.
 
 This file defines no business classes - per the brief it only USES the
 domain code in backend/app. The small functions below only print things or
@@ -36,6 +53,8 @@ Requirements: Python 3.9+ and the backend's dependencies installed
 separately with backend/serve_app.py - see README.md, section 15.
 """
 
+import argparse
+import importlib.util
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -66,13 +85,29 @@ sys.path.insert(0, str(ROOT / "backend"))  # make the `app` package importable w
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(errors="replace")
 
+from dataclasses import asdict  # noqa: E402
+import secrets  # noqa: E402
+
+from app import database  # noqa: E402
+from app.ai.config import AIConfig  # noqa: E402
+from app.ai.jobs import AnalysisJob  # noqa: E402
+from app.ai.request_history import OUTCOME_SUCCESS, SqliteRequestHistoryStore  # noqa: E402
+from app.ai.result import extract_findings  # noqa: E402
+from app.analysis_service import (AnalysisCompleted, AnalysisStatsListener, SiteImpactListener,  # noqa: E402
+                                  notify_listeners)
+from app.ai.prompt import build_incident_data, build_instructions  # noqa: E402
+from app.ai.providers import PROVIDERS, AnalysisError, AnalysisProvider, build_provider  # noqa: E402
+from app.ai.providers.fake_provider import FakeProvider  # noqa: E402
+from app.ai.splitter import error_comment, split_answer, total_answer_budget  # noqa: E402
+from app.api_client import ApiError  # noqa: E402
 from app.context import IncidentWorkSession, SiteCheckSession  # noqa: E402
 from app.iterators import first_pressing_calls, stale_in_progress_work  # noqa: E402
 from app.models import MaintenanceTask, Role, Site, User  # noqa: E402
 from app.queues import FaultPriorityQueue, MaintenanceQueue  # noqa: E402
 from app.reports import build_site_report  # noqa: E402
 from app.repository import IncidentRepository, UserStore  # noqa: E402
-from app.services import FakeChecker, OutboxNotifier  # noqa: E402
+from app.models.system_users import AI_USERNAME, SystemUser  # noqa: E402
+from app.services import AvailabilityChecker, FakeChecker, HttpChecker, OutboxNotifier  # noqa: E402
 from app.sites import SiteDirectory  # noqa: E402
 
 # Demo accounts - the same usernames the sample data uses. In the web app they
@@ -88,7 +123,17 @@ DEMO_USERS = [
 # code, None is "no response". Sites not listed always answer 200.
 HR_PORTAL_URL = "https://hr.incident-bridge.invalid"        # Site 1007
 DEMO_SITE_URL = "https://status-demo.example.com"           # created in section 9
-CHECK_SCRIPT = {HR_PORTAL_URL: [None, None], DEMO_SITE_URL: [None, None]}
+CHECK_SCRIPT = {HR_PORTAL_URL: [None, None, None], DEMO_SITE_URL: [None, None]}   # HR: 2 in section 9, 1 in 13
+
+# Stage 2: the fault sent to the AI provider (it names Site 1007, the HR
+# portal), and the fault used to show what happens when the service fails.
+ANALYZED_FAULT_ID = "seed-079"
+FAILING_FAULT_ID = "seed-075"
+# Section 13: the simulated answer's findings name the Online store (answers
+# normally), the HR portal (still down) and a site that does not exist.
+COMBINED_FAULT_ID = "seed-075"
+ONLINE_STORE_ID, HR_PORTAL_ID, UNKNOWN_SITE_ID = 1005, 1007, 4242
+SIMULATED, REAL = "SIMULATED", "REAL"
 
 
 def section(number: int, title: str) -> None:
@@ -348,8 +393,187 @@ def sites_subsystem(users, incidents, directory):
         print(f"  {line}")
 
 
-def main() -> None:
-    print("Incident Bridge - Stage 1 demo (offline: no server, no database, no network)")
+# ---------------------------------------------------------------------------
+# Stage 2
+# ---------------------------------------------------------------------------
+
+def parse_args(argv=None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Incident Bridge demo (Stage 1 and Stage 2).")
+    parser.add_argument("--live", action="store_true",
+                        help="call the real AI provider configured in backend/.env (default: offline, simulated)")
+    return parser.parse_args(argv)
+
+
+def choose_provider(live: bool):
+    """
+    (provider, mode): FakeProvider and SIMULATED by default; with --live, the
+    provider configured in backend/.env and REAL. Stops with a clear message
+    (never a silent fallback) when --live cannot make a real call.
+    """
+    if not live:
+        return FakeProvider(), SIMULATED
+    from dotenv import load_dotenv                    # a backend dependency; only --live needs it
+    load_dotenv(ROOT / "backend" / ".env")            # variables already set in the shell win
+    try:
+        config = AIConfig.from_env()
+    except ValueError as exc:
+        raise SystemExit(f"main.py --live: invalid AI settings in backend/.env - {exc}")
+    if config is None:
+        raise SystemExit(f"main.py --live: no real AI provider to call. {AIConfig.off_reason()} "
+                         f"Set it in backend/.env (see backend/.env.example), or run without --live.")
+    if PROVIDERS[config.provider].key_env is None:
+        raise SystemExit(f"main.py --live: AI_PROVIDER={config.provider} is simulated, not a real service - "
+                         f"choose gemini, claude or openai in backend/.env, or run without --live.")
+    return build_provider(config), REAL
+
+
+def tagged(mode: str, label: str, value="") -> None:
+    show(f"[{mode}] {label}", value)
+
+
+def first_lines(text: str, count: int = 3) -> list:
+    return [line for line in text.splitlines() if line.strip()][:count]
+
+
+def external_service(incidents, provider, mode):
+    section(10, f"Stage 2 - External service: AI analysis of a fault ({mode})")
+    fault = incidents.get(ANALYZED_FAULT_ID)
+    ai_user = SystemUser(AI_USERNAME)
+    show("Trigger", f"an analysis of fault {fault.id} - {fault.title!r} (severity {fault.severity.name})")
+    instructions = build_instructions(total_answer_budget())
+    incident_data = build_incident_data(fault, AI_USERNAME)        # the fault + ALL its comments, as JSON
+    show("Data sent", f"{len(incident_data):,} characters of JSON (the fault and {len(fault.comments)} comments) "
+                      f"to {provider.label()}")
+    try:
+        result = provider.analyze(instructions, incident_data)     # POST; models tried best first
+    except AnalysisError as exc:
+        fault.add_comment(ai_user, error_comment(provider.label(), str(exc)))
+        tagged(mode, "The call failed - an error comment was posted instead", exc)
+        return
+    text, findings = extract_findings(result.text)                 # the trailing JSON line (app/ai/result.py)
+    texts = split_answer(text, provider.label(result.model))
+    for text in texts:
+        fault.add_comment(ai_user, text)                            # posted by the ai-assistant system user
+    tagged(mode, "Answered by", provider.label(result.model))
+    tagged(mode, "Posted on the fault", f"{len(texts)} comment(s) by {AI_USERNAME}, {len(result.text):,} characters")
+    tagged(mode, "Structured findings", asdict(findings) if findings else
+           "none - the answer is posted as text only (outcome success_unstructured)")
+    for line in first_lines(texts[0], 4):
+        print(f"      | {line[:100]}")
+
+    list_models = getattr(provider, "available_models", None)      # only Gemini lists its models
+    if mode == REAL and list_models is not None:
+        try:
+            names = list_models()                                   # GET /models with params, timeout, retry
+        except ApiError as exc:
+            tagged(mode, "Model listing (GET) failed", exc)
+        else:
+            tagged(mode, "Model listing (GET /models)", f"{len(names)} models, e.g. {', '.join(names[:3])}")
+
+
+def service_failure(incidents):
+    section(11, f"Stage 2 - When the external service fails ({SIMULATED})")
+    fault = incidents.get(FAILING_FAULT_ID)
+    before = (fault.status, fault.severity, fault.assigned_to)
+    failing = FakeProvider(error="timed out after 180 seconds")    # what a timeout looks like to the app
+    show("Trigger", f"an analysis of fault {fault.id} while the service times out")
+    try:
+        failing.analyze(build_instructions(total_answer_budget()), build_incident_data(fault, AI_USERNAME))
+    except AnalysisError as exc:
+        fault.add_comment(SystemUser(AI_USERNAME), error_comment(failing.label(), str(exc)))
+    tagged(SIMULATED, "Comment posted", fault.comments[-1].text)
+    unchanged = before == (fault.status, fault.severity, fault.assigned_to)
+    show("Fault status, severity and assignee unchanged", unchanged)
+    show("(Real HTTP errors, invalid JSON and missing fields are raised by app/api_client.py and become the same "
+         "kind of error comment)")
+
+
+def design_patterns(incidents, provider):
+    section(12, "Stage 2 - Design patterns")
+    show("Strategy - AnalysisProvider: the code above only calls analyze(); this run uses",
+         f"{type(provider).__name__} (is an AnalysisProvider: {isinstance(provider, AnalysisProvider)})")
+    show("  interchangeable providers", ", ".join(f"{name} -> {info.class_name}" for name, info in PROVIDERS.items()))
+    show("Strategy - AvailabilityChecker injected into SiteDirectory",
+         f"this demo injects {FakeChecker.__name__} (load_data), the web app {HttpChecker.__name__} - "
+         f"both are {AvailabilityChecker.__name__}s, so SiteDirectory never changes")
+    fake_config = AIConfig(provider="fake", api_key=None, models=("fake-model",), timeout_seconds=5, delay_seconds=0)
+    show("Factory - build_provider(AIConfig(provider='fake', ...)) creates", type(build_provider(fake_config)).__name__)
+    built = sorted({(i.kind, type(i).__name__) for i in incidents.list_all()})
+    show("Factory - each JSONL record's 'kind' chose the class built", ", ".join(f"{k} -> {c}" for k, c in built))
+    show("Observer - AnalysisWorker notifies the listeners it was given after a structured answer",
+         f"{SiteImpactListener.__name__} (Sites subsystem), {AnalysisStatsListener.__name__} (statistics) - "
+         f"section 13 shows them at work")
+
+
+def pending_part(what: str, module: str, owner: str) -> None:
+    """One line for a Stage 2 part that another team member is still building (see the team plan)."""
+    if importlib.util.find_spec(module) is None:
+        show(what, f"pending - {owner}'s {module.replace('.', '/')}.py is not merged yet")
+    else:
+        show(what, f"{module} is merged - its demo is still to be wired into main.py")
+
+
+def combined_flow(users, incidents, directory):
+    section(13, f"Stage 2 - Combined flow: AI findings -> site check -> report ({SIMULATED})")
+    fault = incidents.get(COMBINED_FAULT_ID)
+    requester = users.get("tech1")
+    named = [ONLINE_STORE_ID, HR_PORTAL_ID, UNKNOWN_SITE_ID]
+    answer = (f"Summary:\n- Checkout failures seem to come from the shared login service.\n\n"
+              f'{{"suggested_severity": "critical", "affected_site_ids": {named}, "confidence": 0.8}}')
+    provider = FakeProvider(answer=answer)                         # a simulated answer that names three sites
+    show("Trigger", f"an analysis of fault {fault.id} - {fault.title!r}, requested by {requester.username}")
+    database.use_key(secrets.token_bytes(32))                      # the request history, in memory only
+    history = SqliteRequestHistoryStore(":memory:")
+    job = AnalysisJob(incident_id=fault.id, requested_by=requester.username)
+    history.record_requested(job, provider.label())
+    result = provider.analyze(build_instructions(total_answer_budget()), build_incident_data(fault, AI_USERNAME))
+    text, findings = extract_findings(result.text)                 # JSON line -> validated AnalysisFindings
+    for comment in split_answer(text, provider.label(result.model)):
+        fault.add_comment(SystemUser(AI_USERNAME), comment)
+    history.record_finished(job.id, OUTCOME_SUCCESS, model=result.model, findings=asdict(findings))
+    tagged(SIMULATED, "Data passed on", f"findings {asdict(findings)}")
+
+    stats = AnalysisStatsListener()
+    before = {site.site_id: site.status.value for site in directory.sites()}
+    notify_listeners([SiteImpactListener(directory), stats],      # the Observer: the worker does exactly this
+                     AnalysisCompleted(fault, findings, provider.label(), result.model))
+    show("What changed - each named site that exists was checked for real; the check decides, never the AI")
+    for site_id in named:
+        try:
+            site = directory.get_site(site_id)
+        except KeyError:
+            print(f"    Site {site_id}: does not exist - an invalid cross-reference, nothing changed")
+            continue
+        print(f"    {site.label} ({site.site_name}): {before[site_id]} -> {site.status.value}, "
+              f"last check {site.last_check.summary}")
+    show("Statistics listener - analyses naming each site", stats.counts())
+
+    report = build_site_report(directory, incidents.list_all(), history)
+    counted = [row for row in report.rows if row.ai_analyses_requested]
+    show("In the report - AI analyses requested / succeeded / failed, over the incidents that mention each site",
+         ", ".join(f"Site {row.site_id}: {row.ai_analyses_requested}/{row.ai_analyses_succeeded}/"
+                   f"{row.ai_analyses_failed}" for row in counted) or "none")
+    show("New decision metric - AI-flagged sites now Operational or never notified",
+         f"{report.ai_resolved_or_unnotified_sites} (the HR portal is down AND its outage was sent, so it is not "
+         f"flagged; the Online store answered normally, so the AI's reading needs a second look)")
+
+
+def async_collection():
+    section(14, "Stage 2 - Async collection: sequential vs. concurrent")
+    pending_part("Site statuses collected one after another and with asyncio.gather", "app.async_processing",
+                 "Person B")
+
+
+def threads_and_lock():
+    section(15, "Stage 2 - Threads and a Lock: two technicians claim the same fault")
+    pending_part("Exactly one claim approved, the rest refused", "app.threaded_processing", "Person B")
+
+
+def main(argv=None) -> None:
+    args = parse_args(argv)
+    provider, mode = choose_provider(args.live)       # before any output: --live stops early if it cannot run
+    network = "the AI provider is called for real" if mode == REAL else "no network"
+    print(f"Incident Bridge - Stage 1 and Stage 2 demo ({mode}: no server, no database, {network})")
     users, incidents, directory = load_data()
     oop_model(users, incidents)
     data_structures(users, incidents)
@@ -359,6 +583,12 @@ def main() -> None:
     lazy_pipeline(incidents)
     context_managers(users, incidents, directory)
     sites_subsystem(users, incidents, directory)
+    external_service(incidents, provider, mode)
+    service_failure(incidents)
+    design_patterns(incidents, provider)
+    combined_flow(users, incidents, directory)
+    async_collection()
+    threads_and_lock()
     print("\nDemo finished.")
 
 
