@@ -62,6 +62,18 @@ Cancelling a queued job removes it at once. Cancelling the running job marks
 it cancelled: its API call finishes (or times out) in the background and the
 answer is thrown away. Either way the fault's buttons reset immediately.
 
+Request history (app/ai/request_history.py): every request gets a permanent
+row (unlike analysis_jobs, which only holds pending jobs) - requested when
+the job is queued, filled in with its outcome (success, success_unstructured,
+failed, cancelled or dropped), the model, and any parsed findings once the
+worker is done with it.
+
+Listeners (app/analysis_service.py, the Observer pattern): after an answer
+with valid structured findings is posted (outcome success, never
+success_unstructured or failed), every listener passed in at construction
+is called with one AnalysisCompleted. A listener that raises is logged and
+never stops the others, or the comments already posted.
+
 Console log: every step above is logged (app/ai/log.py) - each request,
 refusal, cancel, job start and end, model attempt and pause - and every
 queue change ends with the queue's state, e.g. "| queue: running seed-075,
@@ -77,9 +89,11 @@ import threading
 import time
 import traceback
 from collections import deque
+from dataclasses import asdict
 from datetime import datetime, timezone
-from typing import Deque, List, Optional, Tuple, Union
+from typing import Deque, Iterable, List, Optional, Tuple, Union
 
+from app.analysis_service import AnalysisCompleted, AnalysisListener, notify_listeners
 from app.ai.jobs import AnalysisJob
 from app.ai.job_store import SqliteAnalysisJobStore
 from app.ai.log import log, short_title
@@ -87,6 +101,9 @@ from app.ai.prompt import build_incident_data, build_instructions
 from app.ai.providers.base import AnalysisError, AnalysisProvider
 from app.ai.providers.loader import ProviderLoader
 from app.ai.reanalysis import DEFAULT_COOLDOWN_SECONDS, Decision, LastAnalysis, analysis_fingerprint, decide, wait_text
+from app.ai.request_history import (OUTCOME_CANCELLED, OUTCOME_DROPPED, OUTCOME_FAILED, OUTCOME_SUCCESS,
+                                    OUTCOME_SUCCESS_UNSTRUCTURED, SqliteRequestHistoryStore)
+from app.ai.result import AnalysisFindings, extract_findings
 from app.ai.splitter import error_comment, split_answer, total_answer_budget
 from app.events import EventBroadcaster, incident_event
 from app.models import Fault, IncidentStatus, Role, User
@@ -102,18 +119,24 @@ QUEUE_EVENT_SCOPE = "ai_analysis"
 class AnalysisWorker:
     def __init__(self, state, provider: Union[ProviderLoader, AnalysisProvider], store: SqliteAnalysisJobStore,
                  broadcaster: EventBroadcaster, delay_seconds: float,
-                 cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS, start_on_request: bool = True):
+                 cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS, start_on_request: bool = True,
+                 listeners: Iterable[AnalysisListener] = ()):
         """
         `provider`: a ProviderLoader (the app - the provider is created on the
         first analysis) or a ready AnalysisProvider (tests).
         `start_on_request`: start the thread on the first request (the app);
         False leaves starting to start() - tests use it to inspect the queue.
+        `listeners`: notified (app/analysis_service.py) after an answer with
+        valid structured findings is posted; empty by default, so every
+        existing caller is unaffected.
         Starts no thread itself; restores saved jobs (see start_if_restored()).
         """
         self._state = state                   # AppState: incidents + users
         self._loader = provider if isinstance(provider, ProviderLoader) else ProviderLoader.ready(provider)
         self._start_on_request = start_on_request
         self._store = store
+        self._history = SqliteRequestHistoryStore(store.db_path)
+        self._listeners = list(listeners)
         self._broadcaster = broadcaster
         self.delay_seconds = delay_seconds
         self.cooldown_seconds = cooldown_seconds   # before an admin may force a re-analysis
@@ -133,6 +156,11 @@ class AnalysisWorker:
         if self._queue:
             log.info(f"Restored {len(self._queue)} queued job(s) from the database: "
                      f"{', '.join(job.incident_id for job in self._queue)}")
+
+    @property
+    def history(self) -> SqliteRequestHistoryStore:
+        """The permanent request-history log (app/ai/request_history.py) - read by app/reports.py."""
+        return self._history
 
     # ------------------------------------------------------------------
     # The provider (created on the first analysis - see the module docstring)
@@ -201,6 +229,7 @@ class AnalysisWorker:
             job = AnalysisJob(incident_id=fault.id, requested_by=user.username)
             fault.add_comment(user, request_comment(user.username, self.provider_name, forced))
             self._store.add(job)
+            self._history.record_requested(job, self.provider_name)
             self._queue.append(job)
             position = len(self._queue)
             self._condition.notify()          # wake the worker if it is waiting
@@ -228,6 +257,7 @@ class AnalysisWorker:
             else:
                 what = f"it was waiting at position {list(self._queue).index(job) + 1}"
                 self._queue.remove(job)
+                self._history.record_finished(job.id, OUTCOME_CANCELLED)
             fault.add_comment(user, cancel_comment(user.username, self.provider_name))
             self._store.remove(job.id)
         log.info(f"Cancelled fault {fault.id} by {user.username} - {what} | {self.queue_summary()}")
@@ -350,6 +380,7 @@ class AnalysisWorker:
             except Exception:                 # a bug must never kill the worker thread
                 traceback.print_exc()
                 called_api, outcome = False, "crashed - see the traceback above"
+                self._history.record_finished(job.id, OUTCOME_FAILED)
             self._finish(job, outcome, time.monotonic() - started)
             if called_api:
                 log.debug(f"Pausing {self.delay_seconds:g}s before the next job")
@@ -410,6 +441,7 @@ class AnalysisWorker:
         fault = self._open_fault(job.incident_id)
         if fault is None:
             log.warning(f"Dropped the job for fault {job.incident_id} - it is closed or no longer exists")
+            self._history.record_finished(job.id, OUTCOME_DROPPED)
             return False, "dropped (closed or gone)"
 
         label = self._loader.label()           # all configured models - used if none answers
@@ -421,27 +453,29 @@ class AnalysisWorker:
                  f"waited {waited:.1f}s) - {len(fault.comments)} comments, "
                  f"{len(incident_data):,} characters of data | {self.queue_summary()}")
         result = None
+        findings = None
         try:
             provider = self._loader.get()     # already created by _run(); tried again here if that failed
         except Exception as exc:
             log.error(f"Could not create the {self.provider_name} provider ({type(exc).__name__}: {exc})")
             texts = [error_comment(label, f"the {self.provider_name} provider could not be started "
                                           f"({type(exc).__name__}) - see the server log")]
-            return self._post(job, fault, texts, "ai_analysis_failed", fingerprint, None, called_api=False)
+            return self._post(job, fault, texts, "ai_analysis_failed", fingerprint, None, None, called_api=False)
         try:
             # Tries the provider's models in order, falling back when one is busy (providers/base.py).
             result = provider.analyze(instructions, incident_data)
-            texts, action = split_answer(result.text, provider.label(result.model)), "ai_analysis_posted"
+            text, findings = extract_findings(result.text)   # strips the trailing JSON block, if any (app/ai/result.py)
+            texts, action = split_answer(text, provider.label(result.model)), "ai_analysis_posted"
         except AnalysisError as exc:
             texts, action = [error_comment(label, str(exc))], "ai_analysis_failed"
         except Exception as exc:              # an unexpected error: still tell the users
             traceback.print_exc()
             texts, action = [error_comment(label, f"unexpected error ({type(exc).__name__})")], "ai_analysis_failed"
 
-        return self._post(job, fault, texts, action, fingerprint, result, called_api=True)
+        return self._post(job, fault, texts, action, fingerprint, result, findings, called_api=True)
 
     def _post(self, job: AnalysisJob, fault: Fault, texts: List[str], action: str, fingerprint: str,
-              result, called_api: bool) -> Tuple[bool, str]:
+              result, findings: Optional[AnalysisFindings], called_api: bool) -> Tuple[bool, str]:
         """
         Post the answer (or error) comments - unless the job was cancelled
         meanwhile - remember a success, and publish ONE incident event.
@@ -449,6 +483,7 @@ class AnalysisWorker:
         """
         with self._condition:
             if job.cancelled:                 # cancelled while running: throw the answer away
+                self._history.record_finished(job.id, OUTCOME_CANCELLED)
                 return called_api, "answer discarded (cancelled while running)"
 
         ai_user = self._state.users.get(AI_USERNAME)
@@ -458,6 +493,13 @@ class AnalysisWorker:
         if action == "ai_analysis_posted":     # only a posted answer counts for the re-analysis rule
             self._store.record_success(fault.id, LastAnalysis(
                 self.provider_name, result.model, fingerprint, datetime.now(timezone.utc)))
+            outcome = OUTCOME_SUCCESS if findings is not None else OUTCOME_SUCCESS_UNSTRUCTURED
+            self._history.record_finished(job.id, outcome, model=result.model,
+                                           findings=asdict(findings) if findings is not None else None)
+            if findings is not None:           # only a valid, structured answer is worth telling listeners about
+                notify_listeners(self._listeners, AnalysisCompleted(fault, findings, self.provider_name, result.model))
+        else:
+            self._history.record_finished(job.id, OUTCOME_FAILED)
         self._broadcaster.publish(incident_event(fault, action, AI_USERNAME))
         if action == "ai_analysis_failed":
             return called_api, "posted an error comment"
