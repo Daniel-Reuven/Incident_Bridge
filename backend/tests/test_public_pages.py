@@ -70,7 +70,7 @@ def test_screenshots_are_served_from_docs(app_client, name):
 def test_health_reports_the_version_from_pyproject(app_client):
     pyproject = (ROOT / "backend" / "pyproject.toml").read_text(encoding="utf-8")
     expected = re.search(r'^version\s*=\s*"([^"]+)"', pyproject, re.MULTILINE).group(1)
-    assert app_client.get("/health").json() == {"status": "ok", "version": expected}
+    assert app_client.get("/health").json() == {"status": "ok", "version": expected, "setup_required": False}
     assert app_version() == expected
 
 
@@ -126,9 +126,25 @@ def test_the_guide_uses_every_readme_screenshot():
 def test_the_readme_screenshots_exist():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     links = set(re.findall(r"\((docs/screenshots/[^)]+)\)", readme))
-    assert len(links) == 5
+    assert len(links) == 13         # 5 until Settings / dark theme / Users, 9 until Logs, 10 until Setup, 12 until Server
     for link in links:
         assert (ROOT / link).is_file(), link
+
+
+def png_size(path):
+    """(width, height) from a PNG's header - no image library needed."""
+    import struct
+    header = path.read_bytes()[:24]
+    assert header[:8] == b"\x89PNG\r\n\x1a\n", path
+    return struct.unpack(">II", header[16:24])
+
+
+def test_every_guide_image_exists_with_its_real_size():
+    guide = (FRONTEND / "guide.html").read_text(encoding="utf-8")
+    images = re.findall(r'<img src="/screenshots/([^"]+)"[^>]* width="(\d+)" height="(\d+)"', guide)
+    assert len(images) == 13
+    for name, width, height in images:
+        assert png_size(SCREENSHOTS / name) == (int(width), int(height)), name
 
 
 def test_the_license_is_mit_and_names_the_team():
@@ -139,3 +155,12 @@ def test_the_license_is_mit_and_names_the_team():
     assert team, "no team members found in site-info.js"
     for member in team:
         assert member in license_text, f"{member} is on the About page but not in LICENSE"
+
+
+@pytest.mark.parametrize("path", ["/", "/index.html"])
+def test_the_login_page_sends_a_logged_in_user_straight_to_the_dashboard(admin_client, second_client, path):
+    """Decided by the server, so the login form never shows for a moment first."""
+    response = admin_client.get(path, follow_redirects=False)
+    assert response.status_code == 303 and response.headers["location"] == "/dashboard.html"
+    logged_out = second_client.get(path, follow_redirects=False)          # its own cookies: not logged in
+    assert logged_out.status_code == 200 and 'id="login-form"' in logged_out.text

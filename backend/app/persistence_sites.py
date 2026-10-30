@@ -10,7 +10,7 @@ the same database FILE (DATABASE_PATH - see app/state.py), each through its
 own connection. Their tables never overlap.
 
 Same conventions as SqliteIncidentStore:
-  - stdlib sqlite3, hand-written SQL, no ORM;
+  - SQLite through app/database.py (encrypted with SQLCipher), hand-written SQL, no ORM;
   - one connection kept open for the process's lifetime (required for a
     ":memory:" database to work at all), every access serialized with a
     threading.Lock, because FastAPI runs sync endpoints in a thread pool;
@@ -30,7 +30,7 @@ was unlinked from must be saved together or not at all.
 """
 
 import json
-import sqlite3
+from app import data_integrity, database
 import threading
 from datetime import date, datetime
 from typing import Iterable, List, NamedTuple, Optional
@@ -155,8 +155,8 @@ class SqliteSiteStore:
 
     def __init__(self, db_path: str = "incident_bridge.db"):
         self.db_path = db_path
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        self._conn = database.connect(db_path)
+        self._conn.row_factory = database.Row
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(_SCHEMA)
@@ -195,13 +195,22 @@ class SqliteSiteStore:
         is - the `with self._conn:` block commits on success and rolls back
         on an exception.
         """
-        with self._lock, self._conn:
+        sites, mailing_lists, notifications = list(sites), list(mailing_lists), list(notifications)
+        with self._lock:
+            with self._conn:
+                for site in sites:
+                    self._write_site(site)
+                for mailing_list in mailing_lists:
+                    self._write_mailing_list(mailing_list)
+                for notification in notifications:
+                    self._write_notification(notification)
+            # tamper evidence (app/data_integrity.py), once committed
             for site in sites:
-                self._write_site(site)
+                data_integrity.saved(self._conn, "site", site.site_id)
             for mailing_list in mailing_lists:
-                self._write_mailing_list(mailing_list)
+                data_integrity.saved(self._conn, "mailing_list", mailing_list.list_id)
             for notification in notifications:
-                self._write_notification(notification)
+                data_integrity.saved(self._conn, "notification", notification.id)
 
     def _write_site(self, site: Site) -> None:
         self._conn.execute(

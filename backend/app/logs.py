@@ -4,7 +4,7 @@ messages, the HTTP access lines, the AI analysis log (app/ai/log.py) and the
 app's own notices - so the console reads as one consistent stream:
 
     INFO:     2026-10-12 19:16:20 APP  Started server process [8124]
-    WARNING:  2026-10-12 19:16:20 APP  SESSION_SECRET_KEY is not set - using an insecure default. ...
+    WARNING:  2026-10-12 19:16:20 APP  Key store: the machine key is a plain file - ...
     INFO:     2026-10-12 19:16:30 HTTP 127.0.0.1:63317 - "GET /events?client_id=4721fdcf HTTP/1.1" 200 OK
     INFO:     2026-10-12 19:16:31 AI   [ai-analysis-worker] Started fault seed-077 "Nightly data warehouse…" ...
     WARNING:  2026-10-12 19:16:32 AI   [ai-analysis-worker] gemini-3.8-flash is overloaded (503) after 0.9s - trying ...
@@ -12,7 +12,8 @@ app's own notices - so the console reads as one consistent stream:
 Each line is:  LEVEL:  (padded to 10, coloured on a terminal - Uvicorn's own
 style), the date and time, a 4-letter SOURCE tag, then the message:
     APP   Uvicorn's server messages and the app's notices (app_log below)
-    HTTP  one line per HTTP request (Uvicorn's access log), with the status text
+    HTTP  one line per HTTP request (Uvicorn's access log), with the status text; the client
+          address as LOG_IP_MODE allows (app/ip_privacy.py)
     AI    the AI analysis log, plus the THREAD that wrote it, so a request
           thread can be told from the worker (`ai-analysis-worker`)
 
@@ -36,6 +37,8 @@ import logging
 import sys
 from http import HTTPStatus
 from typing import Optional
+
+from app import ip_privacy
 
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 LINE_FORMAT = "%(levelprefix)s %(asctime)s %(source)-4s %(message)s"
@@ -74,11 +77,27 @@ class ConsoleFormatter(logging.Formatter):
             level = level.replace(record.levelname, f"{colour}{record.levelname}{_RESET}", 1)
         message = record.message
         if record.name == "uvicorn.access":
-            message = _with_status_text(record, message)
+            message = _with_status_text(record, _private_access_message(record, message))
         if record.name in _WITH_THREAD:
             message = f"[{record.threadName}] {message}"
         values = dict(record.__dict__, levelprefix=level, source=_SOURCES.get(record.name, "APP"), message=message)
         return self._style._fmt % values
+
+
+def _private_access_message(record: logging.LogRecord, message: str) -> str:
+    """
+    Uvicorn's access line with the client address shown as LOG_IP_MODE allows
+    (app/ip_privacy.py) - "127.0.0.1:63317" becomes e.g. "ip-3f9a1c0b7d2e";
+    the port is kept only in "full" mode.
+    """
+    try:
+        privacy = ip_privacy.current()
+        if privacy.mode == "full" or not record.args:
+            return message
+        host = str(record.args[0]).rpartition(":")[0] or str(record.args[0])
+        return record.msg % (privacy.apply(host) or "-", *record.args[1:])
+    except Exception:                    # noqa: BLE001 - a log line must never fail
+        return message
 
 
 def _with_status_text(record: logging.LogRecord, message: str) -> str:

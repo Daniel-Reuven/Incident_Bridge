@@ -31,6 +31,7 @@ nothing else needs to change.
 """
 
 import uuid
+from datetime import datetime, timezone
 
 from app.models.enums import Role
 from app.models.user import User
@@ -40,6 +41,7 @@ AI_USERNAME = "ai-assistant"
 # Every reserved system username. seed_users_from_env() creates one
 # SystemUser per entry and refuses provisioned users with these names.
 SYSTEM_USERNAMES = (AI_USERNAME,)
+DISPLAY_NAMES = {AI_USERNAME: "AI assistant"}      # how the app shows them (app/display_names.py)
 
 
 class SystemUser(User):
@@ -56,13 +58,21 @@ class SystemUser(User):
         self.username = username
         self.role = Role.USER
         self._password_hash = ""
+        self.must_change_password = False
+        self.disabled = False
+        self.session_version = 1
+        self.created_at = datetime.now(timezone.utc)
 
     def check_password(self, plain_password) -> bool:
         """Always False: a system user can never log in."""
         return False
 
-    def set_password(self, current_password, new_password, _is_provisioning: bool = False) -> None:
+    def set_password(self, current_password, new_password) -> None:
         """Always refuses: a system user has no password to change."""
+        raise PermissionError("System users have no password.")
+
+    def reset_password(self, new_password) -> None:
+        """Always refuses: a system user has no password to reset."""
         raise PermissionError("System users have no password.")
 
     def __repr__(self) -> str:

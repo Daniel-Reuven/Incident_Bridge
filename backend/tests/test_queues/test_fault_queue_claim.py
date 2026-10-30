@@ -15,7 +15,7 @@ from app.queues.fault_queue import FaultPriorityQueue
 
 @pytest.fixture
 def reporter():
-    return User(username="reporter", role=Role.USER, password="Passw0rd1")
+    return User(username="reporter", role=Role.USER, password="Passw0rd!1")
 
 
 def make_fault(reporter, title, severity):

@@ -12,6 +12,7 @@ from app.models.system_users import (
     AI_USERNAME, SystemUser, build_system_users, is_reserved_username,
 )
 from app.state import AppState
+from tests.install_helper import add_demo_users
 
 
 def test_a_system_user_can_never_log_in():
@@ -24,7 +25,7 @@ def test_a_system_user_can_never_log_in():
 
 def test_a_system_user_password_cannot_be_set():
     with pytest.raises(PermissionError):
-        SystemUser(AI_USERNAME).set_password(None, "Passw0rd1")
+        SystemUser(AI_USERNAME).set_password(None, "Passw0rd!1")
 
 
 @pytest.mark.parametrize("name, reserved", [("ai-assistant", True), ("AI-Assistant", True), ("tech1", False)])
@@ -38,13 +39,13 @@ def test_build_system_users_creates_the_ai_user():
 
 def test_the_app_always_has_the_ai_user(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "system_users.db"))
-    state = AppState.create()
+    state = add_demo_users(AppState.create())
     assert isinstance(state.users.get(AI_USERNAME), SystemUser)
 
 
 def test_ai_comments_keep_their_author_after_a_restart(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "ai_restart.db"))
-    state = AppState.create()
+    state = add_demo_users(AppState.create())
     admin = state.users.get("admin")
     task = MaintenanceTask(title="A", description="d", created_by=admin)
     state.incidents.add(task)

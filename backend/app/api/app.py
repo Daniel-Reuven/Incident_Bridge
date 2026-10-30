@@ -20,55 +20,69 @@ import mimetypes
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
 
-import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.sessions import SessionMiddleware
 
-from app.ai.setup import create_analysis_worker
-from app.api import analysis, auth, events, incidents, sites
-from app.events import EventBroadcaster, install_shutdown_hook
+from app.api import analysis, auth, demo, events, incidents, logs, server, setup, sites, users
+from app.api.deps import get_session_user
+from app.api.lifecycle import start_services, stop_services
+from app.api.request_log import RequestLogMiddleware
+from app.api.security import (HttpsOnlyRemoteMiddleware, SecurityHeadersMiddleware, SessionFromSecrets,
+                              session_settings_from_env)
+from app.api.setup import SetupGateMiddleware, SetupSession
 from app.logs import app_log, apply_console_format
 from app.version import app_version
-from app.state import AppState, database_path
+from app.models import Role
+from app.persistence_users import SqliteUserStore
+from app.security.data_folders import check_markers
+from app.security.installation import Installation, InstallationError
+from app.settings_store import SqliteSettingsStore
+from app.state import database_path
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Built once per process, on startup - see app/state.py for why this
-    # must stay a single process (in-memory queues aren't shared across
-    # workers).
-    app.state.incident_bridge = AppState.create()
-
-    # The broadcaster is created here (not in AppState) because it needs
-    # a running event loop to bind to (see app/events.py) - AppState.create()
-    # is plain sync code with no loop available yet at that point.
-    app.state.broadcaster = EventBroadcaster()
-    app.state.broadcaster.bind_loop(asyncio.get_running_loop())
-    # Ctrl+C / SIGTERM first ends every open live-update stream, so the
-    # server stops at once without a CancelledError traceback (see
-    # app/events.py's install_shutdown_hook).
-    install_shutdown_hook(app.state.broadcaster)
-
-    # AI analysis (app/ai/): the one named worker thread and its persisted
-    # queue, or None when the feature is off (no API key for the selected
-    # provider - see app/ai/config.py). Created after the broadcaster, which
-    # it publishes live updates through.
-    app.state.analysis_worker = create_analysis_worker(
-        app.state.incident_bridge, app.state.broadcaster, database_path()
-    )
-
+    # The installation's keys (app/security/installation.py): an installed app
+    # unlocks its encrypted database by itself; a new one waits for the setup
+    # page (app/api/setup.py) and starts its services when that is finished.
+    app.state.setup = None
+    app.state.running = False
+    app.state.analysis_worker = None
+    installation = Installation.from_env()
+    app.state.installation = installation
+    status = installation.status()
+    if status == "orphan":
+        raise InstallationError(
+            f"The database {installation.db_path} has no keys file ({installation.keys_path}). Put the keys file "
+            f"back, or restore access with the recovery key: python manage_keys.py restore")
+    if status == "new":
+        app.state.setup = SetupSession(installation)
+    else:
+        installation.unlock()
+        warning = installation.machine_warning()
+        if warning:
+            app_log.warning(f"Key store: {warning}")
+        settings = SqliteSettingsStore(database_path())
+        installed_id = (settings.get("installation") or {}).get("id")
+        if installed_id:
+            problems = check_markers(installation.folders(), installed_id)
+            if problems:
+                raise InstallationError("The data folders do not match this installation:\n  - " + "\n  - ".join(problems))
+        users_db = SqliteUserStore(database_path())
+        has_admin = any(u.role == Role.ADMIN for u in users_db.load_all())
+        users_db.close()
+        if has_admin:
+            await start_services(app, settings)
+        else:                               # keys saved, but the setup never finished: accounts only
+            app.state.setup = SetupSession(installation, settings)
     yield
-
-    if app.state.analysis_worker is not None:
-        app.state.analysis_worker.stop()
-    app.state.broadcaster.close()   # any stream still open ends now
+    stop_services(app)
 
 
 # One console format for every line (app/logs.py). serve_app.py already starts
@@ -78,14 +92,23 @@ apply_console_format()
 app = FastAPI(title="Incident Bridge API", version=app_version(), lifespan=lifespan)
 
 # --- session cookie (signed, not encrypted - don't put secrets in it) ---
-_secret_key = os.environ.get("SESSION_SECRET_KEY")
-if not _secret_key:
-    app_log.warning(
-        "SESSION_SECRET_KEY is not set - using an insecure default. "
-        "Set it before deploying anywhere reachable by anyone else."
-    )
-    _secret_key = "dev-only-insecure-secret-change-me"
-app.add_middleware(SessionMiddleware, secret_key=_secret_key, same_site="lax")
+# Keyed with the installation's session secret, generated at setup and kept in
+# the encrypted database (app/app_secrets.py, app/api/security.py). Lifetime
+# and the Secure flag come from SESSION_MAX_AGE_HOURS (default 12) and
+# SESSION_COOKIE_SECURE (default false - set it to true behind HTTPS). A bad
+# value stops startup with a clear message.
+_session_max_age, _session_secure = session_settings_from_env()
+# Added BEFORE the session middleware, so it runs inside it and can read who
+# made each request: one activity-log record per request (app/api/request_log.py).
+app.add_middleware(RequestLogMiddleware)
+app.add_middleware(SessionFromSecrets, same_site="lax", max_age=_session_max_age, https_only=_session_secure)
+# Until the setup is finished, only the setup page answers (app/api/setup.py).
+app.add_middleware(SetupGateMiddleware)
+
+# Security headers on every response (CSP, no framing, nosniff, referrer policy).
+app.add_middleware(SecurityHeadersMiddleware)
+# Outermost: remote plain HTTP -> HTTPS, when the Server settings say so (app/server_settings.py).
+app.add_middleware(HttpsOnlyRemoteMiddleware)
 
 # --- CORS: only needed if the frontend is served from a different origin ---
 # than this API during development. The normal setup (frontend served by
@@ -101,11 +124,16 @@ if _cors_origins:
         allow_headers=["*"],
     )
 
+app.include_router(setup.router)   # first-start setup (until it is done, nothing else answers)
 app.include_router(auth.router)
+app.include_router(users.router)   # admin-only user management
+app.include_router(logs.router)    # admin-only activity log viewer
 app.include_router(incidents.router)
 app.include_router(events.router)
 app.include_router(sites.router)   # admin-only site portal (Sites & Mailing Lists)
 app.include_router(analysis.router)   # AI analysis of faults (app/ai/)
+app.include_router(server.router)     # admin-only Server settings (HTTPS, AI)
+app.include_router(demo.router)       # the requirements demo page (any logged-in user)
 
 
 # --- centralized exception -> HTTP status mapping ---
@@ -146,8 +174,9 @@ def _handle_key_error(request: Request, exc: KeyError):
 
 @app.get("/health")
 def health_check():
-    """Liveness check, plus the app's version (app/version.py) - the page footer and About page show it."""
-    return {"status": "ok", "version": app_version()}
+    """Liveness check, the app's version (app/version.py - the page footer and About page show it) and whether
+    the first-start setup is still waiting (app/api/setup.py)."""
+    return {"status": "ok", "version": app_version(), "setup_required": getattr(app.state, "setup", None) is not None}
 
 
 # --- the README's screenshots, also used by the Guide page (frontend/guide.html).
@@ -170,6 +199,21 @@ if _screenshots_dir.is_dir():
 # own), this is skipped and only the API is served.
 _frontend_dir = Path(__file__).resolve().parents[3] / "frontend"
 if _frontend_dir.is_dir():
+    @app.get("/", include_in_schema=False)
+    @app.get("/index.html", include_in_schema=False)
+    def login_page(request: Request):
+        """
+        The login page - or, for someone already logged in, straight on to the
+        dashboard, decided here before any HTML is sent. Left to the page's
+        script, the login form showed for a moment first (a link to "/" from
+        the Guide, About and Terms pages, or the address typed by hand).
+        """
+        try:
+            get_session_user(request)
+        except Exception:                      # no valid session (or no app state yet): the login page
+            return FileResponse(_frontend_dir / "index.html", headers={"Cache-Control": "no-cache"})
+        return RedirectResponse("/dashboard.html", status_code=303)
+
     app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
 else:
     app_log.info(f"No frontend/ directory found at {_frontend_dir} - serving the API only.")

@@ -1,4 +1,4 @@
-"""In-memory stores: pre-provisioned users, and every incident ever created."""
+"""In-memory stores: user accounts (backed by app/persistence_users.py), and every incident ever created."""
 
 import json
 import os
@@ -7,9 +7,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, Iterator, List, Optional
 
 from app.logs import app_log
-from app.models import Fault, Incident, MaintenanceTask, Role, User
+from app.models import Fault, Incident, MaintenanceTask, ResolutionType, Role, User
 from app.models.system_users import build_system_users, is_reserved_username
 from app.persistence import SqliteIncidentStore
+from app.persistence_users import SqliteUserStore
 
 
 class UserProvisioningError(Exception):
@@ -25,32 +26,46 @@ class UserProvisioningError(Exception):
 
 class UserStore:
     """
-    Simple in-memory username -> User lookup. No self-registration - see
-    seed_users_from_env below.
+    Username -> User lookup, kept in memory for the life of the process.
+    With a SqliteUserStore (the running app - see load_users() below) every
+    added or saved user is also written to the database; without one (a
+    plain UserStore, as in many tests and main.py) it is memory only.
 
     Explicit duplicate decision: usernames are unique, compared
     case-insensitively ("Admin" and "admin" would be two near-identical
     logins), and add() raises ValueError for a duplicate instead of silently
     replacing the existing user. Lookups with get() stay exact-case, so the
-    login name is the username exactly as provisioned.
+    login name is the username exactly as created.
     """
 
-    def __init__(self):
+    def __init__(self, store: Optional[SqliteUserStore] = None):
         self._users: Dict[str, User] = {}
+        self._store = store
 
     def __str__(self) -> str:
         return f"<UserStore: {len(self._users)} users>"
 
     def __repr__(self) -> str:
-        """Developer view: the provisioned usernames (never passwords or hashes)."""
+        """Developer view: the usernames (never passwords or hashes)."""
         return f"UserStore(usernames={sorted(self._users)!r})"
 
-    def add(self, user: User) -> None:
-        """Add a user. Raises ValueError if the username is already taken (case-insensitive)."""
+    def add(self, user: User, save: bool = True) -> None:
+        """
+        Add a user (and store it, if this UserStore has a database and
+        `save` is True). Raises ValueError if the username is already taken
+        (case-insensitive).
+        """
         existing = self.find_case_insensitive(user.username)
         if existing is not None:
             raise ValueError(f"username {user.username!r} is already used by {existing.username!r}")
         self._users[user.username] = user
+        if save:
+            self.save(user)
+
+    def save(self, user: User) -> None:
+        """Write a changed user to the database (no-op without one, and for built-in system users)."""
+        if self._store is not None and not is_reserved_username(user.username):
+            self._store.save(user)
 
     def find_case_insensitive(self, username: str) -> Optional[User]:
         """The user whose username equals `username` ignoring letter case, or None."""
@@ -63,62 +78,45 @@ class UserStore:
     def all_users(self) -> Iterator[User]:
         yield from self._users.values()
 
-
-_DEFAULT_USERS_WARNING = (
-    "INCIDENT_BRIDGE_USERS is not set - falling back to a demo admin/user pair "
-    "with well-known passwords (admin/Passw0rd1, tech1/Passw0rd2). Do NOT use "
-    "this outside local development; set INCIDENT_BRIDGE_USERS before deploying "
-    "anywhere reachable by anyone else."
-)
-
+    def accounts(self) -> List[User]:
+        """Every real account (no built-in system users), oldest first - the admin's user list."""
+        return sorted((u for u in self._users.values() if not is_reserved_username(u.username)),
+                      key=lambda u: (u.created_at, u.username))
 
 def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = True) -> UserStore:
     """
-    Build the UserStore from an environment variable holding a JSON array,
+    The REGULAR users listed in an environment variable holding a JSON array,
     e.g. (see .env.example):
 
-        INCIDENT_BRIDGE_USERS=[{"username":"admin","password":"Passw0rd1","role":"admin"},
-                                {"username":"tech1","password":"Passw0rd2","role":"user"}]
+        INCIDENT_BRIDGE_USERS=[{"username":"tech1","password":"Tech-Start1!","role":"user"},
+                                {"username":"tech2","password":"Tech-Start2!","role":"user"}]
 
-    This is the "pre-provisioned via env, no self-registration" mechanism
-    from the design doc (README.md section 11). Falls back to an insecure demo
-    pair (with a loud warning, unless warn=False) only so the app can start
-    with zero setup during local development.
+    Read once, by the setup page (app/api/setup.py), which creates them
+    together with the first admin. Admins are never created from a file: the
+    first one on the setup page, more on the Users page - so no admin
+    password ever sits in .env. Unset or empty: no users (an empty store).
+    `warn` is kept for callers that validate without creating.
 
-    Fail-fast: when the variable IS set, every entry is checked and ALL
-    problems are collected - invalid JSON, not a list, an empty list, an
-    entry that User.from_dict() rejects (missing field, bad role, weak
-    password), or a duplicate username (case-insensitive, naming the entry
-    it repeats). If there is any problem, UserProvisioningError is raised
-    with one message listing them all, so the app never starts with a
-    partly-loaded or ambiguous user list.
+    Fail-fast: every entry is checked and ALL problems are collected -
+    invalid JSON, not a list, an entry that User.from_dict() rejects
+    (missing field, bad role, weak password), an admin entry, a reserved
+    name (a built-in system user such as "ai-assistant", case-insensitive)
+    or a duplicate username (case-insensitive, naming the entry it
+    repeats). If there is any problem, UserProvisioningError is raised with
+    one message listing them all.
 
-    Reserved names: a username matching a built-in system user (today only
-    "ai-assistant" - see app/models/system_users.py), compared case-insensitively,
-    is reported as a problem like any other invalid entry.
-
-    System users: whichever way the store is built (from the variable or
-    the demo fallback), every built-in system user is added at the end, so
-    it is always available as a comment author and restored comments it
-    wrote keep their author after a restart. System users can never log in.
-
-    `warn` exists so serve_app.py can validate the variable before starting
-    the server without printing the demo-users warning twice.
+    Every built-in system user is added at the end (they can never log in).
     """
     store = UserStore()
     raw = os.environ.get(env_var)
     if not raw or not raw.strip():
-        if warn:
-            app_log.warning(_DEFAULT_USERS_WARNING)
-        store.add(User(username="admin", role=Role.ADMIN, password="Passw0rd1"))
-        store.add(User(username="tech1", role=Role.USER, password="Passw0rd2"))
         _add_system_users(store)
         return store
 
     def fail(problems: List[str]) -> UserProvisioningError:
         listed = "\n".join(f"  - {p}" for p in problems)
         return UserProvisioningError(
-            f"{env_var} has {len(problems)} problem(s) - the app will not start until they are fixed:\n"
+            f"{env_var} has {len(problems)} problem(s) - fix them before the setup:\n"
             f"{listed}\nFix the value in backend/.env (or your environment) and start again."
         )
 
@@ -128,8 +126,6 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = Tru
         raise fail([f"not valid JSON ({exc.msg} at position {exc.pos})"]) from None
     if not isinstance(entries, list):
         raise fail([f"must be a JSON array of users, got {type(entries).__name__}"])
-    if not entries:
-        raise fail(["the array is empty - provision at least one user"])
 
     problems: List[str] = []
     first_entry_of: Dict[str, int] = {}          # lower-cased username -> entry number that defined it
@@ -138,6 +134,10 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = Tru
             user = User.from_dict(entry)
         except ValueError as exc:
             problems.append(f"entry {number}: {exc}")
+            continue
+        if user.role == Role.ADMIN:
+            problems.append(f"entry {number}: {user.username!r} is an admin - admins are not created from "
+                            f"{env_var}: the first one on the setup page, others on the Users page")
             continue
         if is_reserved_username(user.username):
             problems.append(f"entry {number}: username {user.username!r} is reserved for a built-in "
@@ -157,9 +157,61 @@ def seed_users_from_env(env_var: str = "INCIDENT_BRIDGE_USERS", warn: bool = Tru
 
 
 def _add_system_users(store: UserStore) -> None:
-    """Add every built-in system user (see app/models/system_users.py) to `store`."""
+    """Add every built-in system user (see app/models/system_users.py) to `store` (never to the database)."""
     for system_user in build_system_users():
-        store.add(system_user)
+        store.add(system_user, save=False)
+
+
+def first_login_change_required() -> bool:
+    """
+    REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN (default true): whether a password
+    chosen by someone else must be changed at the next login - the users
+    created from INCIDENT_BRIDGE_USERS, accounts an admin creates on the
+    Users page, and passwords an admin resets there (app/api/users.py).
+    Read when the password is set: changing it later does not change
+    accounts that already have the flag. Raises ValueError for a value that
+    is not true/false.
+    """
+    raw = (os.environ.get("REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN") or "true").strip().lower()
+    if raw not in ("true", "false", "1", "0", "yes", "no"):
+        raise ValueError(f"REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN must be true or false (got {raw!r})")
+    return raw in ("true", "1", "yes")
+
+
+def load_users(db: SqliteUserStore, warn: bool = True) -> UserStore:
+    """
+    The app's user accounts (called once by AppState.create()): every
+    account in the users table - the table is the source of truth - plus
+    the built-in system users, in memory. A new installation's table is
+    empty until the setup page creates the first admin and the regular
+    users from INCIDENT_BRIDGE_USERS (create_initial_users()).
+    """
+    store = UserStore(db)
+    for user in db.load_all():
+        store.add(user, save=False)
+    _add_system_users(store)
+    return store
+
+
+def create_initial_users(users: UserStore, admin: User) -> List[User]:
+    """
+    The setup page's accounts: `admin` (who chose their own password) and
+    the regular users of INCIDENT_BRIDGE_USERS, who must change their
+    password at first login unless REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN
+    is false. Validates everything before saving anything (raises
+    UserProvisioningError or ValueError). Returns the regular users created.
+    """
+    regular = [u for u in seed_users_from_env(warn=False).all_users() if not is_reserved_username(u.username)]
+    clash = next((u for u in regular if u.username.lower() == admin.username.lower()), None)
+    if clash is not None:
+        raise UserProvisioningError(f"INCIDENT_BRIDGE_USERS also lists {clash.username!r}, the admin's username "
+                                    f"- remove it there or choose another admin name.")
+    must_change = first_login_change_required()
+    users.add(admin)
+    for user in regular:
+        user.must_change_password = must_change
+        users.add(user)
+    return regular
 
 
 @dataclass
@@ -312,8 +364,8 @@ class IncidentRepository:
         a missing/invalid 'id', a missing/blank/over-long title or
         description, invalid fault 'details' (wrong types, unknown keys -
         see SeverityScorer.validate_details), an unresolvable created_by /
-        assigned_to username, an invalid 'minutes_ago' or 'comments' entry
-        (see _apply_seed_timeline()), a line that is not a JSON object, or
+        assigned_to username, an invalid 'minutes_ago', 'comments' or
+        'closed' entry (see _apply_seed_timeline() / _apply_seed_closure()), a line that is not a JSON object, or
         invalid JSON on that line is SKIPPED and recorded in the result with a
         reason - it does not raise and does not stop the rest of the data
         from loading. Every one of those problems surfaces as a ValueError
@@ -365,6 +417,7 @@ class IncidentRepository:
         else:
             incident = MaintenanceTask.from_dict(data, created_by=created_by, assigned_to=assigned_to)
         self._apply_seed_timeline(incident, data, users)
+        self._apply_seed_closure(incident, data, users)
         return incident
 
     def _apply_seed_timeline(self, incident: Incident, data: dict, users: "UserStore") -> None:
@@ -373,22 +426,27 @@ class IncidentRepository:
         incidents can look like real ones that have been worked on for a
         while (useful for AI analysis, which reasons about the timeline):
 
-            {"id": "seed-075", ..., "minutes_ago": 240,
+            {"id": "seed-075", ..., "created_at": "2026-10-16T09:00:00+00:00",
              "comments": [
-                {"author": "tech2", "text": "Restarted the worker.", "minutes_ago": 200},
+                {"author": "tech2", "text": "Restarted the worker.", "created_at": "2026-10-16T09:40:00Z"},
                 {"author": "tech1", "text": "Latency is back."}
              ]}
 
-        - Record-level "minutes_ago" (optional): when the incident was
-          reported, counted back from the moment of the import. Without
-          it, the incident is reported at import time - or, if it has
-          older comments, at the time of its oldest comment, so a report
-          is never newer than its own updates.
+        Every time is EITHER "created_at" - an ISO 8601 date and time WITH a
+        time zone ("Z" or "+03:00"), not in the future - OR "minutes_ago",
+        counted back from the moment of the import (the older form; both at
+        once is an error). Imported now, an incident dated yesterday shows
+        yesterday's time.
+
+        - The record's time (optional): when it was reported. Without it,
+          the incident is reported at import time - or, if it has older
+          comments, at the time of its oldest comment, so a report is never
+          newer than its own updates.
         - "comments" (optional): a list of updates, OLDEST FIRST. Each has
           an "author" (a known username - the same rule as created_by), a
           non-blank "text" (at most MAX_COMMENT_LENGTH characters - the
-          normal Incident.add_comment() rules apply), and an optional
-          "minutes_ago" (default 0 = the import time).
+          normal Incident.add_comment() rules apply), and an optional time
+          (default: the import time).
 
         Raises ValueError (so the loader skips the whole record with a
         reason) if any of these is invalid, if the comments are not in
@@ -396,8 +454,8 @@ class IncidentRepository:
         The incident's updated_at becomes its newest comment's time.
         """
         now = datetime.now(timezone.utc)
-        explicit_report_time = "minutes_ago" in data
-        reported_at = now - timedelta(minutes=self._seed_minutes_ago(data.get("minutes_ago", 0), "the record's"))
+        explicit_report_time = "minutes_ago" in data or "created_at" in data
+        reported_at = self._seed_time(data, "created_at", now, "the record's")
 
         raw_comments = data.get("comments")
         if raw_comments is None:
@@ -413,7 +471,7 @@ class IncidentRepository:
             text = raw.get("text")
             if not isinstance(text, str):
                 raise ValueError(f"comment {number} needs a 'text' string")
-            posted_at = now - timedelta(minutes=self._seed_minutes_ago(raw.get("minutes_ago", 0), f"comment {number}'s"))
+            posted_at = self._seed_time(raw, "created_at", now, f"comment {number}'s")
             if previous_time is not None and posted_at < previous_time:
                 raise ValueError(f"comment {number} is older than the comment before it - list comments oldest first")
             if explicit_report_time and posted_at < reported_at:
@@ -430,6 +488,82 @@ class IncidentRepository:
         incident.created_at = reported_at
         incident.updated_at = incident.comments[-1].created_at if incident.comments else reported_at
 
+    def _apply_seed_closure(self, incident: Incident, data: dict, users: "UserStore") -> None:
+        """
+        Optional "closed" block of a seed record, so the sample data can
+        include finished incidents (the dashboard's Archive tab):
+
+            {"id": "seed-005", ..., "created_at": "2026-10-15T08:00:00Z",
+             "closed": {"by": "tech1", "resolution": "resolved",
+                        "message": "Fixed the template.", "closed_at": "2026-10-16T08:00:00Z"}}
+
+        - "by": a known username; "resolution": resolved | not_an_incident |
+          by_design; "message": the closing message. The normal
+          Incident.close() rules apply (message required, Not an Incident
+          and By Design are admin-only).
+        - "closed_at" (ISO 8601 with a time zone, not in the future) or the
+          older "minutes_ago" (optional, default: the import time): when it
+          was closed - not older than the incident or its newest comment.
+
+        The closing log comment and updated_at get that time. A closed
+        record is not put in any queue (see import_jsonl in
+        app/api/incidents.py). Raises ValueError (the record is skipped
+        with a reason) for any invalid value.
+        """
+        closed = data.get("closed")
+        if closed is None:
+            return
+        if not isinstance(closed, dict):
+            raise ValueError("'closed' must be an object with by, resolution, message and an optional closed_at")
+        actor = self._resolve_seed_user(closed.get("by"), users, "closed 'by'")
+        raw_resolution = closed.get("resolution")
+        try:
+            resolution = ResolutionType(raw_resolution)
+        except ValueError:
+            allowed = ", ".join(r.value for r in ResolutionType)
+            raise ValueError(f"closed 'resolution' must be one of: {allowed} (got {raw_resolution!r})") from None
+        message = closed.get("message")
+        if not isinstance(message, str):
+            raise ValueError("closed needs a 'message' string")
+        closed_at = self._seed_time(closed, "closed_at", datetime.now(timezone.utc), "closed")
+        if closed_at < incident.updated_at:
+            raise ValueError("the closing time is older than the incident or its newest comment")
+        try:
+            incident.close(actor, resolution, message)
+        except (PermissionError, RuntimeError) as exc:
+            raise ValueError(f"closed: {exc}") from None
+        incident.comments[-1].created_at = closed_at
+        incident.updated_at = closed_at
+
+    # A clock difference of up to this much between the file's author and this
+    # server is tolerated before a time counts as "in the future".
+    _SEED_CLOCK_SKEW = timedelta(minutes=5)
+
+    @classmethod
+    def _seed_time(cls, obj: dict, key: str, now: datetime, owner: str) -> datetime:
+        """
+        The time given in `obj` as `key` (an ISO 8601 date-time with a time
+        zone) or as "minutes_ago"; `now` when neither is there. `owner`
+        names it in errors. Raises ValueError for both at once, a bad or
+        zone-less value, or a time in the future.
+        """
+        if key in obj and "minutes_ago" in obj:
+            raise ValueError(f"{owner} time: give '{key}' or 'minutes_ago', not both")
+        if key not in obj:
+            return now - timedelta(minutes=cls._seed_minutes_ago(obj.get("minutes_ago", 0), owner))
+        raw = obj[key]
+        try:
+            # fromisoformat() before Python 3.11 does not read a trailing "Z".
+            moment = datetime.fromisoformat(raw[:-1] + "+00:00" if raw.endswith(("Z", "z")) else raw)
+        except (TypeError, ValueError, AttributeError):
+            raise ValueError(f"{owner} '{key}' must be an ISO 8601 date and time, "
+                             f"e.g. 2026-10-16T14:30:00+00:00 (got {raw!r})") from None
+        if moment.tzinfo is None:
+            raise ValueError(f"{owner} '{key}' needs a time zone, e.g. 'Z' or '+03:00' (got {raw!r})")
+        if moment > now + cls._SEED_CLOCK_SKEW:
+            raise ValueError(f"{owner} '{key}' is in the future (got {raw!r})")
+        return moment.astimezone(timezone.utc)
+
     @staticmethod
     def _seed_minutes_ago(value, owner: str) -> float:
         """Validate a 'minutes_ago' value: a number of minutes, 0 or more. `owner` names it in the error."""
@@ -440,9 +574,8 @@ class IncidentRepository:
     @staticmethod
     def _resolve_seed_user(username: Optional[str], users: "UserStore", field_name: str) -> User:
         """
-        Looks up a seed record's username against the real UserStore
-        (built from INCIDENT_BRIDGE_USERS - see seed_users_from_env
-        above). Deliberately stricter than app/persistence.py's restore
+        Looks up a seed record's username against the real UserStore (the
+        accounts in the database). Deliberately stricter than app/persistence.py's restore
         path, which substitutes a "(removed)" placeholder for a username
         that no longer exists: that path is restoring data that was
         already valid when first written, while this one is validating
@@ -453,5 +586,6 @@ class IncidentRepository:
             raise ValueError(f"missing required field '{field_name}'")
         user = users.get(username)
         if user is None:
-            raise ValueError(f"{field_name} {username!r} is not a known user (check INCIDENT_BRIDGE_USERS)")
+            raise ValueError(f"{field_name} {username!r} is not an account here - create it on the Users page "
+                             f"(or choose that username at the setup), then import again")
         return user
