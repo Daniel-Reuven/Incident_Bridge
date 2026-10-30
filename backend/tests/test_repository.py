@@ -21,8 +21,8 @@ from app.repository import IncidentRepository, UserStore, SeedLoadResult
 @pytest.fixture
 def users():
     store = UserStore()
-    store.add(User(username="admin", role=Role.ADMIN, password="Passw0rd1"))
-    store.add(User(username="tech1", role=Role.USER, password="Passw0rd2"))
+    store.add(User(username="admin", role=Role.ADMIN, password="Passw0rd!1"))
+    store.add(User(username="tech1", role=Role.USER, password="Passw0rd!2"))
     return store
 
 

@@ -115,6 +115,14 @@ class AnalysisProvider(ABC):
         """The first (preferred) model."""
         return self.models[0]
 
+    def list_models(self) -> List[str]:
+        """
+        The models this key can use, asked from the service (the setup page's
+        "Test connection"). Raises the service's ApiError when the key or the
+        connection is wrong. The base version just returns the configured models.
+        """
+        return list(self.models)
+
     def analyze(self, instructions: str, incident_data: str) -> AnalysisResult:
         """
         Ask the models in order until one answers (see the module docstring).

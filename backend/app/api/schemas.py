@@ -22,6 +22,60 @@ class LoginRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+    confirm_password: str
+
+
+class PreferencesRequest(BaseModel):
+    """Any of the interface preferences (app/models/preferences.py); omitted ones stay as they are."""
+    theme: Optional[str] = None
+    text_scale: Optional[str] = None
+    updates_order: Optional[str] = None
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    role: str
+    password: str
+    confirm_password: str
+    first_name: str = ""          # optional details for the display name (app/display_names.py)
+    middle_name: str = ""
+    last_name: str = ""
+    job_title: str = ""
+    location: str = ""
+
+
+class UserDetailsRequest(BaseModel):
+    """A user's names and own display-name format (app/display_names.py); omitted ones stay as they are."""
+    first_name: Optional[str] = None
+    middle_name: Optional[str] = None
+    last_name: Optional[str] = None
+    job_title: Optional[str] = None
+    location: Optional[str] = None
+    display_format: Optional[str] = None      # "" = back to the default format
+
+
+class DisplayFormatRequest(BaseModel):
+    format: str
+
+
+class DisplayPreviewRequest(BaseModel):
+    format: Optional[str] = None              # None = the default format
+    username: str = "username"
+    first_name: str = ""
+    middle_name: str = ""
+    last_name: str = ""
+    job_title: str = ""
+    location: str = ""
+
+
+class UpdateUserRequest(BaseModel):
+    role: Optional[str] = None
+    disabled: Optional[bool] = None
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str
+    confirm_password: str
 
 
 class CreateMaintenanceTaskRequest(BaseModel):

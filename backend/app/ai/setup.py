@@ -19,6 +19,7 @@ thread right away. See app/ai/worker.py and app/ai/providers/loader.py.
 
 from typing import Optional
 
+from app.analysis_service import AnalysisStatsListener, SiteImpactListener
 from app.ai.config import AIConfig
 from app.ai.log import apply_log_level, log, log_level_from_env
 from app.ai.job_store import SqliteAnalysisJobStore
@@ -47,7 +48,9 @@ def create_analysis_worker(state, broadcaster: EventBroadcaster, db_path: str) -
     loader = provider_loader(config)  # name + models from the settings; provider created on first use
     log.info(f"AI analysis is on: {loader.label()}, timeout {config.timeout_seconds:g}s per call "
              f"- the worker starts on the first request")
+    stats = AnalysisStatsListener()
     worker = AnalysisWorker(state, loader, SqliteAnalysisJobStore(db_path), broadcaster, config.delay_seconds,
-                            config.cooldown_seconds)
+                            config.cooldown_seconds, listeners=[SiteImpactListener(state.sites, broadcaster), stats])
+    worker.stats = stats              # kept reachable for a future report (app.state.analysis_worker.stats)
     worker.start_if_restored()        # restored jobs should not wait for a new request
     return worker

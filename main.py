@@ -104,10 +104,10 @@ from app.sites import SiteDirectory  # noqa: E402
 # Demo accounts - the same usernames the sample data uses. In the web app they
 # come from INCIDENT_BRIDGE_USERS in backend/.env instead.
 DEMO_USERS = [
-    {"username": "admin", "password": "Passw0rd1", "role": "admin"},
-    {"username": "tech1", "password": "Passw0rd2", "role": "user"},
-    {"username": "tech2", "password": "Passw0rd3", "role": "user"},
-    {"username": "tech3", "password": "Passw0rd4", "role": "user"},
+    {"username": "admin", "password": "Passw0rd!1", "role": "admin"},
+    {"username": "tech1", "password": "Passw0rd!2", "role": "user"},
+    {"username": "tech2", "password": "Passw0rd!3", "role": "user"},
+    {"username": "tech3", "password": "Passw0rd!4", "role": "user"},
 ]
 
 # Scripted availability results for FakeChecker: an int is an HTTP status

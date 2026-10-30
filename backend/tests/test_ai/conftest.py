@@ -14,6 +14,7 @@ from app.ai.worker import AnalysisWorker
 from app.events import EventBroadcaster
 from app.models import Fault, SeverityCategory
 from app.state import AppState
+from tests.install_helper import add_demo_users
 
 
 class RecordingBroadcaster(EventBroadcaster):
@@ -84,7 +85,7 @@ def db_path(tmp_path, monkeypatch):
 @pytest.fixture
 def state(db_path):
     """A real AppState (users admin + tech1 + the ai-assistant system user) on a throwaway SQLite file."""
-    return AppState.create()
+    return add_demo_users(AppState.create())
 
 
 @pytest.fixture

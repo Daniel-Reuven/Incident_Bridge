@@ -12,7 +12,7 @@ NOW = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
 
 @pytest.fixture
 def reporter():
-    return User(username="reporter", role=Role.USER, password="Passw0rd1")
+    return User(username="reporter", role=Role.USER, password="Passw0rd!1")
 
 
 def make_task(reporter, title, days_old):

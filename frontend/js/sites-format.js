@@ -80,8 +80,8 @@ export function reportFindings(report) {
  * Toast text for a live-update event from another admin (scope "sites" -
  * see backend/app/api/sites.py for the event shape).
  */
-export function describeSiteEvent(event) {
-  const who = event.actor;
+export function describeSiteEvent(event, nameOf = (username) => username) {
+  const who = nameOf(event.actor);
   const what = event.subject;
   const drafted = event.notification === "draft" ? " A notification is waiting for a decision." : "";
   switch (event.action) {

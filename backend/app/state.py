@@ -9,8 +9,10 @@ give each one its own separate queues, silently breaking the "one shared
 FIFO" and "one shared priority queue" guarantees.
 
 Incidents (and their comments) persist across restarts via SQLite - see
-app/persistence.py. Users do not persist here; they stay env-provisioned
-via seed_users_from_env, exactly as before.
+app/persistence.py. User accounts persist in the same database file
+(app/persistence_users.py): the first users come from INCIDENT_BRIDGE_USERS
+when the users table is empty, after that the table is the source of truth
+(see app/repository.py's load_users()).
 
 Sites, mailing lists and notifications (the Sites & Mailing Lists
 subsystem) live in a SiteDirectory backed by its own SqliteSiteStore (same
@@ -22,25 +24,35 @@ the app survive restarts and archived sites are never brought back.
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List
 
 from app.models import Fault, IncidentStatus, MaintenanceTask
 from app.persistence import SqliteIncidentStore
 from app.persistence_sites import SqliteSiteStore
 from app.queues import FaultPriorityQueue, MaintenanceQueueManager
-from app.repository import IncidentRepository, UserStore, seed_users_from_env
+from app.persistence_users import SqliteUserStore
+from app.repository import IncidentRepository, UserStore, load_users
 from app.services.availability import HttpChecker
+from app.services.login_guard import LoginGuard
 from app.services.notifier import OutboxNotifier
 from app.sites import SiteDirectory, notification_archive_after_from_env, seed_site_directory
 
 
-DEFAULT_DATABASE_PATH = "incident_bridge.db"
+DATABASE_FILE = "incident_bridge.db"
 
 
 def database_path() -> str:
-    """The SQLite file every store uses: DATABASE_PATH, or DEFAULT_DATABASE_PATH when unset."""
-    return os.environ.get("DATABASE_PATH", DEFAULT_DATABASE_PATH)
+    """
+    The database file every store uses: DATABASE_PATH (":memory:" for tests; a
+    relative path is resolved against backend/), else incident_bridge.db in
+    the data folder (DATA_DIR, default backend/instance/ - app/security/data_folders.py).
+    """
+    from app.security.data_folders import data_dir, resolve
+    raw = (os.environ.get("DATABASE_PATH") or "").strip()
+    if raw == ":memory:":
+        return raw
+    return str(resolve(raw, data_dir() / DATABASE_FILE))
 
 
 def order_pending_maintenance(tasks: List[MaintenanceTask], has_current: bool) -> List[MaintenanceTask]:
@@ -75,6 +87,7 @@ class AppState:
     maintenance: MaintenanceQueueManager
     faults: FaultPriorityQueue
     sites: SiteDirectory
+    login_guard: LoginGuard = field(default_factory=LoginGuard)   # failed-login limits (app/services/login_guard.py)
 
     @classmethod
     def create(cls) -> "AppState":
@@ -91,9 +104,9 @@ class AppState:
         SITE_CHECK_SLOW_MS for availability checks, and an OutboxNotifier
         that records sent notifications in the app (no real email).
         """
-        users = seed_users_from_env()
-
         db_path = database_path()
+        users = load_users(SqliteUserStore(db_path))
+
         store = SqliteIncidentStore(db_path)
         incidents = IncidentRepository(store)
         maintenance = MaintenanceQueueManager()

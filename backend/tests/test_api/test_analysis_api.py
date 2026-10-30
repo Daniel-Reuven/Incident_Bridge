@@ -9,13 +9,15 @@ Run from backend/:  python -m pytest tests/test_api/test_analysis_api.py -v
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.install_helper import finish_setup
+
 from app.ai.providers.fake_provider import FakeProvider
 from tests.test_ai.conftest import wait_until
 
 AI_VARIABLES = ["AI_PROVIDER", "GEMINI_API_KEY", "GEMINI_MODEL", "AI_REQUEST_DELAY_SECONDS"]
 
 
-def login(client, username="admin", password="Passw0rd1"):
+def login(client, username="admin", password="Demo#Pass1"):
     assert client.post("/auth/login", json={"username": username, "password": password}).status_code == 200
 
 
@@ -32,9 +34,9 @@ def ai_client(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "fake")
     monkeypatch.setenv("AI_REQUEST_DELAY_SECONDS", "0")
     monkeypatch.setenv("DATABASE_PATH", ":memory:")
-    monkeypatch.delenv("INCIDENT_BRIDGE_USERS", raising=False)
     from app.api.app import app
     with TestClient(app) as client:
+        finish_setup(client)
         login(client)
         yield client
 
@@ -47,6 +49,7 @@ def off_client(monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", ":memory:")
     from app.api.app import app
     with TestClient(app) as client:
+        finish_setup(client)
         login(client)
         yield client
 
@@ -109,7 +112,7 @@ def test_a_regular_user_can_request_and_cancel(ai_client):
     ai_client.app.state.analysis_worker.provider = FakeProvider(delay_seconds=0.5)
     fault = create_fault(ai_client)
     ai_client.post("/auth/logout")
-    login(ai_client, "tech1", "Passw0rd2")
+    login(ai_client, "tech1", "Demo#Pass2")
     assert ai_client.post(f"/incidents/faults/{fault['id']}/analysis").status_code == 200
     assert ai_client.post(f"/incidents/faults/{fault['id']}/analysis/cancel").status_code == 200
 
@@ -156,7 +159,7 @@ def test_a_user_cannot_force_and_a_comment_unblocks_it(ai_client):
     wait_until(lambda: len(comments(ai_client, fault["id"])) == 2)
     wait_until(lambda: ai_client.get(f"/incidents/faults/{fault['id']}/analysis").json()["state"] == "idle")
     ai_client.post("/auth/logout")
-    login(ai_client, "tech1", "Passw0rd2")
+    login(ai_client, "tech1", "Demo#Pass2")
     assert ai_client.post(f"/incidents/faults/{fault['id']}/analysis?force=true").status_code == 403
     ai_client.post(f"/incidents/{fault['id']}/comments", json={"text": "Still failing after the restart."})
     assert ai_client.get(f"/incidents/faults/{fault['id']}/analysis").json()["blocked"] is False

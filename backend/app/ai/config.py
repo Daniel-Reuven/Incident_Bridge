@@ -1,7 +1,8 @@
 """
-AI analysis settings, read from the environment (backend/.env).
+AI analysis settings: those saved on the setup page (encrypted in the database),
+else the environment (backend/.env) - see app/ai/stored_settings.py.
 
-    AI_PROVIDER=gemini                 # gemini (default) | claude | openai | fake
+    AI_PROVIDER=gemini                 # gemini (default) | claude | openai | fake | off
     GEMINI_API_KEY=...    GEMINI_TIER=free | paid    (optional: GEMINI_MODELS=a,b,c)
     ANTHROPIC_API_KEY=... ANTHROPIC_MODEL=...
     OPENAI_API_KEY=...    OPENAI_MODEL=...
@@ -25,11 +26,11 @@ positive number). serve_app.py checks this before
 starting the server, and the app checks it again at startup.
 """
 
-import os
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 from app.ai.providers import DEFAULT_PROVIDER, PROVIDERS
+from app.ai.stored_settings import setting
 
 DEFAULT_TIMEOUT_SECONDS = 180.0
 DEFAULT_DELAY_SECONDS = 5.0
@@ -49,7 +50,9 @@ class AIConfig:
     @classmethod
     def from_env(cls) -> Optional["AIConfig"]:
         """The configured settings, or None if the feature is off (the selected provider has no API key)."""
-        provider = (os.environ.get("AI_PROVIDER") or DEFAULT_PROVIDER).strip().lower()
+        provider = (setting("AI_PROVIDER") or DEFAULT_PROVIDER).strip().lower()
+        if provider == "off":                             # turned off on purpose (e.g. the Server settings page)
+            return None
         if provider not in PROVIDERS:
             raise ValueError(f"AI_PROVIDER={provider!r} is not supported - use one of: {', '.join(PROVIDERS)}.")
         info = PROVIDERS[provider]
@@ -69,7 +72,9 @@ class AIConfig:
     @staticmethod
     def off_reason() -> str:
         """One line saying why the feature is off - printed at startup when from_env() returns None."""
-        provider = (os.environ.get("AI_PROVIDER") or DEFAULT_PROVIDER).strip().lower()
+        provider = (setting("AI_PROVIDER") or DEFAULT_PROVIDER).strip().lower()
+        if provider == "off":
+            return "AI analysis is off (AI_PROVIDER=off)."
         info = PROVIDERS.get(provider)
         key = info.key_env if info else "the API key"
         return f"AI analysis is off: AI_PROVIDER={provider}, but {key} is not set."
@@ -93,7 +98,7 @@ def _read_models(info) -> Tuple[str, ...]:
 
 
 def _read_text(name: str) -> Optional[str]:
-    value = os.environ.get(name)
+    value = setting(name)
     return value.strip() if value and value.strip() else None
 
 

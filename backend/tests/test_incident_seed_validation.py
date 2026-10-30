@@ -19,7 +19,7 @@ from app.services import SeverityScorer
 @pytest.fixture
 def users():
     store = UserStore()
-    store.add(User("admin", Role.ADMIN, "Passw0rd1"))
+    store.add(User("admin", Role.ADMIN, "Passw0rd!1"))
     return store
 
 

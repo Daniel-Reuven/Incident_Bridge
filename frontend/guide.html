@@ -6,6 +6,7 @@
 <title>Guide — Incident Bridge</title>
 <meta name="description" content="How to use Incident Bridge: reporting and working incidents, AI analysis, and the admin-only tools.">
 <link rel="stylesheet" href="/css/styles.css">
+<script src="/js/theme.js"></script>
 </head>
 <!--
   The user guide - a public page (no login needed). Header: js/public-page.js;
@@ -29,6 +30,8 @@
       <strong>On this page</strong>
       <ol>
         <li><a href="#start">Getting started</a></li>
+        <li><a href="#settings">Settings: appearance and password</a></li>
+        <li><a href="#password-policy">Password policy</a></li>
         <li><a href="#roles">Who can do what</a></li>
         <li><a href="#dashboard">The dashboard</a></li>
         <li><a href="#report">Reporting an incident</a></li>
@@ -36,7 +39,12 @@
         <li><a href="#faults">Working faults</a></li>
         <li><a href="#ai">AI analysis of a fault</a></li>
         <li><a href="#admin">Admin tools</a></li>
+        <li><a href="#users">Users</a></li>
+        <li><a href="#logs">Activity log</a></li>
         <li><a href="#sites">The site portal</a></li>
+        <li><a href="#server">Server settings: HTTPS and AI</a></li>
+        <li><a href="#setup">First-time setup and the recovery key</a></li>
+        <li><a href="#data">What is recorded and stored</a></li>
         <li><a href="#good-to-know">Good to know</a></li>
       </ol>
     </nav>
@@ -47,11 +55,41 @@
       <img src="/screenshots/01-login.png" alt="The login form: username, password and a Log in button" width="580" height="477" loading="lazy">
     </figure>
     <ul>
-      <li><strong>Your account</strong> is created for you — there is no sign-up. Ask your administrator for a username and password.</li>
-      <li><strong>Log in</strong> on the start page. You stay logged in in that browser for up to two weeks, or until you press <em>Log out</em> in the top bar.</li>
-      <li><strong>Change your password</strong> with <em>Account</em> in the top bar: at least 8 characters, letters and numbers only.</li>
+      <li><strong>Your account</strong> is created for you by an admin — there is no sign-up. Ask your administrator for a username and a first password.</li>
+      <li><strong>At your first login</strong> (and after an admin resets your password) you must choose a new password before you can do anything else — unless the operator turned this off.</li>
+      <li><strong>Log in</strong> on the start page. You stay logged in in that browser for up to 12 hours (your administrator may set another limit), or until you press <em>Log out</em> in the top bar. After 5 wrong passwords in a row the account is locked for 15 minutes.</li>
       <li>Your username and role (<em>user</em> or <em>admin</em>) are shown in the top bar.</li>
     </ul>
+
+    <h2 id="settings">Settings: appearance and password</h2>
+    <p>Press <strong>Settings</strong> in the top bar.</p>
+    <figure class="doc-figure narrow">
+      <a href="/screenshots/07-settings-interface.png"><img src="/screenshots/07-settings-interface.png" alt="Settings, Interface tab: color scheme System, Light or Dark, and text size" width="640" height="407" loading="lazy"></a>
+      <figcaption>The Interface tab.</figcaption>
+    </figure>
+    <ul>
+      <li><strong>Interface</strong> — the color scheme (<em>Light</em>, <em>Dark</em>, or <em>System</em>, which follows your computer's setting) and the text size (90% to 130%). They apply at once, to every page, and are saved with your account, so they follow you to any computer — as does your choice of updates order on an incident page. The login page always uses your computer's color scheme; your own settings return as soon as you log in.</li>
+      <li><strong>Password</strong> — type your current password, the new one, and the new one again. A checklist under the new password shows which rules it already meets; the <strong>i</strong> button next to it shows the <a href="#password-policy">password policy</a>. Changing your password signs you out on every other computer or browser.</li>
+    </ul>
+    <figure class="doc-figure narrow">
+      <a href="/screenshots/06-settings-password.png"><img src="/screenshots/06-settings-password.png" alt="Settings, Password tab: current, new and confirm password, the password policy tooltip and the checklist" width="640" height="681" loading="lazy"></a>
+      <figcaption>The Password tab, with the policy shown by the <strong>i</strong> button.</figcaption>
+    </figure>
+    <figure class="doc-figure">
+      <a href="/screenshots/08-dashboard-dark.png"><img src="/screenshots/08-dashboard-dark.png" alt="The dashboard's Faults tab in the dark theme" width="1440" height="900" loading="lazy"></a>
+      <figcaption>The dark theme (dashboard, <em>Faults</em> tab).</figcaption>
+    </figure>
+
+    <h2 id="password-policy">Password policy</h2>
+    <p>Every password — your own, and one an admin sets for you — must:</p>
+    <ul>
+      <li>be <strong>8 to 128 characters</strong> long;</li>
+      <li>contain at least one <strong>uppercase letter</strong>, one <strong>lowercase letter</strong>, one <strong>digit</strong> and one <strong>symbol</strong> (anything that is not a letter or a digit, for example <code>! @ # $ %</code> or a space);</li>
+      <li><strong>not contain your username</strong> (in any letter case);</li>
+      <li><strong>not be a common password</strong> such as <code>P@ssw0rd</code> or <code>Welcome123!</code> — the app keeps a list of them;</li>
+      <li>when you change it, <strong>differ from your current password</strong>.</li>
+    </ul>
+    <p>A long passphrase is easier to remember and harder to guess than a short jumble, for example <code>Coffee before 9 deploys!</code>. Passwords are stored only as a salted hash, never as text — nobody, not even an admin, can see yours.</p>
 
     <!-- 2 -->
     <h2 id="roles">Who can do what</h2>
@@ -65,12 +103,16 @@
           <tr><td>Claim a fault, resolve a fault</td><td class="yes">✓</td><td class="yes">✓</td></tr>
           <tr><td>Ask for an AI analysis of a fault, or cancel one</td><td class="yes">✓</td><td class="yes">✓</td></tr>
           <tr><td>Pressing maintenance calls, check stale incidents</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>The course requirements page: run its demos</td><td class="yes">✓</td><td class="yes">✓</td></tr>
           <tr><td>Close as <em>Not an incident</em> or <em>By design</em></td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Change a fault's severity</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Reopen a closed incident</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Run an AI analysis again with no changes (<em>Re-analyze</em>)</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Import seed data</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Site portal: sites, mailing lists, notifications</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Users: create accounts, change roles, disable, reset passwords</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Activity log: read it and check its integrity (nobody can edit or delete it)</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Server settings: HTTPS, the certificate, the AI analysis settings</td><td class="no">—</td><td class="yes">✓</td></tr>
         </tbody>
       </table>
     </div>
@@ -78,20 +120,22 @@
     <!-- 3 -->
     <h2 id="dashboard">The dashboard</h2>
     <figure class="doc-figure">
-      <a href="/screenshots/02-dashboard.png"><img src="/screenshots/02-dashboard.png" alt="The dashboard: filters and buttons above the maintenance queue" width="1440" height="900" loading="lazy"></a>
-      <figcaption>The dashboard, seen by an admin (<em>Import seed data</em> and <em>Site portal</em> are admin-only).</figcaption>
+      <a href="/screenshots/02-dashboard.png"><img src="/screenshots/02-dashboard.png" alt="The dashboard: filters, buttons and tabs above the maintenance queue" width="1440" height="900" loading="lazy"></a>
+      <figcaption>The dashboard, seen by an admin (<em>Import seed data</em>, <em>Site portal</em> and <em>Users</em> are admin-only).</figcaption>
     </figure>
-    <p>After logging in you land on the dashboard. From top to bottom:</p>
+    <p>After logging in you land on the dashboard. It has four tabs, each with its count: <strong>Everything</strong> (all of the below), <strong>Maintenance</strong> (just the maintenance queue — every task in it is open or in progress, in order, so there is nothing to sort), <strong>Faults</strong> (the fault queue and the active faults) and <strong>Archive</strong> (closed incidents of both kinds, most recently closed first). The <em>Everything</em> tab, from top to bottom:</p>
     <ul>
       <li><strong>Maintenance queue</strong> — first in, first out: tasks are done one at a time, in the order they were reported. <em>#1 in queue</em> is next.</li>
       <li><strong>Fault queue</strong> — priority order: every <span style="color:var(--critical);font-weight:600">Critical</span> fault before any <span style="color:var(--major);font-weight:600">Major</span> one, and every Major before any Minor; within a severity, oldest first.</li>
-      <li><strong>All incidents</strong> — everything, including closed incidents. The <em>Type</em>, <em>Status</em> and <em>Sort by</em> filters at the top apply to this list.</li>
+      <li><strong>All incidents</strong> — everything, including closed incidents. The <em>Type</em>, <em>Status</em> and <em>Sort by</em> filters at the top apply to this list; the button next to <em>Sort by</em> reverses the order (for example <em>Most severe first</em> / <em>Least severe first</em>).</li>
     </ul>
-    <p>Click any row to open the incident. The dashboard updates by itself when anyone changes something — there is no need to refresh.</p>
+    <p>Type in <strong>Filter</strong> to show only incidents whose title, description or comments contain the words you type (a row found only through a comment says <em>match in comments</em>); the tab counts then show <em>matching / total</em>.</p>
+    <p>Times are shown in <strong>your own time zone</strong>, for example <em>3 hours ago, 14:36 GMT+3 2026/10/17</em> — someone in another country sees the same moment in theirs.</p>
+    <p>Click any row to open the incident. The dashboard updates by itself when anyone changes something — a closed incident moves to Archive on its own — there is no need to refresh. Coming back from an incident page reopens the same tab, with the same filter.</p>
     <h3>Two helpers</h3>
     <ul>
-      <li><strong>Check stale incidents</strong> highlights in-progress incidents with no update for the time chosen in <em>Stale after</em> (default 4 hours).</li>
-      <li><strong>Pressing maintenance calls</strong> lists open maintenance tasks that have waited more than 3 days, oldest first. <em>Show first</em> limits the list.</li>
+      <li><strong>Check stale incidents</strong> highlights in-progress incidents with no update for the time chosen in <em>Stale after</em> (default 4 hours). Not shown on the Archive tab.</li>
+      <li><strong>Pressing maintenance calls</strong> (Maintenance tab) lists open maintenance tasks that have waited more than 3 days, oldest first. <em>Show first</em> limits the list.</li>
     </ul>
     <figure class="doc-figure">
       <a href="/screenshots/05-pressing-calls.png"><img src="/screenshots/05-pressing-calls.png" alt="Pressing maintenance calls: a table of tasks waiting 3 to 12 days" width="1440" height="720" loading="lazy"></a>
@@ -157,8 +201,47 @@
       <li><strong>Not an incident</strong> and <strong>By design</strong> close an incident with that reason, instead of <em>Resolve</em>. A closing message is still required.</li>
       <li><strong>Severity</strong> — on an in-progress fault, the <em>Severity</em> menu changes it; the fault's place in the queue follows.</li>
       <li><strong>Reopen…</strong> on a closed incident, with a reason. A maintenance task asks where in the queue it goes back; a fault goes back to the queue (Open) or to you (In progress). The earlier resolution stays in the history.</li>
-      <li><strong>Import seed data</strong> (dashboard) loads incidents from a <code>.jsonl</code> file; incidents already there are skipped, not duplicated.</li>
+      <li><strong>Import seed data</strong> (dashboard) loads incidents from a <code>.jsonl</code> file; incidents already there are skipped, not duplicated. Every username in the file (who reported, who is assigned, who wrote each update) must be an account here, or that incident is skipped with the reason. The sample data uses <code>admin</code>, <code>tech1</code>, <code>tech2</code> and <code>tech3</code>: name the first admin <code>admin</code> at setup and create the three technicians (for example through <code>INCIDENT_BRIDGE_USERS</code>) before importing it.</li>
       <li><strong>Re-analyze</strong> — see <a href="#ai">AI analysis</a>.</li>
+    </ul>
+
+    <h2 id="users">Users <span class="role-tag admin">Admin</span></h2>
+    <p><strong>Users</strong> in the top bar lists every account.</p>
+    <figure class="doc-figure">
+      <a href="/screenshots/09-users.png"><img src="/screenshots/09-users.png" alt="The Users page: the Display names format panel above the accounts, each shown by name with its location lighter and the username under it" width="1440" height="900" loading="lazy"></a>
+      <figcaption>The Users page (admin only), with the format for everyone set to show the location.</figcaption>
+    </figure>
+    <ul>
+      <li><strong>New user</strong> — a username (3–32 letters, digits, <code>.</code>, <code>_</code> or <code>-</code>), a role and a first password that follows the <a href="#password-policy">policy</a>. Give the password to the person; they must change it at their first login.</li>
+      <li><strong>Details</strong> — first, middle and last name, job title and location, all optional, and how this person's name is shown (below).</li>
+      <li><strong>Make admin</strong> / <strong>Make user</strong> changes the role.</li>
+      <li><strong>Disable</strong> signs the person out at once and stops them from logging in; <strong>Enable</strong> lets them back in. Accounts are never deleted, so their incidents and comments keep their author.</li>
+      <li><strong>Reset password</strong> sets a new password for someone who forgot theirs; it signs them out everywhere and they must change it at their next login.</li>
+      <li>You cannot change your own role or disable yourself — use <em>Settings</em> for your own password.</li>
+    </ul>
+    <h3 id="display-names">Display names</h3>
+    <p>Everywhere in the app, people are shown by a <strong>display name</strong> built from their details — in the top bar, as reporter, as the author of updates, in the site portal and in live notices. <em>Display names</em> at the top of the Users page sets the <strong>format for everyone</strong>: pick one of the ready-made formats, or write your own with the field buttons — <code>{first-name}</code>, <code>{middle-name}</code>, <code>{last-name}</code>, <code>{job-title}</code>, <code>{location}</code> and <code>{username}</code> — for example <code>{first-name} {last-name} - {job-title} ({location})</code>. The example under it shows the result at once. In a person's <em>Details</em>, <em>A format of their own</em> overrides it for that person only.</p>
+    <figure class="doc-figure">
+      <a href="/screenshots/12-user-details.png"><img src="/screenshots/12-user-details.png" alt="The Details dialog of tech1: name, job title and location fields, a format of their own picked from the ready-made ones, and the result shown below as Dana Levi - Technician with (Haifa) lighter" width="640" height="628" loading="lazy"></a>
+      <figcaption>A person's <em>Details</em>, with a format of their own and the result under it.</figcaption>
+    </figure>
+    <ul>
+      <li>Empty fields leave nothing behind: no empty brackets or stray dashes. With no details at all, the username is shown.</li>
+      <li>The <strong>location</strong> is shown lighter and smaller, since it matters less than the name.</li>
+      <li>The username stays the person's identity: it is used to log in, it appears under the name on the Users page and when you point at a name, and the activity log records usernames.</li>
+    </ul>
+
+    <h2 id="logs">Activity log <span class="role-tag admin">Admin</span></h2>
+    <p><strong>Logs</strong> in the top bar shows what happened in the app: every action (logins, incidents created, claimed, commented, closed, AI analyses, users changed, site-portal changes…), every request to the server, and every call to an outside service such as the AI provider. The newest records come first, one month at a time.</p>
+    <figure class="doc-figure">
+      <a href="/screenshots/10-logs.png"><img src="/screenshots/10-logs.png" alt="The Activity log page: a No tampering found banner, filters for month, category, event, user, level and text, and a table of records with one opened to show all its fields" width="1440" height="900" loading="lazy"></a>
+      <figcaption>The Activity log after <em>Check integrity</em>, with one record opened.</figcaption>
+    </figure>
+    <ul>
+      <li><strong>Filters</strong> — <em>Month</em>, <em>Category</em> (auth, users, incident, site, external, data, setup, http, app), <em>Event</em> (for example <code>incident.claimed</code>), <em>User</em>, <em>Level</em> (Warning shows failed logins, refused requests and failed outside calls) and <em>Search</em> over the whole record. The category starts at <em>Actions</em>, which leaves out the HTTP requests and the data records (below), because they outnumber the actions many times over; choose <em>Everything</em>, <em>http</em> or <em>data</em> to see them. The page remembers your filters until you close the tab.</li>
+      <li><strong>Click a row</strong> to see every field of the record. <strong>Show older records</strong> loads more of the month.</li>
+      <li><strong>Check integrity</strong> checks every record of every month. Each record is signed and points to the one before it, and the database remembers how far the log has reached, so a record that was edited, removed, reordered or added by hand — or a whole month that was deleted — is reported, with where it happened. It then checks the <strong>database</strong> too: every time the app saves something, it writes a fingerprint of it (not its content) to the log as a <em>data</em> record, so anything changed, deleted or added in the database outside the app is reported. <em>No tampering found</em> means the log is complete and unchanged, and the database matches what the app saved.</li>
+      <li>There is no way to edit or delete records in the app, for admins too. The log files are encrypted; the log of an earlier installation is never shown. Times are shown in your time zone.</li>
     </ul>
 
     <!-- 9 -->
@@ -177,9 +260,61 @@
       <li>Sent, dismissed and skipped notifications move to the <em>Archive</em> tab after a set time (30 days unless the operator changed it), where they can only be viewed. Notifications waiting for a decision stay in <em>Notifications</em>.</li>
     </ul>
 
+    <h2 id="server">Server settings: HTTPS and AI <span class="role-tag admin">Admin</span></h2>
+    <p><strong>Server</strong> in the top bar sets how the server is reached and which AI provider analyzes faults. The tag at the top shows the server's <strong>mode</strong>, set by the operator in <code>backend/.env</code> (<code>APP_MODE</code>): <em>Testing</em> or <em>Production</em>.</p>
+    <figure class="doc-figure">
+      <a href="/screenshots/13-server-settings.png"><img src="/screenshots/13-server-settings.png" alt="The Server settings page: what is running now, the HTTP and HTTPS ports, HTTPS only for remote connections, the generated certificate with its details, trusted proxies, and the AI analysis provider" width="1440" height="1363" loading="lazy"></a>
+      <figcaption>Server settings while testing: HTTPS with the generated certificate.</figcaption>
+    </figure>
+    <ul>
+      <li><strong>HTTPS</strong> — <em>Serve HTTPS</em> adds an encrypted address next to the plain one, on its own port (for example <code>https://your-server:8443</code>). <em>HTTPS only for remote connections</em> sends anyone on another computer who uses the plain address on to the HTTPS one. From the server computer itself the plain address always keeps working, so a wrong setting can never lock you out.</li>
+      <li><strong>Certificate</strong> — while testing, the app can make its own (<em>self-signed</em>): each browser warns about it once, then lets you continue. In <strong>production</strong> it must be a certificate from a certificate authority — your organization, your hosting company, or a public one such as Let's Encrypt, DigiCert or GoDaddy. Enter the paths of its certificate file (with the intermediate certificates after it, as the authority provides them) and its key file, and <em>Check the files</em>. In production the server will not start without HTTPS, a valid certificate from an authority, and <em>HTTPS only for remote connections</em>.</li>
+      <li><strong>Trusted proxies</strong> — only when another server (a reverse proxy) sits in front of the app: its address, so the app believes what it reports about the visitor. Leave it empty otherwise.</li>
+      <li>Each field shows where its value comes from: <em>set here</em>, <em>from .env</em> or <em>default</em>. Values saved here win over <code>.env</code>; <em>Use .env instead</em> removes them. These settings take effect when the server starts: the page says <strong>Restart the server to apply</strong> until then.</li>
+      <li><strong>AI analysis</strong> — the provider, its API key and models, as at setup; <em>Off</em> turns the analysis off, <em>Use the .env settings</em> goes back to the operator's. Saved changes apply <strong>at once</strong>. The key is stored encrypted and never shown again; leave the field empty to keep it.</li>
+    </ul>
+    <div class="doc-note admin">A login made at the HTTPS address is never sent back over the plain one. In production, browsers are also told to use only HTTPS for this server from then on.</div>
+
+    <h2 id="setup">First-time setup and the recovery key <span class="role-tag admin">Admin</span></h2>
+    <p>A new installation shows only its <strong>setup page</strong> until it is finished; every other page leads there.</p>
+    <figure class="doc-figure narrow">
+      <a href="/screenshots/11-setup-recovery.png"><img src="/screenshots/11-setup-recovery.png" alt="The setup page at the recovery key step: the key in 13 groups, Copy and Download buttons, and a field for its last two groups" width="560" height="860" loading="lazy"></a>
+      <figcaption>The setup page, recovery key step.</figcaption>
+    </figure>
+    <ol>
+      <li><strong>Setup code</strong> — the server prints it in its console window when it starts. Only the person running the server can see it, so nobody else can take over a fresh installation. The page then checks the folders the app will use — by default <code>backend/instance</code> for the data and <code>backend/instance/logs</code> for the activity log. Each must be <strong>empty or not exist yet</strong>: the app keeps its folders to itself. If one holds anything, the page shows what is in it; empty it and press <em>Check again</em>, or give the app another folder in <code>backend/.env</code> (<code>DATA_DIR</code>, <code>LOG_DIR</code>) and restart the server.</li>
+      <li><strong>Recovery key</strong> — all data is <strong>encrypted</strong>. The computer keeps the working key in its own protected store (Windows Credential Manager, macOS Keychain, or the Linux equivalent), so the app starts by itself. The recovery key is the only other way in: on a new computer, or if that key is lost. It is <strong>shown only once</strong>. Copy or download it, keep it <strong>offline and away from the server</strong> (a password manager, a printout in a safe), keep a backup copy, and type its last two groups to confirm.</li>
+      <li><strong>Admin account</strong> — the first admin, with a password that follows the <a href="#password-policy">policy</a>, and optionally your name and job title (for your <a href="#display-names">display name</a>). More admins are added later on the <a href="#users">Users</a> page.</li>
+      <li><strong>AI analysis</strong> (optional) — the provider and its API key; <em>Test connection</em> checks the key. The key is stored encrypted with the data.</li>
+    </ol>
+    <p>Regular users that the operator listed in the server's settings are created at the same time and choose their own password at their first login.</p>
+    <h3 id="move-data">Moving the data to another folder</h3>
+    <p>The data folder holds the database, its keys file, the activity log and the generated HTTPS certificate, each marked as belonging to this installation; the app refuses to start if a folder in its settings belongs to something else. To move it:</p>
+    <ol>
+      <li><strong>Stop the server</strong> — it keeps the database and the log open (the tool refuses while it runs).</li>
+      <li>In the <code>backend</code> folder run <code>python move_data.py D:\IncidentBridge\data</code> — any new folder that is empty or does not exist yet. Add <code>--logs &lt;folder&gt;</code> to keep the activity log in a folder of its own.</li>
+      <li>The tool copies everything, checks that the copy opens as the same installation and that every log line can be read, and prints the lines to put in <code>backend/.env</code> (for example <code>DATA_DIR=D:\IncidentBridge\data</code>).</li>
+      <li>Put them in <code>.env</code>, start the server and check that everything is there. The old folder is left untouched: <strong>delete it yourself</strong> once you are sure.</li>
+    </ol>
+    <div class="doc-note admin">Moving to a new computer, or the computer's key store was lost? With the server stopped, run <code>python manage_keys.py restore</code> in the <code>backend</code> folder and enter the recovery key. If the recovery key may have been seen by someone else, <code>python manage_keys.py new-recovery-key</code> replaces it and re-encrypts the data.</div>
+
+    <h2 id="data">What is recorded and stored</h2>
+    <p><strong>The activity log</strong> (files on the server, <strong>encrypted</strong>, one per month; finished months are compressed and kept until the operator deletes them) records, for each event:</p>
+    <ul>
+      <li>the time, the event and its level, the username, and the network address it came from — by default only as a code that cannot be turned back into the address (the same address always gets the same code), or as the operator chose: its last part only (<code>***.***.***.1</code>), in full, or not at all;</li>
+      <li>what was done, the ids of what it concerns (incident, user, site, list…) and incident and site <strong>titles</strong>;</li>
+      <li>for a request to the server: the method, path, query, status code and how long it took;</li>
+      <li>for a call to an outside service (AI provider, site check): the service, model, address, status, outcome and duration.</li>
+      <li>for every database record the app saves or deletes: its kind, its id and a fingerprint — never its content.</li>
+    </ul>
+    <p>It <strong>never</strong> records passwords (not even wrong ones), API keys, cookies, request or reply bodies, incident descriptions, the text of updates, or what was sent to the AI provider.</p>
+    <p><strong>The database</strong> (one file on the server, <strong>encrypted</strong> — unreadable without its key, see <a href="#setup">setup</a>) stores accounts (username, role, the optional name, job title and location, a salted hash of the password — never the password — and its interface settings (color scheme, text size, updates order), whether the account is disabled or must change its password), incidents with their details, updates and history, sites, mailing lists (with email addresses) and notifications, the AI analysis queue and its results, and the activity log's checkpoint.</p>
+    <p><strong>Your browser</strong> keeps the session cookie that keeps you logged in, a copy of your interface settings while you are logged in (deleted when you log out), and, until you close the tab, the tab's id and your dashboard and log filters. See also the <a href="/terms.html#storage">Terms</a>.</p>
+
     <!-- 10 -->
     <h2 id="good-to-know">Good to know</h2>
     <ul>
+      <li><strong>Course requirements:</strong> the <a href="/demo.html">Requirements</a> page (any logged-in user) lists every requirement of the course brief, with the code that meets it, where the app uses it, and a <em>Run</em> button that shows it working on sample data held in memory — your data is never touched.</li>
       <li><strong>Live updates:</strong> lists update by themselves. If someone changes the incident you are looking at, a prompt offers to refresh it.</li>
       <li><strong>Server restarts:</strong> open pages reconnect on their own within a few seconds, and you stay logged in.</li>
       <li><strong>Something refused?</strong> The message says why — for example, a task that is not first in line cannot be started, and admin-only actions are not offered to users.</li>
@@ -187,6 +322,7 @@
     </ul>
   </main>
   <script type="module" src="/js/public-page.js"></script>
+  <script type="module" src="/js/doc-nav.js"></script>
   <script type="module" src="/js/footer.js"></script>
 </body>
 </html>

@@ -42,11 +42,51 @@ async function request(path, { method = "GET", body } = {}) {
 
 export const api = {
   // --- auth ---
+  // First-start setup (backend/app/api/setup.py) - every call carries the console's setup code.
+  setupStart: (code) => request("/setup/start", { method: "POST", body: { code } }),
+  setupTestAI: (code, ai) => request("/setup/test-ai", { method: "POST", body: { code, ai } }),
+  setupComplete: (body) => request("/setup/complete", { method: "POST", body }),
   login: (username, password) => request("/auth/login", { method: "POST", body: { username, password } }),
   logout: () => request("/auth/logout", { method: "POST" }),
   me: () => request("/auth/me"),
-  changePassword: (current_password, new_password) =>
-    request("/auth/change-password", { method: "POST", body: { current_password, new_password } }),
+  peopleDirectory: () => request("/users/directory"),
+  displayFormat: () => request("/users/display-format"),
+  setDisplayFormat: (format) => request("/users/display-format", { method: "PUT", body: { format } }),
+  previewDisplay: (body) => request("/users/display-preview", { method: "POST", body }),
+  updateUserDetails: (username, details) =>
+    request(`/users/${encodeURIComponent(username)}/details`, { method: "PATCH", body: details }),
+  demoRequirements: () => request("/demo/requirements"),
+  runDemo: (id) => request(`/demo/requirements/${encodeURIComponent(id)}/run`, { method: "POST" }),
+  serverSettings: () => request("/server/settings"),
+  saveServerSettings: (changes) => request("/server/settings", { method: "PUT", body: changes }),
+  resetServerSettings: () => request("/server/settings", { method: "DELETE" }),
+  checkCertificate: (body) => request("/server/certificate/check", { method: "POST", body }),
+  generateCertificate: () => request("/server/certificate/generate", { method: "POST" }),
+  serverAI: () => request("/server/ai"),
+  saveServerAI: (body) => request("/server/ai", { method: "PUT", body }),
+  testServerAI: (body) => request("/server/ai/test", { method: "POST", body }),
+  savePreferences: (changes) => request("/auth/preferences", { method: "PATCH", body: changes }),
+  changePassword: (current_password, new_password, confirm_password) =>
+    request("/auth/change-password", { method: "POST", body: { current_password, new_password, confirm_password } }),
+  passwordPolicy: () => request("/auth/password-policy"),
+
+  // --- activity log (admin only - backend/app/api/logs.py) ---
+  logMonths: () => request("/logs/months"),
+  verifyLog: () => request("/logs/verify"),
+  readLog: (params = {}) => {
+    const query = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null)));
+    return request("/logs" + (query.toString() ? `?${query}` : ""));
+  },
+
+  // --- user management (admin only - backend/app/api/users.py) ---
+  listUsers: () => request("/users"),
+  createUser: (username, role, password, confirm_password, details = {}) =>
+    request("/users", { method: "POST", body: { username, role, password, confirm_password, ...details } }),
+  updateUser: (username, changes) =>
+    request(`/users/${encodeURIComponent(username)}`, { method: "PATCH", body: changes }),
+  resetUserPassword: (username, new_password, confirm_password) =>
+    request(`/users/${encodeURIComponent(username)}/reset-password`,
+      { method: "POST", body: { new_password, confirm_password } }),
 
   // --- shared incident operations ---
   listIncidents: (params = {}) => {

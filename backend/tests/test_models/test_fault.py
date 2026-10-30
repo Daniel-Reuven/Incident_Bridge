@@ -16,12 +16,12 @@ from app.models.user import User
 
 @pytest.fixture
 def reporter():
-    return User(username="reporter", role=Role.USER, password="Passw0rd1")
+    return User(username="reporter", role=Role.USER, password="Passw0rd!1")
 
 
 @pytest.fixture
 def admin():
-    return User(username="admin-actor", role=Role.ADMIN, password="Passw0rd1")
+    return User(username="admin-actor", role=Role.ADMIN, password="Passw0rd!1")
 
 
 @pytest.fixture

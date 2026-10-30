@@ -50,6 +50,7 @@ export async function mountPublicHeader() {
   const user = await currentUser();
   const account = el.querySelector("#public-account");
   if (user) {
+    el.querySelector(".wordmark").href = "/dashboard.html";   // logged in: the app, not the login page
     const name = document.createElement("span");
     name.className = "topbar-username";
     name.textContent = user.username;                       // text, never HTML

@@ -5,20 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dashboard — Incident Bridge</title>
 <link rel="stylesheet" href="/css/styles.css">
+<script src="/js/theme.js"></script>
 </head>
 <body>
   <header id="topbar"></header>
   <main class="dashboard">
     <div class="dashboard-toolbar">
       <div class="filters">
-        <label>Type
+        <label class="filter-search">Filter
+          <input type="search" id="filter-text" placeholder="Title, description or comments" autocomplete="off">
+        </label>
+        <label id="filter-type-label">Type
           <select id="filter-type">
             <option value="">All</option>
             <option value="maintenance">Maintenance</option>
             <option value="fault">Fault</option>
           </select>
         </label>
-        <label>Status
+        <label id="filter-status-label">Status
           <select id="filter-status">
             <option value="">All</option>
             <option value="open">Open</option>
@@ -26,16 +30,19 @@
             <option value="closed">Closed</option>
           </select>
         </label>
-        <label>Sort by
-          <select id="sort-by">
-            <option value="severity">Severity</option>
-            <option value="created_at">Newest</option>
-            <option value="status">Status</option>
-          </select>
-        </label>
+        <div class="sort-group" id="sort-group">
+          <label>Sort by
+            <select id="sort-by">
+              <option value="severity">Severity</option>
+              <option value="status">Status</option>
+              <option value="created_at">Reported</option>
+            </select>
+          </label>
+          <button type="button" class="btn btn-ghost sort-order" id="sort-order" aria-describedby="sort-by"></button>
+        </div>
       </div>
       <div class="actions-row" style="margin-bottom:0">
-        <label class="inline-select">Stale after
+        <label class="inline-select" id="stale-threshold-label">Stale after
           <select id="stale-threshold">
             <option value="240" selected>4 hours</option>
             <option value="60">1 hour</option>
@@ -44,14 +51,23 @@
           </select>
         </label>
         <button class="btn btn-ghost" id="check-stale-btn">Check stale incidents</button>
-        <a class="btn btn-ghost" href="/pressing.html" id="pressing-link">Pressing maintenance calls</a>
+        <a class="btn btn-ghost" href="/pressing.html" id="pressing-link" hidden>Pressing maintenance calls</a>
         <button class="btn btn-primary" id="new-incident-btn">New incident</button>
           <button class="btn btn-import" id="import-jsonl-btn" hidden>Import seed data</button>
       </div>
 
     </div>
 
-    <section class="queue-section">
+    <!-- Tabs (dashboard.js showTab): the sections below carry data-tabs, the
+         tabs each one appears in. The open tab is kept in the URL (#faults). -->
+    <nav class="tabs" role="tablist" aria-label="Dashboard views">
+      <button class="tab" role="tab" id="tab-all" aria-selected="true">Everything <span class="tab-count" id="count-all"></span></button>
+      <button class="tab" role="tab" id="tab-maintenance" aria-selected="false">Maintenance <span class="tab-count" id="count-maintenance"></span></button>
+      <button class="tab" role="tab" id="tab-faults" aria-selected="false">Faults <span class="tab-count" id="count-faults"></span></button>
+      <button class="tab" role="tab" id="tab-archive" aria-selected="false">Archive <span class="tab-count" id="count-archive"></span></button>
+    </nav>
+
+    <section class="queue-section" data-tabs="all maintenance">
       <h2>Maintenance queue <span class="hint">FIFO — one at a time, in order</span></h2>
       <div class="actions-row" style="margin-bottom:12px">
         <button class="btn btn-ghost btn-sm" id="start-next-btn">Start next</button>
@@ -59,7 +75,7 @@
       <div id="maintenance-queue"><p class="empty">Loading…</p></div>
     </section>
 
-    <section class="queue-section">
+    <section class="queue-section" data-tabs="all faults">
       <h2>Fault queue <span class="hint">Priority order — most severe first, every severity together</span></h2>
       <div class="actions-row" style="margin-bottom:12px">
         <button class="btn btn-ghost btn-sm" id="claim-next-btn">Claim next</button>
@@ -67,8 +83,9 @@
       <div id="fault-queue"><p class="empty">Loading…</p></div>
     </section>
 
-    <section class="queue-section">
-      <h2>All incidents</h2>
+    <!-- Not on the Maintenance tab: there the FIFO queue IS the list (every task in it is open or in progress). -->
+    <section class="queue-section" data-tabs="all faults archive">
+      <h2><span id="list-title">All incidents</span> <span class="hint" id="list-hint"></span></h2>
       <div id="incident-list"><p class="empty">Loading…</p></div>
     </section>
   </main>

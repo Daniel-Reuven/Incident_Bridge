@@ -1,11 +1,8 @@
 """
-Unit tests for app.services.password_policy.PasswordPolicy.
-
-These are "unit" tests in the strictest sense: PasswordPolicy has no
-dependencies on anything else in the app (no database, no HTTP, no other
-domain objects), so every test here just calls PasswordPolicy.validate()
-directly and checks what it does - either nothing (success) or a
-ValueError with a specific message (rejection).
+Unit tests for app.services.password_policy.PasswordPolicy - the
+character-mix rule: 8-128 characters, an uppercase letter, a lowercase
+letter, a digit and a symbol; not containing the username; not a common
+password. Expected results come from that rule, written out by hand.
 
 Run just this file:
     cd backend
@@ -17,50 +14,55 @@ import pytest
 from app.services.password_policy import PasswordPolicy
 
 
-def test_valid_password_passes():
-    """A password meeting every rule should not raise anything at all."""
-    PasswordPolicy.validate("Passw0rd1")  # no exception raised = test passes
+@pytest.mark.parametrize("password", [
+    "Passw0rd!1",          # every class once or more
+    "Abc1234!",            # exactly 8 characters
+    "Correct Horse 9",     # a space counts as a symbol
+    "Ünïcödé#9a",          # non-ASCII letters count as letters
+    "A1!" + "a" * 125,     # exactly 128 characters
+])
+def test_acceptable_passwords_pass(password):
+    PasswordPolicy.validate(password)
+    assert PasswordPolicy.problems(password) == []
 
 
-def test_exactly_minimum_length_passes():
-    """8 characters is the documented minimum - it must be ACCEPTED, not rejected."""
-    PasswordPolicy.validate("Abcd1234")  # exactly 8 characters
+@pytest.mark.parametrize("password, message", [
+    ("Ab1!xyz", "at least 8 characters"),
+    ("", "at least 8 characters"),
+    (None, "at least 8 characters"),
+    ("A1!" + "a" * 126, "at most 128 characters"),
+    ("passw0rd!x", "uppercase letter"),
+    ("PASSW0RD!X", "lowercase letter"),
+    ("Password!x", "a digit"),
+    ("Passw0rd12", "a symbol"),
+    ("P@ssw0rd", "too common"),
+    ("Welcome123!", "too common"),
+])
+def test_each_broken_rule_is_named(password, message):
+    with pytest.raises(ValueError, match=message):
+        PasswordPolicy.validate(password)
 
 
-def test_too_short_is_rejected():
-    with pytest.raises(ValueError, match="at least 8 characters"):
-        PasswordPolicy.validate("Abc123")  # 6 characters
+def test_every_problem_is_reported_at_once():
+    problems = PasswordPolicy.problems("abc")
+    assert len(problems) == 4          # too short, no uppercase, no digit, no symbol
 
 
-def test_empty_string_is_rejected():
-    with pytest.raises(ValueError, match="at least 8 characters"):
-        PasswordPolicy.validate("")
+@pytest.mark.parametrize("username", ["tech1", "TECH1", " tech1 "])
+def test_the_username_may_not_appear_in_the_password(username):
+    with pytest.raises(ValueError, match="must not contain the username"):
+        PasswordPolicy.validate("My-Tech1-pass", username)
 
 
-def test_none_is_rejected():
-    with pytest.raises(ValueError, match="at least 8 characters"):
-        PasswordPolicy.validate(None)
+def test_rules_describe_the_policy_for_the_frontend():
+    ids = [rule["id"] for rule in PasswordPolicy.rules()]
+    assert ids == ["length", "upper", "lower", "digit", "symbol", "username", "common", "different"]
+    assert PasswordPolicy.rules()[0]["text"] == "8 to 128 characters"
 
-
-def test_spaces_are_rejected():
-    with pytest.raises(ValueError, match="letters .* and digits"):
-        PasswordPolicy.validate("Pass word1")
-
-
-def test_symbols_are_rejected():
-    with pytest.raises(ValueError, match="letters .* and digits"):
-        PasswordPolicy.validate("Passw0rd!")
-
-
-def test_unicode_letters_are_rejected():
-    """Only A-Z/a-z/0-9 are allowed - accented/non-Latin letters must fail even at 8+ characters."""
-    with pytest.raises(ValueError):
-        PasswordPolicy.validate("Pässw0rd")
 
 def test_dunder_str():
-    policy = PasswordPolicy()
-    assert str(policy) == "PasswordPolicy(min_length=8, allowed_chars='A-Z, a-z, 0-9')"
+    assert str(PasswordPolicy()) == "PasswordPolicy(8-128 chars, upper + lower + digit + symbol, no username, not common)"
+
 
 def test_dunder_repr():
-    policy = PasswordPolicy()
-    assert repr(policy) == "<PasswordPolicy min_length=8 pattern='^[A-Za-z0-9]+$'>"
+    assert repr(PasswordPolicy()) == f"<PasswordPolicy min_length=8 max_length=128 common_passwords={len(PasswordPolicy.COMMON_PASSWORDS)}>"
