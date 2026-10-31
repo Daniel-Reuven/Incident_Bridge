@@ -6,6 +6,11 @@ Two uses:
   errors, busy models and timing without any API key;
 - trying the whole feature locally without an API key: set AI_PROVIDER=fake
   in backend/.env and every analysis returns a short canned answer.
+
+The canned answer ends with the structured findings line a real model is
+asked for (app/ai/prompt.py, app/ai/result.py): the sites the fault and its
+comments mention ("Site 1007"), its current severity and a fixed confidence
+- so the findings -> site check -> report flow can be tried without a key.
 """
 
 import json
@@ -13,6 +18,7 @@ import time
 from typing import Iterable, Optional, Sequence
 
 from app.ai.providers.base import AnalysisError, AnalysisProvider, ModelUnavailable
+from app.site_scan import ID_PATTERN
 
 
 class FakeProvider(AnalysisProvider):
@@ -55,5 +61,16 @@ class FakeProvider(AnalysisProvider):
             f"Evidence:\n- The fault has {len(data['comments'])} comment(s).\n\n"
             "Suggested next steps:\n1. Set AI_PROVIDER to gemini, claude or openai in backend/.env for a real analysis.\n\n"
             "Missing information:\n- Everything a real model would ask for.\n\n"
-            "Severity assessment:\n- Not assessed."
+            "Severity assessment:\n- Not assessed.\n\n"
+            + json.dumps(canned_findings(data))
         )
+
+
+def canned_findings(data: dict) -> dict:
+    """The findings line of the canned answer: the sites the fault mentions (by id), its own severity."""
+    texts = [data["incident"].get("title", ""), data["incident"].get("description", "")]
+    texts += [comment.get("text", "") for comment in data.get("comments", [])]
+    site_ids = sorted({int(match) for text in texts for match in ID_PATTERN.findall(text)})
+    severity = str(data["incident"].get("severity", "")).lower()
+    return {"suggested_severity": severity if severity in ("critical", "major", "minor") else "major",
+            "affected_site_ids": site_ids, "confidence": 0.5}

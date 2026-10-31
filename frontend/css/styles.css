@@ -500,6 +500,15 @@ textarea { resize: vertical; }
 .status-text.notification-draft { color: var(--major); }
 .status-text.notification-sent { color: var(--accent); }
 .status-text.notification-dismissed, .status-text.notification-skipped { color: var(--ink-soft); }
+/* AI requests (site portal): waiting/running stand out, answered is done, failed is a problem */
+.ai-queued, .ai-running { border-left-color: var(--major); }
+.ai-success, .ai-success_unstructured { border-left-color: var(--accent); }
+.ai-failed { border-left-color: var(--critical); }
+.status-text.ai-queued, .status-text.ai-running { color: var(--major); }
+.status-text.ai-success, .status-text.ai-success_unstructured { color: var(--accent); }
+.status-text.ai-failed { color: var(--critical); }
+.status-text.ai-cancelled, .status-text.ai-dropped { color: var(--ink-soft); }
+.status-text[class*=" ai-"] { text-transform: none; }    /* "Answered, no findings" stays as written */
 
 .report-checks { margin: 0 0 24px; padding: 0; list-style: none; font-size: 14px; }
 .report-checks li { padding: 6px 0; border-bottom: 1px solid var(--line); }

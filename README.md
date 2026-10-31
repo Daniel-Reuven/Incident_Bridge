@@ -60,7 +60,7 @@ cd .. && python main.py      # offline demo of every Stage 1 and Stage 2 require
 - **External service — AI analysis of faults.** Any user can ask an AI model (Gemini by default, or Claude / OpenAI) to analyze a fault; the fault and its whole update thread go out as JSON, and the answer comes back as comments by the built-in `ai-assistant` user. Since v0.5.0 the providers' REST APIs are called with `requests` through our own client, `backend/app/api_client.py` (no company SDK).
 - **The answer drives a decision in the Sites subsystem** (group-of-four). The model ends its answer with a small JSON findings block (suggested severity, affected site ids, confidence). A finished analysis triggers a **real availability check** of every site it names; the measured check — never the AI — decides the site's status, and the existing rules draft a notification that an admin still has to send. <!-- TODO(C): confirm against Person A's merged code -->
 - **Every analysis request is recorded** (who, when, provider, model, outcome), and the **site report gains a decision metric**: sites the AI named as affected whose check found them Operational, or that have no sent notification — i.e. "AI says there is a problem, but nothing was done or measured". <!-- TODO(C): exact metric name/wording from Person A -->
-- **Archive rule built with TDD:** an analysis request is archived `AI_REQUEST_ARCHIVE_DAYS` after it finished; archived requests leave the live counts. <!-- TODO(C): Person B -->
+- **Archive rule built with TDD:** an analysis request is archived `AI_REQUEST_ARCHIVE_DAYS` after it finished; archived requests leave the live counts. The site portal shows every request (live, and archived in its Archive tab) with its findings. <!-- TODO(C): Person B -->
 - **Concurrency:** site statuses collected sequentially vs. concurrently with `asyncio`, and a `threading.Lock` that stops two technicians claiming the same fault at the same moment. <!-- TODO(C): Person B -->
 
 ### 2. How to run
@@ -115,7 +115,7 @@ The full tree is in [§12](#12-project-structure-file-map). The layout differs f
 
 ### 5. Proof that it works
 
-- **Tests:** <!-- TODO(C): final count --> 1451 tests, all passing — `cd backend && python -m pytest -q` (GitHub Actions runs them on every push). Coverage per area in [§14](#14-automated-testing).
+- **Tests:** <!-- TODO(C): final count --> 1522 tests, all passing — `cd backend && python -m pytest -q` (GitHub Actions runs them on every push). Coverage per area in [§14](#14-automated-testing).
 - **Real run** (`python main.py --live`, <!-- TODO(C): date -->, no secrets in the output):
 
 ```
@@ -691,6 +691,7 @@ Both live in `backend/app/context.py`; neither ever suppresses an exception (`__
 | Incidents | `GET /incidents` (filter by type/status), `GET /incidents/{id}`, `POST /incidents/{id}/comments`, `POST /incidents/import-jsonl` (admin), `GET /incidents/work/stale` |
 | Maintenance | `GET /incidents/maintenance/queue`, `POST /incidents/maintenance`, `POST .../start-next`, `POST .../{id}/start`, `POST .../complete-current`, `POST .../{id}/close`, `GET .../reopen-options`, `POST .../{id}/reopen`, `GET .../pressing` |
 | Faults | `GET /incidents/faults/queue`, `POST /incidents/faults`, `POST .../claim-next`, `GET .../{id}/claim-status`, `POST .../{id}/claim`, `PATCH .../{id}/severity`, `POST .../{id}/close`, `POST .../{id}/reopen` |
+| AI requests (admin) | `GET /analysis-requests` (live, newest first), `?archived=true` (archived) — each with its fault, state, provider, model, findings and archive date |
 | Site portal (admin) | `GET`/`POST /sites`, `GET /sites/report`, `POST /sites/check-all`, `GET`/`PATCH /sites/{id}`, `POST /sites/{id}/status`, `POST /sites/{id}/check`, `POST /sites/{id}/archive` and `/restore`; `GET`/`POST /sites/mailing-lists`, `PATCH /sites/mailing-lists/{id}`, `.../archive`, `.../restore`; `GET /sites/notifications`, `POST /sites/notifications/{id}/send` and `/dismiss` |
 | Server settings (admin) | `GET`/`PUT`/`DELETE /server/settings` (HTTPS; `DELETE` = back to `.env`), `POST /server/certificate/check`, `POST /server/certificate/generate` (testing only), `GET`/`PUT /server/ai`, `POST /server/ai/test` |
 | Activity log (admin) | `GET /logs/months`, `GET /logs?month=&category=&event=&user=&level=&q=&limit=&offset=` (`category=!http,data`: all but those categories), `GET /logs/verify` |
@@ -755,7 +756,7 @@ Incident_Bridge/
 │   │   │   └── reanalysis.py     #   when a fault may be analyzed again
 │   │   ├── api/
 │   │   │   ├── app.py            # FastAPI app: middleware, routers, error mapping, frontend files
-│   │   │   ├── auth.py, users.py, incidents.py, events.py, sites.py, analysis.py, logs.py, server.py, demo.py   # routers
+│   │   │   ├── auth.py, users.py, incidents.py, events.py, sites.py, analysis.py, ai_requests.py, logs.py, server.py, demo.py   # routers
 │   │   │   ├── request_log.py    # ASGI middleware: one activity record per HTTP request
 │   │   │   ├── setup.py          # first-start setup endpoints + the gate that holds everything else back
 │   │   │   ├── lifecycle.py      # start/stop the services once the database is unlocked
@@ -852,7 +853,7 @@ Incident_Bridge/
 
 ## 14. Automated testing
 
-`backend/tests/` holds **1451 tests** (pytest), all passing, with **96% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
+`backend/tests/` holds **1522 tests** (pytest), all passing, with **96% statement coverage** of `backend/app/`. GitHub Actions runs them on every push and pull request (`.github/workflows/backend-tests.yml`).
 
 - **Isolated from your settings** — `tests/conftest.py` clears every app setting from the environment and stops `backend/.env` from being loaded, so the suite gives the same result with or without your own `.env` (users, AI provider, database, data folders, HTTPS, log options). Tests that start `serve_app.py` as a process of its own (which does load `.env`) pass it `env_without_dotenv()`: every setting named in `.env.example` or `.env` is set — to the test's value, else empty — so nothing from your `.env` (such as a path to your real installation) applies.
 - **Unit tests** — the domain classes directly, no HTTP and no database: models (`tests/test_models/`), services (`tests/test_services/`), queues (`tests/test_queues/`), iterators, the generator, context managers, the scan, the report, the site directory, user provisioning and JSONL validation.
@@ -865,6 +866,7 @@ Incident_Bridge/
 - **First-start setup** (`test_setup.py`) — the gate (pages redirected, API 503, setup files open), the setup code and its replacement after 10 wrong tries, the recovery key, every refused completion changing nothing, an admin in `INCIDENT_BRIDGE_USERS` refused, the accounts created, AI settings stored and winning over `.env`, a restart that unlocks by itself and keeps logins valid, an interrupted setup, a database without its keys file.
 - **Data folders** (`test_data_folders.py`) — the default folder, a folder counting as empty, the setup refusing folders that are not empty (and continuing once emptied), the markers and a wrong folder stopping the start, `move_data.py` (refused while running or into a used folder; the app starts from the moved copy).
 - **HTTPS** (`test_https.py`) — settings from `.env` and the page (which wins), bad values, the production rules; the generated certificate (key encrypted, refused in production, wrong password), a certificate chain from a test authority (passes; refused without its intermediate, from an unknown authority, with a wrong key, expired; a renewal warning); the remote redirect (not for this computer, not over HTTPS), HSTS only in production and never for localhost, the `Secure` cookie over HTTPS; the Server settings API (admins only, restart needed, unusable settings not saved, the key password kept and never shown, a new certificate), the AI settings applied at once (on, off, `.env`, a kept key); `serve_app.py`'s plan (the pre-setup certificate stays out of the data folder; production refuses the generated one) and a certificate made before the start not reported as added by hand.
+- **AI requests view** (`test_ai_requests_view.py`) — a finished request with its fault and findings, queued requests, the archive split, admins only, the history shown with the AI feature off; the Fake AI naming the sites a fault mentions.
 - **Requirements page** (`test_requirements_demo.py`) — every demo runs and shows output, one entry per Stage 1 requirement, every piece of code shown is the app's own and every page linked exists, a broken demo reports why, logged-in users only, an unknown id, and a run of every demo leaving the app's incidents and users unchanged.
 - **Display names** (`test_display_names.py`) — the template and its tidying of empty fields, the lighter location part, invalid formats, the directory, the default and own formats, admin-only changes, the preview, names at creation, setup and from `.env`, the log naming changed fields but not their values, a restart.
 - **Interface preferences** (`test_preferences.py`) — defaults, saved per user and returned at login in another browser, invalid values refused, logged-out and forced-change users refused, survival across a restart, bad stored values, the column added to an older database, the activity record.
@@ -915,7 +917,7 @@ No extra package is needed for AI analysis: every provider is called through `re
 | `SITES_SEED_PATH`, `MAILING_LISTS_SEED_PATH` | No | Import `data/sites.jsonl` / `data/mailing_lists.jsonl` at startup (relative to the repository root) |
 | `SITE_CHECK_TIMEOUT_SECONDS`, `SITE_CHECK_SLOW_MS` | No | Site check timeout (default 5 s) and "slow" threshold (default 2000 ms) |
 | `NOTIFICATION_ARCHIVE_DAYS` | No | Days before a sent, dismissed or skipped notification moves to the site portal's Archive tab (default 30; `0` = never; drafts are never archived) |
-| `AI_PROVIDER` | No | AI analysis provider: `gemini` (default), `claude`, `openai`, or `fake` (canned answers, no key — for trying the feature) |
+| `AI_PROVIDER` | No | AI analysis provider: `gemini` (default), `claude`, `openai`, or `fake` (canned answers, no key — for trying the feature; its findings name the sites the fault mentions) |
 | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`, `OPENAI_API_KEY` + `OPENAI_MODEL` | Only for AI analysis | The selected provider's key and model(s). Without the key the feature is off (no button). A model setting may be a comma-separated fallback list, best first. Claude/OpenAI: a key without a model stops startup with a clear message. |
 | `GEMINI_TIER`, `GEMINI_MODELS` | No | Gemini's models: `GEMINI_TIER=free` (default) or `paid` picks a built-in fallback list; `GEMINI_MODELS` replaces it with your own comma-separated list. |
 | `AI_REANALYSIS_COOLDOWN_SECONDS` | No | How long after a successful analysis an admin must wait before forcing the same analysis again (default 300 = 5 minutes) |

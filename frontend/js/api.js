@@ -156,6 +156,7 @@ export const api = {
   archiveSite: (siteId) => request(`/sites/${siteId}/archive`, { method: "POST" }),
   restoreSite: (siteId) => request(`/sites/${siteId}/restore`, { method: "POST" }),
   siteReport: () => request("/sites/report"),
+  listAiRequests: (archived = false) => request(`/analysis-requests${archived ? "?archived=true" : ""}`),
 
   listMailingLists: (includeArchived = false) =>
     request("/sites/mailing-lists" + (includeArchived ? "?include_archived=true" : "")),
