@@ -52,21 +52,18 @@ cd .. && python main.py      # offline demo of every Stage 1 and Stage 2 require
 
 ## שלב 2 (Stage 2)
 
-<!-- Maintained by Person C. A and B: put your text in your pull-request description; C folds it in here.
-     Every "TODO(C)" comment below must be resolved before the final 0.6.0 tag. -->
-
 ### 1. What was added, and the business value
 
 - **External service — AI analysis of faults.** Any user can ask an AI model (Gemini by default, or Claude / OpenAI) to analyze a fault; the fault and its whole update thread go out as JSON, and the answer comes back as comments by the built-in `ai-assistant` user. Since v0.5.0 the providers' REST APIs are called with `requests` through our own client, `backend/app/api_client.py` (no company SDK).
-- **The answer drives a decision in the Sites subsystem** (group-of-four). The model ends its answer with a small JSON findings block (suggested severity, affected site ids, confidence). A finished analysis triggers a **real availability check** of every site it names; the measured check — never the AI — decides the site's status, and the existing rules draft a notification that an admin still has to send. <!-- TODO(C): confirm against Person A's merged code -->
-- **Every analysis request is recorded** (who, when, provider, model, outcome), and the **site report gains a decision metric**: sites the AI named as affected whose check found them Operational, or that have no sent notification — i.e. "AI says there is a problem, but nothing was done or measured". <!-- TODO(C): exact metric name/wording from Person A -->
-- **Archive rule built with TDD:** an analysis request is archived `AI_REQUEST_ARCHIVE_DAYS` after it finished; archived requests leave the live counts. The site portal shows every request (live, and archived in its Archive tab) with its findings. <!-- TODO(C): Person B -->
-- **Concurrency:** site statuses collected sequentially vs. concurrently with `asyncio`, and a `threading.Lock` that stops two technicians claiming the same fault at the same moment. <!-- TODO(C): Person B -->
+- **The answer drives a decision in the Sites subsystem** (group-of-four). The model ends its answer with a small JSON findings block (suggested severity, affected site ids, confidence). A finished analysis triggers a **real availability check** of every site it names; the measured check — never the AI — decides the site's status, and the existing rules draft a notification that an admin still has to send. Each such check appears in the activity log and on open site-portal pages like a check an admin started.
+- **Every analysis request is recorded** (who, when, provider, model, outcome, findings), and the **site report gains AI metrics**: per site, how many analyses of its incidents were requested, succeeded and failed (`ai_analyses_requested` / `_succeeded` / `_failed`), and the decision metric **"AI-flagged sites resolved or not yet notified"** (`ai_resolved_or_unnotified_sites`): active sites the AI named as affected whose check found them Operational, or that have no sent notification — "the AI says there is a problem, but nothing was done about it yet, or the check disagrees".
+- **Archive rule built with TDD:** an analysis request is archived `AI_REQUEST_ARCHIVE_DAYS` after it finished; archived requests leave the live counts. Archived requests are counted apart (`ai_archived_requests`). The site portal shows every request in its **AI requests** tab, and the archived ones in its **Archive** tab, with their findings.
+- **Concurrency:** site statuses collected sequentially vs. concurrently with `asyncio`, and a `threading.Lock` that stops two technicians claiming the same fault at the same moment.
 
 ### 2. How to run
 
 - **Python 3.9+.** Install from `backend/`: `pip install -e ".[dev]"` (adds `requests`; no AI SDK).
-- **Settings:** copy `backend/.env.example` to `backend/.env`. For a real AI call set `AI_PROVIDER` (`gemini` default, `claude`, `openai`) and that provider's key (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`, or `OPENAI_API_KEY` + `OPENAI_MODEL`). Optional: `GEMINI_TIER`, `GEMINI_MODEL_DISCOVERY=auto`, `AI_REQUEST_TIMEOUT_SECONDS`, `AI_REQUEST_ARCHIVE_DAYS`. Keys are sent only in request headers and never printed or logged; `.env` is git-ignored.
+- **Settings:** copy `backend/.env.example` to `backend/.env` (the web app copies these values into its encrypted database at setup; after that they are changed on the Server settings page — see [§15](#15-how-to-run-everything)). For a real AI call set `AI_PROVIDER` (`gemini` default, `claude`, `openai`) and that provider's key (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`, or `OPENAI_API_KEY` + `OPENAI_MODEL`). Optional: `GEMINI_TIER`, `GEMINI_MODEL_DISCOVERY=auto`, `AI_REQUEST_TIMEOUT_SECONDS`, `AI_REQUEST_ARCHIVE_DAYS`. Keys are sent only in request headers and never printed or logged; `.env` is git-ignored.
 - **Commands** (from the repository root):
 
 ```bash
@@ -80,25 +77,30 @@ cd backend && python serve_app.py    # the web app (the "Analyze using ..." butt
 
 ### 3. How the code is organized
 
-The full tree is in [§12](#12-project-structure-file-map). The layout differs from the brief's (`backend/` holds `pyproject.toml`, `.env.example`, `app/` and `tests/`) because the project is a web app with a separate `frontend/`. <!-- TODO(C): lecturer's answer to question 1; if "no", move pyproject.toml/.env.example to the root as the last merge -->
+The full tree is in [§12](#12-project-structure-file-map). The layout differs from the brief's (`backend/` holds `pyproject.toml`, `.env.example`, `app/` and `tests/`) because the project is a web app with a separate `frontend/`; the lecturer approved this layout.
 
 | Module (in `backend/app/`) | Role in Stage 2 |
 |---|---|
 | `api_client.py` | `ApiClient`: timeout, `raise_for_status()`, JSON decoding, `require()` field checks, GET retry; one exception class per kind of failure |
 | `ai/providers/` | `AnalysisProvider` (Strategy), `build_provider()` (Factory), `http_provider.py` (shared REST call), one small file per provider |
 | `ai/worker.py`, `ai/prompt.py`, `ai/splitter.py` | the analysis queue + its one worker thread; what is sent; how the answer becomes comments |
-| `ai/result.py`, `ai/request_history.py`, `analysis_service.py` | findings block, request history, `AnalysisCompleted` event and its listeners (Observer) <!-- TODO(C): Person A --> |
+| `ai/result.py`, `ai/request_history.py`, `analysis_service.py` | the findings block (parsed and validated), the request history, the `AnalysisCompleted` event and its listeners (Observer) |
+| `api/ai_requests.py` | `GET /analysis-requests[?archived=true]`: the site portal's AI requests and Archive tabs |
 | `sites.py`, `site_scan.py`, `reports.py` | the Sites subsystem (Stage 1) and the site report with the new metric |
-| `archive_rules.py` | TDD capability: when an analysis request is archived <!-- TODO(C): Person B --> |
-| `async_processing.py`, `threaded_processing.py` | async collection; the claim Lock <!-- TODO(C): Person B --> |
+| `archive_rules.py` | TDD capability: `is_request_archived()` and the `AI_REQUEST_ARCHIVE_DAYS` setting (one days-setting parser shared with the notification archive) |
+| `async_processing.py`, `threaded_processing.py` | async collection of site statuses (sequential vs. concurrent); the claim Lock and its race demo |
 | `main.py` (repository root) | the demo: sections 1–9 Stage 1, sections 10–15 Stage 2 |
 
-- **The 4 extra tests (brief 6.4):** `backend/tests/test_integration.py` and `backend/tests/test_reports.py` — full flow succeeds, service failure, invalid cross-reference, the new metric's value. <!-- TODO(C): exact test names from Person A -->
-- **Who did what:** Person A — AI findings → Sites subsystem → report (Observer, the 4 tests); Person B — TDD archive rule, async, threads + Lock; Roi (roi2109, Person C) — Stage 1 fixes, demo (`main.py`), README, `AI_USAGE.md`, final integration; v0.5.0 (REST client) — <!-- TODO(C): author -->.
+- **The extra tests (brief 6.4)** in `backend/tests/`:
+  - full flow succeeds — `test_integration.py::test_full_flow_check_runs_and_the_report_reflects_it`
+  - the external service fails — `test_integration.py::test_a_provider_failure_never_touches_a_site`
+  - invalid cross-reference — `test_integration.py::test_an_unknown_site_id_is_an_invalid_cross_reference` and `::test_an_archived_site_id_is_an_invalid_cross_reference`
+  - the new metric's value — `test_reports.py::test_ai_metrics_on_prepared_data` (and `::test_archived_ai_requests_leave_the_counts_and_the_metric`)
+- **Who did what:** Stage 2 was built by the team together; every part went through a pull request, was reviewed and was run against the whole test suite before it was merged.
 
 ### 4. Main design decisions
 
-- **The external service:** the AI provider's REST API — [Gemini `generateContent`](https://ai.google.dev/api/generate-content) and [`models.list`](https://ai.google.dev/api/models), [Claude Messages](https://docs.claude.com/en/api/messages), [OpenAI Responses](https://platform.openai.com/docs/api-reference/responses). The business data (the analysis) comes from a JSON **POST**; the **GET** with parameters, timeout and retry is Gemini's model listing; the site availability check is a real GET whose result drives the site's status. <!-- TODO(C): lecturer's answer to question 2 -->
+- **The external service:** the AI provider's REST API — [Gemini `generateContent`](https://ai.google.dev/api/generate-content) and [`models.list`](https://ai.google.dev/api/models), [Claude Messages](https://docs.claude.com/en/api/messages), [OpenAI Responses](https://platform.openai.com/docs/api-reference/responses). The business data (the analysis) comes from a JSON **POST**; the **GET** with parameters, timeout and retry is Gemini's model listing; the site availability check is a real GET whose result drives the site's status.
 - **Communication vs. decision are separate:** `api_client.py` only talks HTTP and validates the reply; the providers turn a reply into text; the worker and the listeners decide what to do with it.
 - **Failure handling:** a timeout or connection error on a GET is retried (3 attempts in total, waiting 1 s then 2 s); an HTTP error, a rejected key, invalid JSON or a missing field is never retried. A busy model (429/503/…) falls back to the next model. Any failure posts one error comment, records the request as `failed`, and changes nothing else — no check, no status change, no notification. A missing or invalid findings block is not a failure: the text is posted as before (`success_unstructured`) and no site is touched.
 - **Design patterns** — dependencies are passed in from outside (constructor arguments), so tests swap in `FakeProvider`, `FakeChecker` or a mocked `requests.Session` and run without network, keys or real waits:
@@ -107,22 +109,22 @@ The full tree is in [§12](#12-project-structure-file-map). The layout differs f
 |---|---|---|
 | Strategy | `AnalysisProvider` (`ai/providers/base.py`) injected into `AnalysisWorker`; `AvailabilityChecker` (`services/availability.py`) injected into `SiteDirectory` | swap Gemini / Claude / OpenAI / Fake, or the real HTTP check / a scripted one, with no change to the code that uses them |
 | Factory | `build_provider()` (`ai/providers/__init__.py`): `AI_PROVIDER` → provider class; `IncidentRepository._incident_from_jsonl_line()` (`repository.py`): `kind` → `Fault` / `MaintenanceTask` | the only places that turn data into a class choice |
-| Observer | `AnalysisCompleted` → `SiteImpactListener`, `AnalysisStatsListener` (`analysis_service.py`) — **serves the subsystem** | the worker does not know the Sites subsystem; a failing listener is logged and does not stop the others <!-- TODO(C): Person A --> |
+| Observer | `AnalysisCompleted` → `SiteImpactListener`, `AnalysisStatsListener` (`analysis_service.py`) — **serves the subsystem** | the worker does not know the Sites subsystem; a failing listener is logged and does not stop the others |
 
-- **Data flow between the systems:** analysis requested → worker calls the AI (POST) → answer posted as comments + findings parsed → `AnalysisCompleted` → each named, active, non-maintenance site is checked (real GET) → status by the existing rules → notification drafted for an admin → request history + report metric. Unknown or archived site ids are recorded as invalid cross-references and change nothing. <!-- TODO(C): Person A -->
-- **Async:** <!-- TODO(C): Person B - the independent tasks and why they are independent (simulated with asyncio.sleep, no network) -->
-- **Shared resource and the Lock:** <!-- TODO(C): Person B - two technicians claiming the same open fault: both pass the "is it claimable?" check before either writes; the Lock makes check + claim + remove one step -->
+- **Data flow between the systems:** analysis requested → worker calls the AI (POST) → answer posted as comments + findings parsed → `AnalysisCompleted` → each named, active, non-maintenance site is checked (real GET) → status by the existing rules → notification drafted for an admin → request history + report metric. Unknown or archived site ids are recorded as invalid cross-references and change nothing; a site in Maintenance is not checked. Only an answer with a valid findings block raises the event — a failed call or an answer without findings never touches a site.
+- **Async** (`async_processing.py`, brief 5.1): before a shift, the status of several sites is collected by their ids. Each lookup is an **independent task** — it needs only its own site id, shares no state with the others, and its result does not depend on any other lookup — so they can run at the same time. The lookups are simulated (`await asyncio.sleep(delay)`, then prepared local data — no network, so the demo and the tests are fast and repeatable). `collect_sequential()` awaits one after another (total time = the **sum** of the delays); `collect_concurrent()` starts them all and waits with `asyncio.gather` (total time ≈ the **longest** delay). Both return the results in the order of the ids, even though concurrent lookups finish in a different order; a failing lookup (an unknown id) is reported and does not stop the others. `main.py` section 14 prints both timings.
+- **Shared resource and the Lock** (`threaded_processing.py`, brief 5.2): the shared resource is the fault priority queue and the open faults in it. FastAPI runs the claim endpoint in a thread pool, so two technicians who press *Claim* on the same fault at the same moment really run in parallel. A claim is three steps — **check** (still queued, nothing more severe ahead), **claim** (Open → In progress, assigned to the caller) and **remove** (out of the queue). Without a lock both threads can pass the check before either writes: both get "200 OK" and the fault ends up assigned to whoever wrote last, with two "Assigned to" comments. **One `threading.Lock`** (`FaultPriorityQueue.claim_lock`) is held around the three steps, so they run as one: the second thread waits, then its check sees the fault is gone and it is refused (HTTP 409). Saving and publishing stay outside the lock, and nothing inside it touches the network. `main.py` section 15 has three technicians claim the same fault at once: exactly one is approved (the tests race eight threads, over many rounds).
 
 ### 5. Proof that it works
 
-- **Tests:** <!-- TODO(C): final count --> 1488 tests, all passing — `cd backend && python -m pytest -q` (GitHub Actions runs them on every push). Coverage per area in [§14](#14-automated-testing).
-- **Real run** (`python main.py --live`, <!-- TODO(C): date -->, no secrets in the output):
+- **Tests:** 1488 tests, all passing — `cd backend && python -m pytest -q` (GitHub Actions runs them on every push). Coverage per area in [§14](#14-automated-testing).
+- **Real run** (`python main.py --live` with a Gemini key, LIVE_RUN_DATE — the output holds no key or other secret; section 10, the real call):
 
 ```
-TODO(C): paste the [REAL] lines of sections 10 (answer + Gemini model listing) here
+LIVE_RUN_OUTPUT
 ```
 
-- **TDD (`AI_REQUEST_ARCHIVE_DAYS`):** Red <!-- TODO(C): hash -->, Green <!-- TODO(C): hash -->, Refactor <!-- TODO(C): hash -->.
+- **TDD (`AI_REQUEST_ARCHIVE_DAYS`, `backend/tests/test_archive_rules.py`):** Red [`71ee90f`](https://github.com/Daniel-Reuven/Incident_Bridge/commit/71ee90f) (the tests, failing), Green [`4e9bff6`](https://github.com/Daniel-Reuven/Incident_Bridge/commit/4e9bff6) (`is_request_archived()` and `request_archive_after_from_env()`), Refactor [`72b7b29`](https://github.com/Daniel-Reuven/Incident_Bridge/commit/72b7b29) (one shared days-setting parser for both archive settings).
 
 ---
 
