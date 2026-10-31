@@ -74,6 +74,8 @@ from app.logs import LOGGING_CONFIG, app_log  # noqa: E402
 from app.api.security import session_settings_from_env  # noqa: E402
 from app.repository import UserProvisioningError, first_login_change_required, seed_users_from_env  # noqa: E402
 from app.security.data_folders import check_markers  # noqa: E402
+from app import app_config  # noqa: E402
+from app.ai import stored_settings  # noqa: E402
 from app.archive_rules import request_archive_after_from_env  # noqa: E402
 from app.sites import notification_archive_after_from_env  # noqa: E402
 from app.security.installation import Installation, InstallationError  # noqa: E402
@@ -95,15 +97,13 @@ def _check_users_or_exit() -> None:
         still to be done, because only the setup page reads it;
       - KEY_PROVIDER, REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN,
         SESSION_MAX_AGE_HOURS, SESSION_COOKIE_SECURE, AI_REQUEST_ARCHIVE_DAYS
-        and NOTIFICATION_ARCHIVE_DAYS.
+        and NOTIFICATION_ARCHIVE_DAYS - for an installed app, its SAVED
+        settings (app/app_config.py, applied here first: backend/.env no
+        longer changes them); before the setup, backend/.env's.
     The app checks the same things again at startup, which also covers
     running uvicorn directly.
     """
     try:
-        first_login_change_required()
-        session_settings_from_env()
-        request_archive_after_from_env()
-        notification_archive_after_from_env()
         installation = Installation.from_env()
         status = installation.status()
         if status == "orphan":
@@ -117,10 +117,16 @@ def _check_users_or_exit() -> None:
             installation.unlock()
             settings = SqliteSettingsStore(installation.db_path)
             installed_id = (settings.get("installation") or {}).get("id")
+            app_config.apply(settings)           # the saved settings, for these checks and the server's start
+            stored_settings.use(settings.get("ai"))
             settings.close()
             problems = check_markers(installation.folders(), installed_id) if installed_id else []
             if problems:
                 raise ValueError("The data folders do not match this installation:\n  - " + "\n  - ".join(problems))
+        first_login_change_required()
+        session_settings_from_env()
+        request_archive_after_from_env()
+        notification_archive_after_from_env()
     except (UserProvisioningError, ValueError, InstallationError) as exc:
         app_log.error(str(exc))
         sys.exit(1)
@@ -149,18 +155,19 @@ class _MemorySettings(dict):
 def server_plan():
     """
     (mode, ServerSettings, (cert, key, password) or None) - the listeners to
-    start, from .env and the Server settings page (the page wins). Raises
-    ValueError when they cannot be used (a bad value, a production rule, an
-    unusable certificate).
+    start: the app's saved settings (the Server settings page), or before the
+    setup backend/.env's. Raises ValueError when they cannot be used (a bad
+    value, a production rule, an unusable certificate).
     """
-    mode = server_settings.app_mode()
     installation = Installation.from_env()
     store = None
     if installation.status() == "installed":
         installation.unlock()
         store = SqliteSettingsStore(installation.db_path)
     try:
-        settings = server_settings.effective((store.get("server") if store else None) or {})
+        saved = store.get(app_config.CONFIG_KEY) if store else None      # None: before the setup - .env's values
+        settings = server_settings.effective(base=saved if saved is not None else os.environ)
+        mode = server_settings.app_mode(saved if saved is not None else None)
         problems = server_settings.problems(settings, mode)
         if problems:
             raise ValueError("The server settings cannot be used:\n  - " + "\n  - ".join(problems))

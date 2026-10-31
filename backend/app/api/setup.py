@@ -34,6 +34,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
+from app import app_config
 from app.ai import choice, stored_settings
 from app.ai.config import AIConfig
 from app.ai.providers import PROVIDERS
@@ -242,6 +243,9 @@ async def complete(body: CompleteRequest, request: Request):
             key_store = session.installation.describe()["machine_key"]
         if ai_values:
             settings.set("ai", ai_values)
+        # The app's settings from now on: backend/.env's values copied once, encrypted (app/app_config.py).
+        app_config.initialize(settings)
+        app_config.apply(settings)
         await start_services(app, settings)
         try:
             regular = create_initial_users(app.state.incident_bridge.users, admin)

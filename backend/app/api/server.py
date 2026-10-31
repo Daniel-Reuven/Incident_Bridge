@@ -1,11 +1,14 @@
 """
-The admin's Server settings page (frontend/server.html): HTTPS and the AI
-analysis settings after the setup.
+The admin's Server settings page (frontend/server.html): every setting of
+the app after the setup - kept encrypted in the database (app/app_config.py;
+backend/.env only gave their initial values at setup).
 
-    GET    /server/settings              mode, saved + effective settings, where each comes
+    GET    /server/config                the general settings, grouped (saved value or default)
+    PUT    /server/config                save changes ({name: value}; "" = the default) - at restart
+    GET    /server/settings              HTTPS: mode, saved + effective settings, where each comes
                                          from, what is running, the certificate
-    PUT    /server/settings              save changes (they win over .env; applied at restart)
-    DELETE /server/settings              forget the page's values - .env (or the defaults) again
+    PUT    /server/settings              save HTTPS changes (applied at restart)
+    DELETE /server/settings              HTTPS back to the defaults
     POST   /server/certificate/check     check certificate + key files (nothing saved)
     POST   /server/certificate/generate  a new self-signed certificate (testing only; at restart)
     GET    /server/ai                    the AI choice and whether analysis is on
@@ -18,13 +21,14 @@ open (app/server_settings.py). Secrets (the key password, API keys) are
 stored encrypted and never sent back - only whether one is set.
 """
 
+import os
 import threading
-from typing import Optional
+from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from app import server_settings
+from app import app_config, server_settings
 from app.ai import choice, stored_settings
 from app.ai.config import AIConfig
 from app.ai.providers import PROVIDERS
@@ -35,7 +39,6 @@ from app.security import tls
 from app.state import database_path
 
 router = APIRouter(prefix="/server", tags=["server"])
-SETTING = "server"
 
 
 def get_server_admin(request: Request) -> User:
@@ -58,6 +61,10 @@ class ServerSettingsRequest(BaseModel):
     trusted_proxies: Optional[str] = None       # comma-separated
 
 
+class ConfigRequest(BaseModel):
+    values: Dict[str, Optional[str]]            # setting name -> value; "" or null: back to the default
+
+
 class CertificateCheckRequest(BaseModel):
     cert_file: str
     key_file: str
@@ -65,7 +72,7 @@ class CertificateCheckRequest(BaseModel):
 
 
 class AIRequest(BaseModel):
-    provider: str                               # "" = use .env, "off", or a provider id
+    provider: str                               # "off" or a provider id
     api_key: Optional[str] = None               # empty: keep the saved key of the same provider
     models: Optional[str] = None
     gemini_tier: Optional[str] = None
@@ -73,6 +80,10 @@ class AIRequest(BaseModel):
 
 def _settings(request: Request):
     return request.app.state.settings
+
+
+def _mode(request: Request) -> str:
+    return server_settings.app_mode(app_config.config(_settings(request)))
 
 
 def _certificate(settings: server_settings.ServerSettings, mode: str, store) -> dict:
@@ -97,14 +108,14 @@ def _certificate(settings: server_settings.ServerSettings, mode: str, store) -> 
 
 def _report(request: Request) -> dict:
     store = _settings(request)
-    mode = server_settings.app_mode()
-    stored = store.get(SETTING) or {}
-    effective = server_settings.effective(stored)
+    saved = app_config.config(store)
+    mode = server_settings.app_mode(saved)
+    effective = server_settings.effective(base=saved)
     running = server_settings.RUNNING
     return {
         "mode": mode,
         "settings": effective.public(),
-        "sources": server_settings.sources(stored),
+        "sources": server_settings.sources(saved),
         "problems": server_settings.problems(effective, mode),
         "certificate": _certificate(effective, mode, store) if effective.https_enabled else None,
         "running": {"http_port": running.http_port, "https_port": running.https_port,
@@ -134,26 +145,42 @@ def get_settings(request: Request, admin: User = Depends(get_server_admin)):
     return _report(request)
 
 
+@router.get("/config")
+def get_config(request: Request, admin: User = Depends(get_server_admin)):
+    return app_config.page(_settings(request))
+
+
+@router.put("/config")
+def save_config(body: ConfigRequest, request: Request, admin: User = Depends(get_server_admin)):
+    changed = app_config.save(_settings(request), body.values)
+    if changed:
+        audit("server.config_changed", user=admin.username, fields=changed,
+              message=f"{admin.username} changed the settings ({', '.join(changed)}) - applied at the next restart")
+    return {**app_config.page(_settings(request)), "changed": changed}
+
+
 @router.put("/settings")
 def save_settings(body: ServerSettingsRequest, request: Request, admin: User = Depends(get_server_admin)):
     store = _settings(request)
-    stored = dict(store.get(SETTING) or {})
+    saved = app_config.config(store)
     changes = {k: v for k, v in body.model_dump().items() if v is not None}
-    changes = server_settings.coerce_changes(changes)
-    merged = {**stored, **changes}
-    if merged.get("key_password") == "":
-        merged.pop("key_password")
-    effective = server_settings.effective(merged)
-    mode = server_settings.app_mode()
+    updated = {**saved, **server_settings.to_config(server_settings.coerce_changes(changes))}
+    if updated.get("TLS_KEY_PASSWORD") == "":
+        updated.pop("TLS_KEY_PASSWORD")
+    if updated.get("TRUSTED_PROXIES") == "":
+        updated.pop("TRUSTED_PROXIES")
+    effective = server_settings.effective(base=updated)
+    mode = server_settings.app_mode(updated)
     problems = server_settings.problems(effective, mode)
     if effective.https_enabled and effective.certificate == "files" and not problems:
         problems = tls.check_files(effective.cert_file, effective.key_file, effective.key_password, mode)["problems"]
     if problems:
         raise ValueError(" ".join(problems))
-    changed = sorted(k for k in merged if stored.get(k) != merged.get(k)) + sorted(set(stored) - set(merged))
-    store.set(SETTING, merged)
+    changed = sorted(field for field, name in server_settings.ENV_NAMES.items()
+                     if saved.get(name) != updated.get(name))
+    store.set(app_config.CONFIG_KEY, updated)
     audit("server.settings_changed", user=admin.username, fields=changed,
-          message=f"{admin.username} changed the server settings ({', '.join(changed) or 'nothing'}) - "
+          message=f"{admin.username} changed the HTTPS settings ({', '.join(changed) or 'nothing'}) - "
                   f"applied at the next restart")
     return _report(request)
 
@@ -161,9 +188,13 @@ def save_settings(body: ServerSettingsRequest, request: Request, admin: User = D
 @router.delete("/settings")
 def reset_settings(request: Request, admin: User = Depends(get_server_admin)):
     store = _settings(request)
-    store.set(SETTING, {})
+    saved = app_config.config(store)
+    remaining = {k: v for k, v in saved.items() if k not in app_config.SERVER_NAMES}
+    if server_settings.problems(server_settings.effective(base=remaining), server_settings.app_mode(remaining)):
+        raise ValueError("Production mode needs these HTTPS settings - switch the mode to testing first.")
+    store.set(app_config.CONFIG_KEY, remaining)
     audit("server.settings_reset", user=admin.username,
-          message=f"{admin.username} reset the server settings to .env - applied at the next restart")
+          message=f"{admin.username} put the HTTPS settings back to the defaults - applied at the next restart")
     return _report(request)
 
 
@@ -171,13 +202,13 @@ def reset_settings(request: Request, admin: User = Depends(get_server_admin)):
 def check_certificate(body: CertificateCheckRequest, request: Request, admin: User = Depends(get_server_admin)):
     password = body.key_password
     if password is None:
-        password = server_settings.effective(_settings(request).get(SETTING) or {}).key_password
-    return tls.check_files(body.cert_file.strip(), body.key_file.strip(), password, server_settings.app_mode())
+        password = server_settings.effective(base=app_config.config(_settings(request))).key_password
+    return tls.check_files(body.cert_file.strip(), body.key_file.strip(), password, _mode(request))
 
 
 @router.post("/certificate/generate")
 def generate_certificate(request: Request, admin: User = Depends(get_server_admin)):
-    if server_settings.app_mode() == "production":
+    if _mode(request) == "production":
         raise ValueError("Production uses certificate files from a certificate authority - no generated certificate.")
     info = tls.regenerate(database_path(), _settings(request))
     audit("server.certificate_generated", user=admin.username, fingerprint=info["fingerprint"],
@@ -200,11 +231,14 @@ def _ai_report(request: Request) -> dict:
     except ValueError as exc:
         status = f"Not usable: {exc}"
     worker = getattr(request.app.state, "analysis_worker", None)
+    key_source = None
+    if info and info.key_env:
+        key_source = "saved" if stored.get(info.key_env) else ".env" if os.environ.get(info.key_env) else None
     return {
         "providers": choice.provider_list(),
-        "source": "page" if provider else ".env",
-        "provider": provider or "",
-        "has_key": bool(info and info.key_env and stored.get(info.key_env)),
+        "provider": provider or "off",
+        "has_key": key_source is not None,
+        "key_source": key_source,                       # ".env": not saved here - read from backend/.env
         "models": stored.get(info.models_env, "") if info and info.models_env else "",
         "gemini_tier": stored.get("GEMINI_TIER", ""),
         "status": status,
@@ -212,13 +246,26 @@ def _ai_report(request: Request) -> dict:
     }
 
 
-def _values(body: AIRequest) -> dict:
+def _values(body: AIRequest, for_saving: bool = False) -> dict:
+    """
+    The AI choice as settings. No key typed: the saved key of the same
+    provider, else the one in backend/.env - which is then not saved, so it
+    stays read from .env (the course brief: the key comes from the environment).
+    """
     stored = stored_settings.stored()
+    provider = (body.provider or "").strip().lower() or "off"
     api_key = body.api_key
-    info = PROVIDERS.get(body.provider)
-    if info and info.key_env and not (api_key or "").strip() and stored.get("AI_PROVIDER") == body.provider:
-        api_key = stored.get(info.key_env)              # the saved key of the same provider
-    return choice.ai_values(body.provider, api_key, body.models, body.gemini_tier)
+    info = PROVIDERS.get(provider)
+    from_env = False
+    if info and info.key_env and not (api_key or "").strip():
+        if stored.get("AI_PROVIDER") == provider and stored.get(info.key_env):
+            api_key = stored[info.key_env]              # the saved key of the same provider
+        elif os.environ.get(info.key_env):
+            api_key, from_env = os.environ[info.key_env], True
+    values = choice.ai_values(provider, api_key, body.models, body.gemini_tier)
+    if for_saving and from_env:
+        values.pop(info.key_env, None)
+    return values
 
 
 @router.get("/ai")
@@ -233,16 +280,16 @@ def test_ai(body: AIRequest, request: Request, admin: User = Depends(get_server_
 
 @router.put("/ai")
 def save_ai(body: AIRequest, request: Request, admin: User = Depends(get_server_admin)):
-    values = _values(body)
-    choice.ai_config(values)                            # ValueError for an unusable choice: nothing saved
+    choice.ai_config(_values(body))                     # ValueError for an unusable choice: nothing saved
+    values = _values(body, for_saving=True)
     app = request.app
     with _ai_lock:
         _settings(request).set("ai", values)
         stored_settings.use(values)
         applied = _restart_worker(app)
-    audit("server.ai_changed", user=admin.username, provider=values.get("AI_PROVIDER") or ".env",
+    audit("server.ai_changed", user=admin.username, provider=values["AI_PROVIDER"],
           message=f"{admin.username} changed the AI analysis settings "
-                  f"({values.get('AI_PROVIDER') or 'from .env'})" + ("" if applied else " - applied at the next restart"))
+                  f"({values['AI_PROVIDER']})" + ("" if applied else " - applied at the next restart"))
     return {**_ai_report(request), "applied": applied}
 
 

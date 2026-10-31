@@ -22,8 +22,10 @@ Endpoints:
     POST   /sites                              create a site
     GET    /sites/report                       site health report
     POST   /sites/check-all                    check every active, non-maintenance site
+    POST   /sites/import-jsonl                 import sites from JSONL text (Server settings page)
     GET    /sites/mailing-lists                list mailing lists (?include_archived=true)
     POST   /sites/mailing-lists                create a mailing list
+    POST   /sites/mailing-lists/import-jsonl   import mailing lists from JSONL text (sites first)
     PATCH  /sites/mailing-lists/{list_id}      edit name / members / related sites
     POST   /sites/mailing-lists/{list_id}/archive | /restore
     GET    /sites/notifications                list notifications, newest first (?state=draft)
@@ -44,7 +46,7 @@ Event shape:
     {"scope": "sites", "action": "<what happened>", "actor": "<username>",
      "subject": "<human-readable thing, e.g. 'Site 1042 (Portal)'>", ...extra}
 Actions: site_created, site_updated, site_status_changed, site_checked,
-sites_checked, site_archived, site_restored, list_created, list_updated,
+sites_checked, sites_imported, lists_imported, site_archived, site_restored, list_created, list_updated,
 list_archived, list_restored, notification_sent, notification_dismissed.
 Status-changing events add "status" (the new status) and "notification"
 (the state of the notification created for the change - "draft" or
@@ -66,6 +68,7 @@ from app.api.site_schemas import (
     UpdateMailingListRequest,
     UpdateSiteRequest,
 )
+from app.api.schemas import ImportJsonlRequest
 from app.api.site_serializers import (
     check_outcome_to_dict,
     mailing_list_to_dict,
@@ -76,6 +79,7 @@ from app.api.site_serializers import (
 )
 from app.events import EventBroadcaster
 from app.models import NotificationState, Site, User
+from app.sites import ImportReport
 from app.reports import build_site_report
 from app.state import AppState
 
@@ -93,6 +97,13 @@ def _publish(broadcaster: EventBroadcaster, client_id: Optional[str], action: st
 
 def _site_subject(site: Site) -> str:
     return f"{site.label} ({site.site_name})"
+
+
+def _import_result(report: ImportReport) -> dict:
+    return {"created": report.created, "created_ids": report.created_ids,
+            "already_stored_ids": report.already_stored_ids,
+            "skipped_duplicate_ids": report.skipped_duplicate_ids,
+            "skipped_invalid": report.skipped_invalid, "warnings": report.warnings}
 
 
 def _scan(state: AppState):
@@ -120,6 +131,18 @@ def create_site(body: CreateSiteRequest, state: AppState = Depends(get_state),
                                    site_publish_date=body.site_publish_date, site_id=body.site_id)
     _publish(broadcaster, client_id, "site_created", admin, _site_subject(site), site_id=site.site_id)
     return site_to_dict(site, state.sites)
+
+
+@router.post("/import-jsonl")
+def import_sites(body: ImportJsonlRequest, state: AppState = Depends(get_state),
+                 admin: User = Depends(get_current_admin),
+                 broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                 client_id: Optional[str] = Depends(get_client_id)) -> dict:
+    """Sites from JSONL text (data/sites.jsonl's format); ids already stored are skipped, never overwritten."""
+    report = state.sites.load_sites_from_lines(body.content.splitlines())
+    if report.created:
+        _publish(broadcaster, client_id, "sites_imported", admin, f"{report.created} site(s)", count=report.created)
+    return _import_result(report)
 
 
 @router.get("/report")
@@ -166,6 +189,19 @@ def create_mailing_list(body: CreateMailingListRequest, state: AppState = Depend
     _publish(broadcaster, client_id, "list_created", admin, f"mailing list {mailing_list.name}",
              list_id=mailing_list.list_id)
     return mailing_list_to_dict(mailing_list)
+
+
+@router.post("/mailing-lists/import-jsonl")
+def import_mailing_lists(body: ImportJsonlRequest, state: AppState = Depends(get_state),
+                         admin: User = Depends(get_current_admin),
+                         broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                         client_id: Optional[str] = Depends(get_client_id)) -> dict:
+    """Mailing lists from JSONL text; a link to an unknown or archived site is dropped with a warning."""
+    report = state.sites.load_mailing_lists_from_lines(body.content.splitlines())
+    if report.created:
+        _publish(broadcaster, client_id, "lists_imported", admin, f"{report.created} mailing list(s)",
+                 count=report.created)
+    return _import_result(report)
 
 
 @router.patch("/mailing-lists/{list_id}")

@@ -4,6 +4,14 @@ AI settings chosen on the setup page and kept, encrypted, in the database
 every AI module reads a setting: the stored value when there is one, else
 the environment (.env) - which keeps working as the course brief requires
 (and is what `main.py --live` uses).
+
+Once an installation runs (app/app_config.py's apply() calls saved_only()),
+the provider, its models and Gemini's plan come ONLY from what is saved:
+backend/.env no longer changes them. The API keys are the exception - a key
+that is not saved is still read from the environment (the course brief:
+the external service's key comes from environment variables). The other AI
+settings (timeouts, log level...) are app settings, applied to the
+environment at start by app/app_config.py.
 """
 
 import os
@@ -13,6 +21,10 @@ from typing import Dict, Optional
 
 _stored: Dict[str, str] = {}
 _try_lock = threading.Lock()
+_saved_only = False
+
+# Never read from the environment once saved_only() is on: the choice is the app's.
+CHOICE_NAMES = ("AI_PROVIDER", "GEMINI_TIER", "GEMINI_MODELS", "GEMINI_MODEL", "ANTHROPIC_MODEL", "OPENAI_MODEL")
 
 
 def use(settings: Optional[dict]) -> None:
@@ -21,9 +33,17 @@ def use(settings: Optional[dict]) -> None:
     _stored = {str(k): str(v) for k, v in (settings or {}).items() if v not in (None, "")}
 
 
+def saved_only(on: bool) -> None:
+    """On: the AI choice (CHOICE_NAMES) comes only from the saved settings, never from .env."""
+    global _saved_only
+    _saved_only = on
+
+
 def setting(name: str) -> Optional[str]:
     if name in _stored:
         return _stored[name]
+    if _saved_only and name in CHOICE_NAMES:
+        return None
     return os.environ.get(name)
 
 

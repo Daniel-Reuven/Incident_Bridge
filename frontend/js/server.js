@@ -1,7 +1,8 @@
 /**
- * Server settings page (admin only): HTTPS (saved, applied at the next
- * restart) and the AI analysis settings (applied at once) - through /server
- * (backend/app/api/server.py), which checks everything again.
+ * Server settings page (admin only): the app's settings and HTTPS (saved
+ * encrypted, applied at the next restart), the AI analysis settings (applied
+ * at once) and the data imports - through /server, /incidents and /sites
+ * (backend/app/api/), which check everything again.
  */
 import { api } from "./api.js";
 import { mountTopbar } from "./topbar.js";
@@ -9,9 +10,16 @@ import { showToast } from "./toast.js";
 import { escapeHtml } from "./sites-format.js";
 
 // Declared before the top-level await below runs the page code that uses them.
+const configForm = document.getElementById("config-form");
 const httpsForm = document.getElementById("https-form");
 const aiForm = document.getElementById("ai-form");
-const SOURCE_LABELS = { page: "set here", ".env": "from .env", default: "default" };
+const SOURCE_LABELS = { saved: "saved", default: "default" };
+const IMPORTS = {
+  incidents: { send: (content) => api.importJsonl(content), word: ["incident", "incidents"] },
+  sites: { send: (content) => api.importSites(content), word: ["site", "sites"] },
+  lists: { send: (content) => api.importMailingLists(content), word: ["mailing list", "mailing lists"] },
+};
+let restart = { config: false, https: false };
 let report = null;     // GET /server/settings
 let aiInfo = null;     // GET /server/ai
 
@@ -20,10 +28,107 @@ if (user && user.role !== "admin") {
   window.location.href = "/dashboard.html";
 } else if (user) {
   document.getElementById("server-page").hidden = false;
+  wireTabs();
+  wireConfig();
   wireHttps();
   wireAI();
+  wireImports();
+  showConfig(await api.serverConfig());
   showSettings(await api.serverSettings());
   showAI(await api.serverAI());
+  if (location.hash) window.scrollTo(0, 0);           // opened at a tab's link: keep the tabs in view
+}
+
+// --- tabs: real links (#settings, #https, #ai, #import), so a tab can be opened or bookmarked -------
+
+function showTab() {
+  const wanted = location.hash.slice(1);
+  const tabs = [...document.querySelectorAll('.tabs [role="tab"]')];
+  const current = tabs.find((tab) => tab.id === `tab-${wanted}`) || tabs[0];
+  tabs.forEach((tab) => {
+    const selected = tab === current;
+    tab.setAttribute("aria-selected", String(selected));
+    document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+  });
+}
+
+function wireTabs() {
+  document.querySelectorAll('.tabs [role="tab"]').forEach((tab) => tab.addEventListener("click", (e) => {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;     // a new tab or window: the browser's
+    e.preventDefault();                                                    // no jump down to the panel
+    history.pushState(null, "", tab.getAttribute("href"));
+    showTab();
+  }));
+  window.addEventListener("popstate", showTab);
+  showTab();
+}
+
+function showRestartNote() {
+  document.getElementById("restart-note").hidden = !(restart.config || restart.https);
+}
+
+// --- the general settings -----------------------------------------------------------------------
+
+function configField(s) {
+  const id = `config-${s.name}`;
+  const tag = `<span class="source-tag" data-kind="${s.saved ? "saved" : "default"}">${s.saved ? "saved" : "default"}</span>`;
+  const help = s.help ? `<span class="hint field-hint">${escapeHtml(s.help)}</span>` : "";
+  const value = s.value ?? "";
+  if (s.kind === "bool") {
+    const on = (s.saved ? value : s.default) === "true";
+    return `<label class="checkbox"><input type="checkbox" id="${id}" name="${s.name}"${on ? " checked" : ""}>
+      ${escapeHtml(s.label)} ${tag}</label>${help}`;
+  }
+  if (s.kind === "choice") {
+    const options = s.choices.map((c) => `<option value="${escapeHtml(c)}"${(s.saved ? value : s.default) === c
+      ? " selected" : ""}>${escapeHtml(c)}${c === s.default ? " (default)" : ""}</option>`).join("");
+    return `<label for="${id}">${escapeHtml(s.label)} ${tag}${help}<select id="${id}" name="${s.name}">${options}</select></label>`;
+  }
+  const type = s.kind === "number" ? ' type="number" min="0" step="any"' : ' type="text"';
+  return `<label for="${id}">${escapeHtml(s.label)} ${tag}${help}<input${type} id="${id}" name="${s.name}"
+    value="${escapeHtml(value)}" placeholder="${escapeHtml(s.default)} (default)" autocomplete="off"></label>`;
+}
+
+function showConfig(data) {
+  configForm.dataset.settings = JSON.stringify(data.groups.flatMap((g) => g.settings));
+  document.getElementById("config-groups").innerHTML = data.groups.map((g) => `
+    <fieldset class="config-group"><legend>${escapeHtml(g.name)}</legend>
+      ${g.settings.map(configField).join("")}</fieldset>`).join("");
+  restart.config = data.restart_needed;
+  showRestartNote();
+}
+
+function configChanges() {
+  // Only what differs from what is saved (or from the default, when nothing is) - the rest keeps its source.
+  const changes = {};
+  JSON.parse(configForm.dataset.settings).forEach((s) => {
+    const field = configForm.elements[s.name];
+    const value = s.kind === "bool" ? String(field.checked) : field.value.trim();
+    const current = s.saved ? s.value : (s.kind === "text" || s.kind === "number" ? "" : s.default);
+    if (value !== current) changes[s.name] = value;
+  });
+  return changes;
+}
+
+function wireConfig() {
+  const error = document.getElementById("config-error");
+  configForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    error.hidden = true;
+    const changes = configChanges();
+    if (!Object.keys(changes).length) {
+      showToast("Nothing changed.");
+      return;
+    }
+    try {
+      const saved = await api.saveServerConfig(changes);
+      showConfig(saved);
+      showToast("Settings saved - restart the server to apply them.");
+    } catch (err) {
+      error.textContent = err.message;
+      error.hidden = false;
+    }
+  });
 }
 
 // --- HTTPS --------------------------------------------------------------------------------------
@@ -35,8 +140,8 @@ function showSettings(data) {
   tag.textContent = data.mode === "production" ? "Production" : "Testing";
   tag.className = `mode-tag mode-${data.mode}`;
   tag.title = data.mode === "production"
-    ? "APP_MODE=production: HTTPS with a certificate from a certificate authority is required."
-    : "APP_MODE=testing (backend/.env): the generated self-signed certificate is allowed.";
+    ? "Production mode: HTTPS with a certificate from a certificate authority is required."
+    : "Testing mode: the generated self-signed certificate is allowed (Settings > Server > Mode).";
   httpsForm.http_port.value = s.http_port;
   httpsForm.https_port.value = s.https_port;
   httpsForm.host.value = s.host;
@@ -58,7 +163,8 @@ function showSettings(data) {
   showRunning(data);
   showCertificate(data.certificate);
   updateHttpsFields();
-  document.getElementById("restart-note").hidden = !data.restart_needed;
+  restart.https = data.restart_needed;
+  showRestartNote();
 }
 
 function showRunning(data) {
@@ -116,10 +222,10 @@ function httpsChanges() {
     key_file: f.key_file.value.trim(), trusted_proxies: f.trusted_proxies.value.trim(),
   };
   if (f.key_password.value) body.key_password = f.key_password.value;
-  // Only what differs from the current values is saved here, so the rest keeps following .env.
+  // Only what differs from the current values is saved, so the rest keeps its default.
   const current = { ...report.settings, trusted_proxies: report.settings.trusted_proxies.join(", ") };
   return Object.fromEntries(Object.entries(body).filter(([name, value]) =>
-    name === "key_password" || report.sources[name] === "page" || String(current[name]) !== String(value)));
+    name === "key_password" || report.sources[name] === "saved" || String(current[name]) !== String(value)));
 }
 
 function wireHttps() {
@@ -138,8 +244,13 @@ function wireHttps() {
   });
   httpsForm.querySelector('[data-action="reset"]').addEventListener("click", async () => {
     error.hidden = true;
-    showSettings(await api.resetServerSettings());
-    showToast("The page's server settings were removed - .env applies at the next restart.");
+    try {
+      showSettings(await api.resetServerSettings());
+      showToast("The HTTPS settings are back to the defaults - from the next restart.");
+    } catch (err) {
+      error.textContent = err.message;
+      error.hidden = false;
+    }
   });
   httpsForm.querySelector('[data-action="check-cert"]').addEventListener("click", async () => {
     error.hidden = true;
@@ -171,14 +282,14 @@ function wireHttps() {
 
 function showAI(data) {
   aiInfo = data;
-  aiForm.provider.innerHTML = `<option value="">Use the .env settings</option><option value="off">Off</option>`
+  aiForm.provider.innerHTML = `<option value="off">Off</option>`
     + data.providers.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${
       p.id === "fake" ? " (canned test answers)" : ""}</option>`).join("");
   aiForm.provider.value = data.provider;
   aiForm.api_key.value = "";
   aiForm.models.value = data.models;
   aiForm.gemini_tier.value = data.gemini_tier || "free";
-  document.getElementById("ai-status").textContent = `Now: ${data.status}${data.source === "page" ? " (set here)" : " (from .env)"}`;
+  document.getElementById("ai-status").textContent = `Now: ${data.status}`;
   updateAIFields();
 }
 
@@ -190,7 +301,8 @@ function updateAIFields() {
   aiForm.querySelector("[data-ai-models]").hidden = !chosen.models_setting;
   aiForm.querySelector("[data-ai-tier]").hidden = chosen.id !== "gemini";
   const keeps = aiInfo.has_key && aiInfo.provider === chosen.id;
-  aiForm.querySelector('[data-fill="ai-key-hint"]').textContent = keeps ? "saved - leave empty to keep it" : "";
+  aiForm.querySelector('[data-fill="ai-key-hint"]').textContent = !keeps ? ""
+    : aiInfo.key_source === ".env" ? "from backend/.env - leave empty to keep using it" : "saved - leave empty to keep it";
 }
 
 function aiChoice() {
@@ -227,5 +339,43 @@ function wireAI() {
     } finally {
       e.target.disabled = false;
     }
+  });
+}
+
+// --- imports ------------------------------------------------------------------------------------
+
+function importSummary(result, [one, many]) {
+  const count = (n) => `${n} ${n === 1 ? one : many}`;
+  const already = (result.already_stored_ids || []).length;
+  const duplicates = result.skipped_duplicate_ids.length;
+  const list = (items) => `<ul>${items.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>`;
+  return `<p><strong>${count(result.created)}</strong> imported.</p>`
+    + (already ? `<p>${already} skipped (already stored).</p>` : "")
+    + (duplicates ? `<p>${duplicates} skipped (the same id twice in the file).</p>` : "")
+    + (result.skipped_invalid.length ? `<p>${result.skipped_invalid.length} skipped (invalid):</p>${list(result.skipped_invalid)}` : "")
+    + ((result.warnings || []).length ? `<p>Warnings:</p>${list(result.warnings)}` : "");
+}
+
+function wireImports() {
+  document.querySelectorAll(".import-form").forEach((form) => {
+    const kind = IMPORTS[form.dataset.kind];
+    const summary = form.querySelector(".import-summary");
+    const button = form.querySelector('button[type="submit"]');
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const file = form.file.files[0];
+      if (!file) return;
+      button.disabled = true;
+      summary.hidden = true;
+      try {
+        // The file's own text is sent, not a path - the server cannot open a path on this computer.
+        summary.innerHTML = importSummary(await kind.send(await file.text()), kind.word);
+      } catch (err) {
+        summary.innerHTML = `<p class="form-error">${escapeHtml(err.message)}</p>`;
+      } finally {
+        summary.hidden = false;
+        button.disabled = false;
+      }
+    });
   });
 }

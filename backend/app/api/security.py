@@ -181,10 +181,9 @@ class SessionFromSecrets:
 
     def __init__(self, app, **options):
         self.app = app
-        self.always_secure = options.pop("https_only", False)
         self.options = options
         self._inner = {}                        # Secure flag -> SessionMiddleware
-        self._secret = None
+        self._built_for = None                  # (secret, max_age, always_secure) the inner ones were built with
 
     async def __call__(self, scope, receive, send):
         from starlette.middleware.sessions import SessionMiddleware
@@ -193,8 +192,12 @@ class SessionFromSecrets:
         if scope["type"] not in ("http", "websocket") or secret is None:
             await self.app(scope, receive, send)
             return
-        if secret != self._secret:
-            self._inner = {secure: SessionMiddleware(self.app, secret_key=secret, https_only=secure, **self.options)
+        # The lifetime and the Secure flag are the app's saved settings (app/app_config.py), in place once the
+        # app has started - so they are read here, not when the app object is built.
+        max_age, always_secure = session_settings_from_env()
+        if (secret, max_age, always_secure) != self._built_for:
+            self._inner = {secure: SessionMiddleware(self.app, secret_key=secret, https_only=secure, max_age=max_age,
+                                                     **self.options)
                            for secure in (False, True)}
-            self._secret = secret
-        await self._inner[self.always_secure or scope.get("scheme") in ("https", "wss")](scope, receive, send)
+            self._built_for = (secret, max_age, always_secure)
+        await self._inner[always_secure or scope.get("scheme") in ("https", "wss")](scope, receive, send)

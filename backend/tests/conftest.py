@@ -137,13 +137,25 @@ def regular_user() -> User:
 
 @pytest.fixture(autouse=True)
 def _fresh_keys():
-    """Every test starts with the test database key, no app secrets and no stored AI settings."""
-    from app import app_secrets, database
+    """
+    Every test starts with the test database key, no app secrets, no stored
+    AI settings - and the environment as it was: a setup or start puts the
+    saved settings in the environment (app/app_config.py's apply()), which is
+    undone after each test.
+    """
+    from app import app_config, app_secrets, database
     from app.ai import stored_settings
+    environment = dict(os.environ)
     database.use_key(TEST_DATABASE_KEY)
     app_secrets.forget()
     stored_settings.use({})
+    stored_settings.saved_only(False)
     yield
+    os.environ.clear()
+    os.environ.update(environment)
+    stored_settings.saved_only(False)
+    app_config._applied = None
+    app_config._unrecorded.clear()
 
 
 @pytest.fixture

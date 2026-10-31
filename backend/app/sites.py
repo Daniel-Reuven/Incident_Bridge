@@ -1,6 +1,6 @@
 """
 SiteDirectory: the in-memory home of every Site and MailingList, plus the
-JSONL seed import that fills it at startup. Part of the Sites & Mailing
+JSONL import an admin runs from the Server settings page. Part of the Sites & Mailing
 Lists subsystem (group-of-four extension).
 
 Where this sits:
@@ -10,8 +10,10 @@ Where this sits:
     cross-reference rules between lists and sites, archive/restore
     cascades, saving every change, and loading seed files.
   - app/persistence_sites.py - the optional SQLite store behind it.
-  - app/state.py - at startup: loads the stored data (bulk_load), THEN runs
-    seed_site_directory(), so seed ids that are already stored are skipped.
+  - app/state.py - at startup: loads the stored data (bulk_load).
+  - app/api/sites.py - POST /sites/import-jsonl and
+    /sites/mailing-lists/import-jsonl: the Server settings page's imports
+    (the file's text, not a path on the server).
 
 Seed files (one JSON object per line):
     data/sites.jsonl          -> Site.from_dict()
@@ -23,10 +25,10 @@ Explicit decisions:
   - A seed record whose id (site_id, list_id) is ALREADY in the directory -
     normally because it was stored by an earlier run - is skipped and only
     counted ("already stored"), never overwritten, archived items included.
-    That is the normal case on every restart, not a problem, and it is what
-    makes the startup import safe: edits made in the app are never
-    overwritten by the seed file, and an archived site is never brought
-    back by it.
+    That is the normal case when a file is imported again, not a problem,
+    and it is what makes the import safe to repeat: edits made in the app
+    are never overwritten by the file, and an archived site is never
+    brought back by it.
   - An id that appears TWICE in the same import is a real data problem: the
     second record is skipped and reported as a duplicate.
   - An invalid record (bad JSON, missing field, invalid value) is SKIPPED
@@ -35,11 +37,6 @@ Explicit decisions:
     archived) is still loaded, WITHOUT that reference, and a warning is
     reported. Losing one link is less harmful than losing the whole list
     with all its members.
-  - The import is opt-in: a seed file is read only when SITES_SEED_PATH /
-    MAILING_LISTS_SEED_PATH points at it. Unset, commented out or empty means
-    no import and no console output at all. A configured file that does not
-    exist is not fatal: the app starts with whatever loaded and prints a
-    warning.
   - Invariant: no mailing list (active OR archived) ever links to an archived
     site. archive_site() unlinks the site from every list that covers it and
     remembers them; restore_site() re-links it to those lists. Because of
@@ -85,15 +82,13 @@ convenience wrapper that feeds this directory's site ids to the scan.
 """
 
 import json
-import os
 from datetime import timedelta
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
 
 from app.archive_rules import archive_after_from_env
 from app.context import SiteCheckSession
-from app.logs import log_line
 from app.models import (
     AvailabilityCheck, MailingList, Notification, NotificationState, Site, SiteStatus, SiteStatusChange, User,
 )
@@ -108,13 +103,10 @@ from app.site_scan import SiteScanResult, scan_incidents as _scan_incidents
 FIRST_SITE_ID = 1001
 
 # backend/app/sites.py -> parents[2] is the repository root, where data/ lives.
-# A RELATIVE seed path in SITES_SEED_PATH / MAILING_LISTS_SEED_PATH is
-# resolved against this folder (see _seed_path_from_env()).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# The seed files shipped with the project. They are NOT imported unless the
-# env vars point at them (e.g. SITES_SEED_PATH=data/sites.jsonl) - these
-# constants only exist so tests and docs can refer to the bundled files.
+# The sample files shipped with the project - imported only when an admin
+# picks them on the Server settings page (these constants are for tests and docs).
 DEFAULT_SITES_SEED = _REPO_ROOT / "data" / "sites.jsonl"
 DEFAULT_MAILING_LISTS_SEED = _REPO_ROOT / "data" / "mailing_lists.jsonl"
 
@@ -148,7 +140,7 @@ class ImportReport:
 
     @property
     def problems(self) -> List[str]:
-        """Every reportable problem as a readable line - what the startup log prints (already-stored ids are not problems)."""
+        """Every reportable problem as a readable line (already-stored ids are not problems)."""
         return ([f"duplicate id in file skipped: {dup!r}" for dup in self.skipped_duplicate_ids]
                 + [f"invalid record skipped - {reason}" for reason in self.skipped_invalid]
                 + [f"warning - {warning}" for warning in self.warnings])
@@ -259,7 +251,7 @@ class SiteDirectory:
         Fill the directory with already-stored objects at startup (see
         app/state.py, which passes SqliteSiteStore.load_all()'s result).
         Does NOT save them again and does not re-check links - the data was
-        valid when it was saved. Must run before seed_site_directory().
+        valid when it was saved. Must run before any import.
         """
         for site in sites:
             self._sites[site.site_id] = site
@@ -843,59 +835,3 @@ def notification_archive_after_from_env() -> Optional[timedelta]:
     see app/archive_rules.py).
     """
     return archive_after_from_env(NOTIFICATION_ARCHIVE_ENV, DEFAULT_NOTIFICATION_ARCHIVE_DAYS)
-
-
-def _seed_path_from_env(env_var: str) -> Optional[str]:
-    """
-    The seed file path configured in `env_var`, or None when there is
-    nothing to import: the variable is not set at all (e.g. its line in .env
-    is commented out) or is set to an empty value. A relative path is
-    resolved against the repository root, so "data/sites.jsonl" works no
-    matter which folder the server was started from.
-    """
-    value = (os.environ.get(env_var) or "").strip()
-    if not value:
-        return None
-    path = Path(value)
-    return str(path if path.is_absolute() else _REPO_ROOT / path)
-
-
-def seed_site_directory(directory: SiteDirectory,
-                        sites_path: Optional[str] = None,
-                        lists_path: Optional[str] = None,
-                        log: Callable[[str], None] = log_line) -> List[ImportReport]:
-    """
-    Startup import: load the sites seed file, then the mailing lists seed
-    file, into `directory`, and log a one-line summary per file plus every
-    problem found. Called once by AppState.create() (app/state.py).
-
-    Opt-in: a seed file is imported ONLY when a path is configured. When a
-    path argument is None it is taken from SITES_SEED_PATH /
-    MAILING_LISTS_SEED_PATH (relative paths are resolved against the
-    repository root, e.g. data/sites.jsonl). If the variable is not set, is
-    commented out in .env, or is empty, that file is skipped SILENTLY - no
-    import, nothing printed. Each file is handled on its own, so either one
-    can be configured without the other.
-
-    A configured file that does not exist is a configuration mistake, so it
-    IS logged as a warning (and skipped - the app still starts). Returns the
-    ImportReports of the files that were actually read.
-    """
-    sites_path = sites_path if sites_path is not None else _seed_path_from_env("SITES_SEED_PATH")
-    lists_path = lists_path if lists_path is not None else _seed_path_from_env("MAILING_LISTS_SEED_PATH")
-
-    reports = []
-    for path, loader, kind in ((sites_path, directory.load_sites_from_jsonl, "sites"),
-                               (lists_path, directory.load_mailing_lists_from_jsonl, "mailing lists")):
-        if not path:
-            continue   # not configured: nothing to import, nothing to say
-        try:
-            report = loader(path)
-        except FileNotFoundError:
-            log(f"WARNING: Seed import: {kind} seed file not found at {path} - skipped.")
-            continue
-        log(f"Seed import ({path}): {report}")
-        for problem in report.problems:
-            log(f"  - {problem}")
-        reports.append(report)
-    return reports

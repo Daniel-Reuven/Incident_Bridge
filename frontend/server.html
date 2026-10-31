@@ -8,10 +8,11 @@
 <script src="/js/theme.js"></script>
 </head>
 <!--
-  Server settings (admin only): HTTPS and the AI analysis settings. Filled in
-  by js/server.js from /server (backend/app/api/server.py), which refuses
-  non-admins with 403. Network settings take effect at the next restart;
-  the AI settings at once.
+  Server settings (admin only): every setting of the app (kept encrypted in
+  the database - backend/.env only gave the initial values at setup), HTTPS,
+  the AI analysis settings, and the data imports. Filled in by js/server.js
+  from /server (backend/app/api/server.py), which refuses non-admins with
+  403. Settings take effect at the next restart; the AI choice at once.
 -->
 <body>
   <header id="topbar"></header>
@@ -23,9 +24,28 @@
     </div>
     <p class="setup-note" id="restart-note" hidden>Saved. Restart the server to apply: stop it (Ctrl+C) and run <code>python serve_app.py</code> again.</p>
 
-    <section class="format-panel" aria-labelledby="https-title">
+    <nav class="tabs" role="tablist" aria-label="Server settings sections">
+      <a class="tab" role="tab" id="tab-settings" href="#settings" aria-controls="settings" aria-selected="true">Settings</a>
+      <a class="tab" role="tab" id="tab-https" href="#https" aria-controls="https" aria-selected="false">HTTPS</a>
+      <a class="tab" role="tab" id="tab-ai" href="#ai" aria-controls="ai" aria-selected="false">AI analysis</a>
+      <a class="tab" role="tab" id="tab-import" href="#import" aria-controls="import" aria-selected="false">Import data</a>
+    </nav>
+
+    <section class="format-panel" role="tabpanel" id="settings" aria-labelledby="tab-settings">
+      <h2 id="config-title">Settings</h2>
+      <p class="hint">Kept encrypted in the database and used from the next start. <code>backend/.env</code> only gave their first values at setup - changing it now has no effect. An empty field uses the default.</p>
+      <form id="config-form">
+        <div id="config-groups"></div>
+        <p class="form-error" id="config-error" hidden></p>
+        <div class="dialog-actions">
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="format-panel" role="tabpanel" id="https" aria-labelledby="tab-https" hidden>
       <h2 id="https-title">HTTPS</h2>
-      <p class="hint">Saved here, these win over <code>backend/.env</code> and take effect when the server starts. HTTP from this computer itself always stays open, so a wrong setting cannot lock you out.</p>
+      <p class="hint">Take effect when the server starts. HTTP from this computer itself always stays open, so a wrong setting cannot lock you out.</p>
       <p class="server-running" id="running"></p>
       <form id="https-form">
         <div class="details-grid">
@@ -57,15 +77,15 @@
           <input type="text" name="trusted_proxies" autocomplete="off" spellcheck="false" placeholder="e.g. 10.0.0.5, 10.1.0.0/16"></label>
         <p class="form-error" id="https-error" hidden></p>
         <div class="dialog-actions">
-          <button type="button" class="btn btn-ghost btn-sm" data-action="reset">Use .env instead</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="reset">Back to the defaults</button>
           <button type="submit" class="btn btn-primary btn-sm">Save</button>
         </div>
       </form>
     </section>
 
-    <section class="format-panel" aria-labelledby="ai-title">
+    <section class="format-panel" role="tabpanel" id="ai" aria-labelledby="tab-ai" hidden>
       <h2 id="ai-title">AI analysis</h2>
-      <p class="hint">Applied at once. Saved here, it wins over <code>backend/.env</code>; the API key is stored encrypted and never shown again.</p>
+      <p class="hint">Applied at once. The API key is stored encrypted and never shown again; left empty, the key in <code>backend/.env</code> is used (and not saved).</p>
       <p class="server-running" id="ai-status"></p>
       <form id="ai-form">
         <label>Provider
@@ -81,6 +101,26 @@
           <button type="button" class="btn btn-ghost btn-sm" data-action="test-ai" data-ai-fields hidden>Test the connection</button>
           <button type="submit" class="btn btn-primary btn-sm">Save</button>
         </div>
+      </form>
+    </section>
+
+    <section class="format-panel" role="tabpanel" id="import" aria-labelledby="tab-import" hidden>
+      <h2 id="import-title">Import data</h2>
+      <p class="hint">JSONL files - one JSON record per line, like the samples in <code>data/</code>. Records whose id is already stored are skipped, never overwritten; invalid ones are skipped and listed. Import the sites before the mailing lists (lists refer to sites).</p>
+      <form class="import-form" data-kind="incidents">
+        <label>Incidents <span class="hint">— added to the live queues at once</span><input type="file" name="file" accept=".jsonl,.json,.txt" required></label>
+        <button type="submit" class="btn btn-import btn-sm">Import</button>
+        <div class="import-summary" hidden></div>
+      </form>
+      <form class="import-form" data-kind="sites">
+        <label>Sites<input type="file" name="file" accept=".jsonl,.json,.txt" required></label>
+        <button type="submit" class="btn btn-import btn-sm">Import</button>
+        <div class="import-summary" hidden></div>
+      </form>
+      <form class="import-form" data-kind="lists">
+        <label>Mailing lists<input type="file" name="file" accept=".jsonl,.json,.txt" required></label>
+        <button type="submit" class="btn btn-import btn-sm">Import</button>
+        <div class="import-summary" hidden></div>
       </form>
     </section>
   </main>

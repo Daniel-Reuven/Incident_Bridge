@@ -16,11 +16,10 @@ when the users table is empty, after that the table is the source of truth
 
 Sites, mailing lists and notifications (the Sites & Mailing Lists
 subsystem) live in a SiteDirectory backed by its own SqliteSiteStore (same
-database file, separate tables - see app/persistence_sites.py). At startup
-the stored data is loaded first and the JSONL seed files - only those
-configured in SITES_SEED_PATH / MAILING_LISTS_SEED_PATH - are imported after
-it, so seed records whose ids are already stored are skipped: edits made in
-the app survive restarts and archived sites are never brought back.
+database file, separate tables - see app/persistence_sites.py), loaded at
+startup. JSONL files are imported by an admin on the Server settings page
+(app/api/sites.py); ids already stored are skipped, so edits made in the app
+survive and archived sites are never brought back.
 """
 
 import os
@@ -38,7 +37,7 @@ from app.services.availability import HttpChecker
 from app.services.login_guard import LoginGuard
 from app.services.notifier import OutboxNotifier
 from app.archive_rules import request_archive_after_from_env
-from app.sites import SiteDirectory, notification_archive_after_from_env, seed_site_directory
+from app.sites import SiteDirectory, notification_archive_after_from_env
 
 
 DATABASE_FILE = "incident_bridge.db"
@@ -100,10 +99,9 @@ class AppState:
         app/api/app.py's lifespan). Loads any previously-persisted
         incidents and re-populates the queues so a restart doesn't lose
         in-flight work, not just closed history. Then builds the
-        SiteDirectory: stored sites/lists/notifications first, then the
-        seed files, but only those configured in SITES_SEED_PATH /
-        MAILING_LISTS_SEED_PATH (unset or empty = no import - see
-        app/sites.py), whose already-stored ids are skipped. The directory
+        SiteDirectory from the stored sites/lists/notifications (sites and
+        lists are added in the app, or imported on the Server settings
+        page - app/api/sites.py). The directory
         gets an HttpChecker configured from SITE_CHECK_TIMEOUT_SECONDS /
         SITE_CHECK_SLOW_MS for availability checks, and an OutboxNotifier
         that records sent notifications in the app (no real email).
@@ -159,7 +157,6 @@ class AppState:
         sites = SiteDirectory(site_store, checker=HttpChecker.from_env(), notifier=OutboxNotifier(),
                               archive_notifications_after=notification_archive_after_from_env())
         sites.bulk_load(*site_store.load_all())
-        seed_site_directory(sites)
 
         # A bad AI_REQUEST_ARCHIVE_DAYS raises ValueError here too - startup stops with its message.
         return cls(users=users, incidents=incidents, maintenance=maintenance, faults=faults, sites=sites,

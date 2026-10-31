@@ -118,6 +118,8 @@ export function describeSiteEvent(event, nameOf = (username) => username) {
     case "site_checked":
       return `${who} checked ${what}: ${event.changed ? "now" : "still"} ${label(event.status)}.${drafted}`;
     case "sites_checked": return `${who} checked ${plural(event.checked, "site")}, ${event.changed} changed status`;
+    case "sites_imported":
+    case "lists_imported": return `${who} imported ${what}`;
     case "site_archived": return `${who} archived ${what}`;
     case "site_restored": return `${who} restored ${what}`;
     case "list_created": return `${who} created ${what}`;

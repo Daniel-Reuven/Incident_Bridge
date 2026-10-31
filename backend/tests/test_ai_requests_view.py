@@ -95,7 +95,7 @@ def test_with_the_ai_off_the_history_is_still_shown(ai_app, monkeypatch):
         login(client)
         request_analysis_of_new_fault(client)
         wait_for(client, lambda d: d["requests"] and d["requests"][0]["state"] == "success")
-    monkeypatch.setenv("AI_PROVIDER", "off")
+        assert client.put("/server/ai", json={"provider": "off"}).status_code == 200
     with TestClient(ai_app) as client:                                  # a restart with the feature off
         login(client)
         data = client.get("/analysis-requests").json()
