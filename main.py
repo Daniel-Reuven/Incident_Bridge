@@ -54,7 +54,6 @@ separately with backend/serve_app.py - see README.md, section 15.
 """
 
 import argparse
-import importlib.util
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -95,6 +94,8 @@ from app.ai.request_history import OUTCOME_SUCCESS, SqliteRequestHistoryStore  #
 from app.ai.result import extract_findings  # noqa: E402
 from app.analysis_service import (AnalysisCompleted, AnalysisStatsListener, SiteImpactListener,  # noqa: E402
                                   notify_listeners)
+from app.async_processing import SAMPLE_SITE_STATUSES, collect_concurrent, collect_sequential, run_collection  # noqa: E402
+from app.threaded_processing import race_to_claim  # noqa: E402
 from app.ai.prompt import build_incident_data, build_instructions  # noqa: E402
 from app.ai.providers import PROVIDERS, AnalysisError, AnalysisProvider, build_provider  # noqa: E402
 from app.ai.providers.fake_provider import FakeProvider  # noqa: E402
@@ -505,14 +506,6 @@ def design_patterns(incidents, provider):
          f"section 13 shows them at work")
 
 
-def pending_part(what: str, module: str, owner: str) -> None:
-    """One line for a Stage 2 part that another team member is still building (see the team plan)."""
-    if importlib.util.find_spec(module) is None:
-        show(what, f"pending - {owner}'s {module.replace('.', '/')}.py is not merged yet")
-    else:
-        show(what, f"{module} is merged - its demo is still to be wired into main.py")
-
-
 def combined_flow(users, incidents, directory):
     section(13, f"Stage 2 - Combined flow: AI findings -> site check -> report ({SIMULATED})")
     fault = incidents.get(COMBINED_FAULT_ID)
@@ -559,14 +552,37 @@ def combined_flow(users, incidents, directory):
 
 
 def async_collection():
-    section(14, "Stage 2 - Async collection: sequential vs. concurrent")
-    pending_part("Site statuses collected one after another and with asyncio.gather", "app.async_processing",
-                 "Person B")
+    section(14, f"Stage 2 - Async collection: sequential vs. concurrent ({SIMULATED})")
+    ids = list(SAMPLE_SITE_STATUSES) + [UNKNOWN_SITE_ID]           # four sites and one that does not exist
+    delays = ", ".join(f"{site_id}: {delay:g}s" for site_id, (_, delay) in SAMPLE_SITE_STATUSES.items())
+    show("Task", f"look up the status of sites {ids} - each lookup is independent (simulated wait: {delays})")
+    sequential = run_collection(collect_sequential, ids)
+    concurrent = run_collection(collect_concurrent, ids)
+    for name, run in (("one after another", sequential), ("concurrently (asyncio.gather)", concurrent)):
+        show(f"  {name}", f"{run.seconds:.2f}s, finished in the order {run.finish_order}")
+    show("Results (input order, the same both ways)", ", ".join(
+        f"{r.site_id}: {r.status or r.error}" for r in concurrent.results))
+    show("Same results", sequential.results == concurrent.results)
+    show("(The concurrent run takes about as long as the slowest lookup; the failed lookup did not stop the others)")
 
 
-def threads_and_lock():
-    section(15, "Stage 2 - Threads and a Lock: two technicians claim the same fault")
-    pending_part("Exactly one claim approved, the rest refused", "app.threaded_processing", "Person B")
+def threads_and_lock(users, incidents):
+    section(15, "Stage 2 - Threads and a Lock: three technicians claim the same fault at once")
+    queue = FaultPriorityQueue()
+    fault = next(f for f in sorted(incidents.list_all(), key=lambda i: i.id)
+                 if f.kind == "fault" and f.status.value == "open")
+    queue.push(fault)
+    technicians = [users.get(name) for name in ("tech1", "tech2", "tech3")]
+    show("Shared resource", f"the fault queue and fault {fault.id} - {fault.title!r} (Open, waiting)")
+    race = race_to_claim(queue, fault, technicians)                # three threads, started together
+    show("Approved", race.approved)
+    for username, reason in race.refused:
+        print(f"    refused: {username} - {reason}")
+    show("Exactly one approval", len(race.approved) == 1)
+    show("Fault now", f"{fault.status.value}, assigned to {fault.assigned_to.username}, "
+                      f"still in the queue: {fault in queue}")
+    show("(Without the lock, two threads could both pass the check before either wrote - see "
+         "app/threaded_processing.py)")
 
 
 def main(argv=None) -> None:
@@ -588,7 +604,7 @@ def main(argv=None) -> None:
     design_patterns(incidents, provider)
     combined_flow(users, incidents, directory)
     async_collection()
-    threads_and_lock()
+    threads_and_lock(users, incidents)
     print("\nDemo finished.")
 
 

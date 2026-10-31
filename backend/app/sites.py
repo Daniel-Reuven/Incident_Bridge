@@ -91,6 +91,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
 
+from app.archive_rules import archive_after_from_env
 from app.context import SiteCheckSession
 from app.logs import log_line
 from app.models import (
@@ -838,20 +839,10 @@ def notification_archive_after_from_env() -> Optional[timedelta]:
     it moves to the Archive tab (view only). Unset or empty: 30 days.
     0 switches archiving off. Fractions work (0.5 = 12 hours). Raises
     ValueError, stopping startup with a clear message, for anything that is
-    not a number of 0 or more.
+    not a number of 0 or more (the parser is shared with AI_REQUEST_ARCHIVE_DAYS -
+    see app/archive_rules.py).
     """
-    raw = (os.environ.get(NOTIFICATION_ARCHIVE_ENV) or "").strip()
-    if not raw:
-        days = DEFAULT_NOTIFICATION_ARCHIVE_DAYS
-    else:
-        try:
-            days = float(raw)
-        except ValueError:
-            days = -1.0
-        if not days >= 0:                          # also rejects "nan"
-            raise ValueError(f"{NOTIFICATION_ARCHIVE_ENV} must be a number of days, 0 or more "
-                             f"(0 = never archive), got {raw!r}")
-    return timedelta(days=days) if days > 0 else None
+    return archive_after_from_env(NOTIFICATION_ARCHIVE_ENV, DEFAULT_NOTIFICATION_ARCHIVE_DAYS)
 
 
 def _seed_path_from_env(env_var: str) -> Optional[str]:

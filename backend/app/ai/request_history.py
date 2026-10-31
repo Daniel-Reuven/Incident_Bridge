@@ -24,7 +24,7 @@ done with it (AnalysisWorker.cancel() / _finish()):
 import json
 import threading
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, NamedTuple, Optional, Set
 
 from app import database
 from app.ai.jobs import AnalysisJob
@@ -48,6 +48,14 @@ CREATE TABLE IF NOT EXISTS analysis_requests (
     findings_json TEXT
 );
 """
+
+
+class RequestRecord(NamedTuple):
+    """One stored request, for app/reports.py (which applies the archive rule, app/archive_rules.py)."""
+    incident_id: str
+    outcome: Optional[str]                 # None while the request is still pending
+    finished_at: Optional[datetime]        # None while the request is still pending
+    affected_site_ids: tuple               # from the findings; () without findings
 
 
 class SqliteRequestHistoryStore:
@@ -101,9 +109,20 @@ class SqliteRequestHistoryStore:
             ids.update(json.loads(row["findings_json"]).get("affected_site_ids", []))
         return ids
 
+    def records(self) -> List[RequestRecord]:
+        """Every stored request, oldest first - app/reports.py splits them into live and archived."""
+        with self._lock:
+            rows = self._conn.execute("SELECT incident_id, outcome, finished_at, findings_json FROM analysis_requests "
+                                      "ORDER BY requested_at").fetchall()
+        return [RequestRecord(row["incident_id"], row["outcome"],
+                              datetime.fromisoformat(row["finished_at"]) if row["finished_at"] else None,
+                              tuple(json.loads(row["findings_json"]).get("affected_site_ids", []))
+                              if row["findings_json"] else ())
+                for row in rows]
+
     def __repr__(self) -> str:
         return f"SqliteRequestHistoryStore(db_path={self.db_path!r})"
 
 
-__all__ = ["SqliteRequestHistoryStore", "OUTCOME_SUCCESS", "OUTCOME_SUCCESS_UNSTRUCTURED",
+__all__ = ["SqliteRequestHistoryStore", "RequestRecord", "OUTCOME_SUCCESS", "OUTCOME_SUCCESS_UNSTRUCTURED",
            "OUTCOME_FAILED", "OUTCOME_CANCELLED", "OUTCOME_DROPPED"]

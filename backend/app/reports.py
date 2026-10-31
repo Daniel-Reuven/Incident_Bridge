@@ -28,11 +28,16 @@ AI metrics (optional - 6.3): when `history` (the AnalysisWorker's
 SqliteRequestHistoryStore, app/ai/request_history.py) is given, each row
 also gets ai_analyses_requested/succeeded/failed, counted over the AI
 requests of the incidents app/site_scan.py links to that site. The report
-also gets ai_resolved_or_unnotified_sites: active sites the AI ever named
-as affected whose check now finds them Operational, or that have no SENT
+also gets ai_resolved_or_unnotified_sites: active sites the AI named as
+affected whose check now finds them Operational, or that have no SENT
 notification - cases worth a second look (a stale or mistaken AI reading,
 or a real one nobody has acted on yet). Without `history` (every existing
 caller), these are all zero/empty - every existing field is unchanged.
+
+Archived requests (app/archive_rules.py - finished more than
+AI_REQUEST_ARCHIVE_DAYS ago, `archive_after`) leave the live counts and the
+metric, and are reported apart: ai_archived_requests. archive_after=None
+(the default) archives nothing.
 
 The module is plain collection processing (dicts, sets, comprehensions,
 sorting) on top of the domain objects; it never changes anything.
@@ -40,9 +45,11 @@ sorting) on top of the domain objects; it never changes anything.
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from datetime import timedelta, timezone
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from app.ai.request_history import OUTCOME_FAILED, OUTCOME_SUCCESS, OUTCOME_SUCCESS_UNSTRUCTURED, SqliteRequestHistoryStore
+from app.archive_rules import is_request_archived
 from app.models import Incident, NotificationState, SiteStatus
 from app.site_scan import SiteScanResult
 from app.sites import SiteDirectory
@@ -110,6 +117,7 @@ class SiteReport:
     unknown_references: Dict[int, List[str]] = field(default_factory=dict)
     # AI decision metric (6.3) - see the module docstring; empty without `history`.
     ai_resolved_or_unnotified_sites: List[int] = field(default_factory=list)
+    ai_archived_requests: int = 0              # AI requests archived (AI_REQUEST_ARCHIVE_DAYS) - not in the counts
 
     @property
     def most_urgent(self) -> Optional[SiteReportRow]:
@@ -134,6 +142,7 @@ class SiteReport:
             "unknown_references": {str(k): v for k, v in self.unknown_references.items()},
             "most_urgent": self.most_urgent.site_id if self.most_urgent else None,
             "ai_resolved_or_unnotified_sites": self.ai_resolved_or_unnotified_sites,
+            "ai_archived_requests": self.ai_archived_requests,
         }
 
     def lines(self) -> List[str]:
@@ -155,6 +164,8 @@ class SiteReport:
                   ("Incidents mentioning archived sites", sorted(self.archived_references)),
                   ("Incidents mentioning unknown sites", sorted(self.unknown_references)),
                   ("AI-flagged sites resolved or not yet notified", self.ai_resolved_or_unnotified_sites)]
+        if self.ai_archived_requests:
+            checks.append(("AI requests archived (not counted above)", [self.ai_archived_requests]))
         for title, items in checks:
             out.append(f"{title}: {', '.join(map(str, items)) if items else 'none'}")
         drafts = self.notification_counts.get(NotificationState.DRAFT.value, 0)
@@ -186,7 +197,8 @@ def _ai_counts(incident_ids: Iterable[str], outcomes_by_incident: Dict[str, List
 
 
 def build_site_report(directory: SiteDirectory, incidents: Iterable[Incident],
-                      history: Optional[SqliteRequestHistoryStore] = None) -> SiteReport:
+                      history: Optional[SqliteRequestHistoryStore] = None,
+                      archive_after: Optional[timedelta] = None, now: Optional[datetime] = None) -> SiteReport:
     """
     Build the site health report from the directory and the incidents
     (normally IncidentRepository.list_all()). Runs the incident scan itself,
@@ -195,12 +207,19 @@ def build_site_report(directory: SiteDirectory, incidents: Iterable[Incident],
     `history` (AnalysisWorker.history, app/ai/request_history.py) adds the AI
     metrics described in the module docstring; omitted (every existing
     caller), they are all zero/empty and every other field is unchanged.
+    `archive_after` (AI_REQUEST_ARCHIVE_DAYS) leaves archived requests out of
+    them; `now` is injectable for tests.
     """
     sites = list(directory.sites())                                  # active only
     active_lists = list(directory.mailing_lists())
     # The directory's own wrapper matches by id AND by full site name (see app/site_scan.py).
     scan: SiteScanResult = directory.scan_incidents(incidents)
-    outcomes_by_incident = history.outcomes_by_incident() if history else {}
+    now = now or datetime.now(timezone.utc)
+    records = history.records() if history else []
+    live = [r for r in records if not is_request_archived(r.finished_at, now, archive_after)]
+    outcomes_by_incident: Dict[str, List[Optional[str]]] = {}
+    for record in live:
+        outcomes_by_incident.setdefault(record.incident_id, []).append(record.outcome)
 
     # Which lists cover which site: a grouping dict (site id -> list ids).
     lists_by_site: Dict[int, List[str]] = {}
@@ -228,7 +247,7 @@ def build_site_report(directory: SiteDirectory, incidents: Iterable[Incident],
 
     # AI decision metric: active sites the AI ever named as affected that are
     # now Operational, or that no SENT notification covers (see the module docstring).
-    ai_named_ids = history.named_site_ids() & active_ids if history else set()
+    ai_named_ids = {site_id for record in live for site_id in record.affected_site_ids} & active_ids
     sent_site_ids = {n.site_id for n in directory.notifications() if n.state == NotificationState.SENT}
     ai_resolved_or_unnotified = sorted(
         site_id for site_id in ai_named_ids if site_id in operational_ids or site_id not in sent_site_ids)
@@ -248,4 +267,5 @@ def build_site_report(directory: SiteDirectory, incidents: Iterable[Incident],
         archived_references={site_id: sorted(ids) for site_id, ids in scan.archived.items()},
         unknown_references={site_id: sorted(ids) for site_id, ids in scan.unknown.items()},
         ai_resolved_or_unnotified_sites=ai_resolved_or_unnotified,
+        ai_archived_requests=len(records) - len(live),
     )
