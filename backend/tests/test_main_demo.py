@@ -41,6 +41,12 @@ def test_main_py_runs_every_section_cleanly():
     assert "Site 4242: does not exist - an invalid cross-reference" in out
     assert "Site 1005: 1/1/0" in out
     assert "AI-flagged sites now Operational or never notified: [1005]" in out
+    # section 14: the same results both ways, in input order; the unknown site fails alone
+    assert "Same results: True" in out and "4242: unknown site id" in out
+    assert "1001: Operational, 1002: Operational, 1005: Degraded, 1007: Down" in out
+    # section 15: three threads, exactly one approved (which one is up to the scheduler)
+    assert "Exactly one approval: True" in out and out.count("    refused: tech") == 2
+    assert "still in the queue: False" in out
     assert "failed: timed out after 180 seconds." in out               # failure -> error comment
     assert "Fault status, severity and assignee unchanged: True" in out  # ... and no business change
     assert "Factory - build_provider(AIConfig(provider='fake', ...)) creates: FakeProvider" in out

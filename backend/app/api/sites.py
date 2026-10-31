@@ -125,9 +125,13 @@ def create_site(body: CreateSiteRequest, state: AppState = Depends(get_state),
 @router.get("/report")
 def site_report(state: AppState = Depends(get_state), _admin: User = Depends(get_current_admin),
                 worker: Optional[AnalysisWorker] = Depends(get_analysis_worker)) -> dict:
-    """The site health report (app/reports.py), with AI metrics when the AI feature is on, as a dict."""
+    """
+    The site health report (app/reports.py), with AI metrics when the AI feature is on, as a dict.
+    AI requests archived under AI_REQUEST_ARCHIVE_DAYS are left out of those metrics and counted apart.
+    """
     history = worker.history if worker else None
-    return build_site_report(state.sites, state.incidents.list_all(), history).to_dict()
+    return build_site_report(state.sites, state.incidents.list_all(), history,
+                             archive_after=state.request_archive_after).to_dict()
 
 
 @router.post("/check-all")

@@ -7,7 +7,7 @@ Memory-only directory and plain domain objects - no HTTP, no database.
 Uses the shared admin_user fixture from tests/conftest.py.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -161,3 +161,43 @@ def test_attention_key_and_count_by():
     rows = [row(3, SiteStatus.DOWN, 1), row(2, SiteStatus.DOWN, 5), row(1, SiteStatus.OPERATIONAL)]
     assert [r.site_id for r in sorted(rows, key=attention_key)] == [2, 3, 1]
     assert count_by(["a", "b", "a"], ["a", "b", "c"]) == {"a": 2, "b": 1, "c": 0}
+
+
+def test_archived_ai_requests_leave_the_counts_and_the_metric(directory, incidents):
+    """
+    AI_REQUEST_ARCHIVE_DAYS (app/archive_rules.py): a request that finished
+    longer ago than the limit leaves the live counts and the decision metric,
+    and is counted apart. Expected values worked out by hand:
+
+    incident a (mentions 1001): request 1 - success naming site 1001, finished
+    40 days ago (archived with a 30-day limit); request 2 - failed, finished
+    now. Incident b (mentions 1001): request 3 - still pending (never archived).
+    Live for site 1001: requests 2 and 3 -> requested 2, succeeded 0, failed 1.
+    The only findings (request 1) are archived, so no site is flagged.
+    Without a limit: requested 3, succeeded 1, failed 1, and 1001 is flagged.
+    """
+    a, b, _c = incidents
+    history = SqliteRequestHistoryStore(":memory:")
+    old, failed, pending = (AnalysisJob(incident_id=a.id, requested_by="tech1"),
+                            AnalysisJob(incident_id=a.id, requested_by="tech1"),
+                            AnalysisJob(incident_id=b.id, requested_by="tech1"))
+    for job in (old, failed, pending):
+        history.record_requested(job, "Fake AI")
+    history.record_finished(old.id, OUTCOME_SUCCESS, model="m",
+                            findings={"suggested_severity": "major", "affected_site_ids": [1001], "confidence": 0.9})
+    history.record_finished(failed.id, OUTCOME_FAILED)
+    forty_days_ago = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
+    history._conn.execute("UPDATE analysis_requests SET finished_at = ? WHERE id = ?", (forty_days_ago, old.id))
+
+    report = build_site_report(directory, incidents, history, archive_after=timedelta(days=30))
+    row = {r.site_id: r for r in report.rows}[1001]
+    assert (row.ai_analyses_requested, row.ai_analyses_succeeded, row.ai_analyses_failed) == (2, 0, 1)
+    assert report.ai_resolved_or_unnotified_sites == []
+    assert report.ai_archived_requests == 1
+    assert report.to_dict()["ai_archived_requests"] == 1
+    assert "AI requests archived (not counted above): 1" in report.lines()
+
+    unlimited = build_site_report(directory, incidents, history)            # archive_after=None: nothing archived
+    row = {r.site_id: r for r in unlimited.rows}[1001]
+    assert (row.ai_analyses_requested, row.ai_analyses_succeeded, row.ai_analyses_failed) == (3, 1, 1)
+    assert unlimited.ai_resolved_or_unnotified_sites == [1001] and unlimited.ai_archived_requests == 0

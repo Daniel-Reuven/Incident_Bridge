@@ -74,6 +74,8 @@ from app.logs import LOGGING_CONFIG, app_log  # noqa: E402
 from app.api.security import session_settings_from_env  # noqa: E402
 from app.repository import UserProvisioningError, first_login_change_required, seed_users_from_env  # noqa: E402
 from app.security.data_folders import check_markers  # noqa: E402
+from app.archive_rules import request_archive_after_from_env  # noqa: E402
+from app.sites import notification_archive_after_from_env  # noqa: E402
 from app.security.installation import Installation, InstallationError  # noqa: E402
 from app.settings_store import SqliteSettingsStore  # noqa: E402
 from app.security.key_providers import choose_provider  # noqa: E402
@@ -92,13 +94,16 @@ def _check_users_or_exit() -> None:
         that fails the policy, an admin entry...) - only while the setup is
         still to be done, because only the setup page reads it;
       - KEY_PROVIDER, REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN,
-        SESSION_MAX_AGE_HOURS and SESSION_COOKIE_SECURE.
+        SESSION_MAX_AGE_HOURS, SESSION_COOKIE_SECURE, AI_REQUEST_ARCHIVE_DAYS
+        and NOTIFICATION_ARCHIVE_DAYS.
     The app checks the same things again at startup, which also covers
     running uvicorn directly.
     """
     try:
         first_login_change_required()
         session_settings_from_env()
+        request_archive_after_from_env()
+        notification_archive_after_from_env()
         installation = Installation.from_env()
         status = installation.status()
         if status == "orphan":

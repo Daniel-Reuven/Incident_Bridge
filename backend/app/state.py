@@ -25,7 +25,8 @@ the app survive restarts and archived sites are never brought back.
 
 import os
 from dataclasses import dataclass, field
-from typing import List
+from datetime import timedelta
+from typing import List, Optional
 
 from app.models import Fault, IncidentStatus, MaintenanceTask
 from app.persistence import SqliteIncidentStore
@@ -36,6 +37,7 @@ from app.repository import IncidentRepository, UserStore, load_users
 from app.services.availability import HttpChecker
 from app.services.login_guard import LoginGuard
 from app.services.notifier import OutboxNotifier
+from app.archive_rules import request_archive_after_from_env
 from app.sites import SiteDirectory, notification_archive_after_from_env, seed_site_directory
 
 
@@ -87,6 +89,8 @@ class AppState:
     maintenance: MaintenanceQueueManager
     faults: FaultPriorityQueue
     sites: SiteDirectory
+    # AI_REQUEST_ARCHIVE_DAYS (app/archive_rules.py): AI requests finished longer ago leave the report's counts.
+    request_archive_after: Optional[timedelta] = None
     login_guard: LoginGuard = field(default_factory=LoginGuard)   # failed-login limits (app/services/login_guard.py)
 
     @classmethod
@@ -157,4 +161,6 @@ class AppState:
         sites.bulk_load(*site_store.load_all())
         seed_site_directory(sites)
 
-        return cls(users=users, incidents=incidents, maintenance=maintenance, faults=faults, sites=sites)
+        # A bad AI_REQUEST_ARCHIVE_DAYS raises ValueError here too - startup stops with its message.
+        return cls(users=users, incidents=incidents, maintenance=maintenance, faults=faults, sites=sites,
+                   request_archive_after=request_archive_after_from_env())
