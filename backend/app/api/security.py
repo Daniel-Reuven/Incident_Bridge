@@ -31,8 +31,8 @@ The session cookie is marked Secure whenever the request came over HTTPS
 (or always, with SESSION_COOKIE_SECURE=true), so a login made over HTTPS is
 never sent back over plain HTTP.
 
-FastAPI's own API docs (/docs, /redoc) load their page from a CDN with an
-inline script, so they get every header except the CSP.
+FastAPI's own API docs (/docs, /redoc - app/api/docs.py) load their page
+from a CDN with an inline script, so they get every header except the CSP.
 
 It is a plain ASGI middleware (not BaseHTTPMiddleware) so it never buffers
 the long-lived live-update stream (GET /events).

@@ -123,7 +123,7 @@ def test_every_response_carries_the_security_headers(app_client):
     headers = app_client.get("/health").headers
     assert "frame-ancestors 'none'" in headers["content-security-policy"]
     assert headers["x-frame-options"] == "DENY" and headers["x-content-type-options"] == "nosniff"
-    assert "content-security-policy" not in app_client.get("/docs").headers      # Swagger UI needs its CDN
+    assert "content-security-policy" not in app_client.get("/docs", follow_redirects=False).headers  # Swagger UI: its CDN
 
 
 @pytest.mark.parametrize("path", ["/dashboard.html", "/js/api.js", "/css/styles.css", "/health"])

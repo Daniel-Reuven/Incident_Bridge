@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import app_config
-from app.api import ai_requests, analysis, auth, events, incidents, logs, server, setup, sites, users
+from app.api import ai_requests, analysis, auth, docs, events, incidents, logs, server, setup, sites, users
 from app.api.deps import get_session_user
 from app.api.lifecycle import start_services, stop_services
 from app.api.request_log import RequestLogMiddleware
@@ -92,7 +92,9 @@ async def lifespan(app: FastAPI):
 # Uvicorn with it; this also covers the bare `uvicorn app.api.app:app` command.
 apply_console_format()
 
-app = FastAPI(title="Incident Bridge API", version=app_version(), lifespan=lifespan)
+# The API docs are served by app/api/docs.py, behind the API_DOCS_ACCESS setting.
+app = FastAPI(title="Incident Bridge API", version=app_version(), lifespan=lifespan,
+              docs_url=None, redoc_url=None, openapi_url=None)
 
 # --- session cookie (signed, not encrypted - don't put secrets in it) ---
 # Keyed with the installation's session secret, generated at setup and kept in
@@ -135,12 +137,13 @@ app.include_router(sites.router)   # admin-only site portal (Sites & Mailing Lis
 app.include_router(analysis.router)   # AI analysis of faults (app/ai/)
 app.include_router(ai_requests.router)  # admin: the AI request history and archive (site portal)
 app.include_router(server.router)     # admin-only Server settings (HTTPS, AI)
+app.include_router(docs.router)       # /docs, /redoc, /openapi.json (API_DOCS_ACCESS)
 
 
 # --- centralized exception -> HTTP status mapping ---
 # The domain layer (app/models, app/queues) raises plain Python exceptions
 # for business-rule violations rather than HTTP-aware ones, so it stays
-# usable outside a web context too (e.g. from demo.py). These handlers are
+# usable outside a web context too (e.g. from main.py). These handlers are
 # the one place that translates them - see app/api/incidents.py and
 # app/api/auth.py for where each one gets raised.
 

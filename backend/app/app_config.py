@@ -64,6 +64,7 @@ def _checks():
     from app.ai.config import _read_number
     from app.ai.log import log_level_from_env
     from app.ai.providers.gemini_models import gemini_settings
+    from app.api.docs import docs_access
     from app.api.security import session_settings_from_env
     from app.archive_rules import request_archive_after_from_env
     from app.audit import log_dirs_from_env
@@ -88,6 +89,7 @@ def _checks():
         "AI_LOG_LEVEL": log_level_from_env,
         "GEMINI_MODEL_DISCOVERY": gemini_settings,
         "APP_MODE": app_mode,
+        "API_DOCS_ACCESS": docs_access,
     }
 
 
@@ -96,6 +98,10 @@ SETTINGS: Tuple[Setting, ...] = (
             "Testing allows the generated self-signed certificate. Production needs HTTPS with a certificate from a "
             "certificate authority and HTTPS only for remote connections - the server will not start otherwise.",
             choices=("testing", "production"), kind="choice"),
+    Setting("API_DOCS_ACCESS", "Server", "API documentation (/docs, /redoc, /openapi.json)", "login",
+            "login: only for someone logged in (anyone else is sent to the login page). public: open to anyone. "
+            "It only describes the API - every endpoint still checks the login and the role.",
+            choices=("login", "public"), kind="choice"),
     Setting("REQUIRE_PASSWORD_CHANGE_ON_FIRST_LOGIN", "Accounts and logins", "Password chosen by someone else must be "
             "changed at the next login", "true",
             "New accounts and passwords reset by an admin. Off: the person keeps the password they were given.",
