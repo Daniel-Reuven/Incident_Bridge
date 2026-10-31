@@ -103,30 +103,43 @@ The final decision was always the team's; these are the places where an AI answe
 
 ## 3. Stage 2 (brief §7.3)
 
-<!-- Maintained by Person C. A and B: send C what you asked, what the tool suggested, what you checked
-     and what you changed or kept. Every "TODO(C)" must be resolved before the final 0.6.0 tag. -->
-
 ### How we worked
 
 For the Stage 2 tasks we followed the brief's rule: **first ask the AI for a plan and test cases only, without code changes**; each of us wrote the expected results of at least two test cases ourselves, from the business rule and not by running the code under test; then the code was written, checked against the existing test suite, and we never changed an expected result just to make a test pass.
 
 **v0.5.0 is the exception, and we say so:** the move from the providers' SDKs to our own `requests`-based client (`backend/app/api_client.py`, `app/ai/providers/http_provider.py` and their tests) was written with AI help **before** we started asking for a plan first. It was reviewed and run (the whole suite passed), but the plan-first steps above were not followed for it.
 
-### Person A — AI findings → Sites subsystem → report
+### What the entries below cover
 
-<!-- TODO(C): from Person A - what was asked, what the tool suggested, the two expected results A wrote, what was checked, what was changed or kept -->
+Team members also used AI tools on their own while writing their parts; those conversations were not kept. The entries below come from the team's **review and integration sessions** (Claude), where every Stage 2 part was checked against the brief before and after it was merged, and where the fixes listed here were made. Each entry says what the AI pointed out or suggested, what we checked ourselves, and what we decided.
 
-### Person B — TDD archive rule, async, threads + Lock
-
-<!-- TODO(C): from Person B - same points; the TDD cycle itself is documented by the Red/Green/Refactor commits (README, שלב 2) -->
-
-### Person C (Roi) — Stage 2 demo, documentation, integration
+### AI findings → Sites subsystem → report
 
 | Topic | What the AI pointed out or suggested | What we checked | What we decided |
 |---|---|---|---|
-| Plan | Read the Stage 2 brief and our team plan, listed Part C's tasks, and pointed out that the brief puts `pyproject.toml` and `.env.example` in the repository root, while ours are in `backend/` | The brief, sections 2.3 and 7.1 | Asked the lecturer (question 1) instead of moving files on our own; a move, if needed, is the last merge |
+| Fit with the brief | Checked the findings block, the Observer listeners and the report metric against brief 6.1–6.4 (an answer that drives a decision, a new metric, the four extra tests) | The four tests in `test_integration.py` / `test_reports.py` and their expected results: a failed call or an answer without findings touches no site; an unknown or archived site id changes nothing; the metric lists exactly the AI-named sites that are Operational or have no sent notification | Kept the design: the measured check decides the site's status, never the AI |
+| Encrypted database | Found that the request history opened the database with plain `sqlite3`, which cannot read the encrypted database, and that one test lacked the demo users | The history read and written through the app's own encrypted connection; the full suite | Fixed (`312fca3`) |
+| Checks started by the AI | Pointed out that site checks triggered by the findings were not published, so they were missing from the activity log and from open site-portal pages | A check started by the AI appears like one an admin started (`site_checked`, by `ai-assistant`) | Fixed (`6d32ecd`) |
+| Visible in the app | We asked what of Stage 2 an admin can actually see in the web app; it found the requests and their archive were not shown anywhere and suggested a view for them | The site portal's AI requests and Archive tabs, the per-site AI numbers, in a browser | Added the AI requests view (`5ff15c0`) |
+
+### TDD archive rule, async collection, the claim Lock
+
+| Topic | What the AI pointed out or suggested | What we checked | What we decided |
+|---|---|---|---|
+| Fit with the brief | Checked that the branch covers brief 4.2 (TDD), 5.1 (async) and 5.2 (threads + Lock), and that the Red / Green / Refactor commits stay visible | The commit history (`71ee90f`, `4e9bff6`, `72b7b29`); the expected results in `test_archive_rules.py` follow the business rule: a request that finished at least `AI_REQUEST_ARCHIVE_DAYS` ago is archived, an unfinished one never is, `0` means never | Merged with "Create a merge commit", never squashed, so the TDD history is kept |
+| Using the rule | Pointed out that the archive rule was tested but not yet used by the app | Archived requests leave the site report's counts and are counted apart | Wired in (`844d64b`) |
+| Async and the Lock | Suggested demo sections that show the difference instead of only describing it | `main.py` sections 14–15: concurrent collection takes about the longest delay, sequential the sum; of three simultaneous claims exactly one is approved; the tests race eight threads over many rounds and show the race without the lock | Kept |
+
+### Integration, demo and documentation
+
+| Topic | What the AI pointed out or suggested | What we checked | What we decided |
+|---|---|---|---|
+| Plan | Read the Stage 2 brief and our team plan, listed the integration tasks, and pointed out that the brief puts `pyproject.toml` and `.env.example` in the repository root, while ours are in `backend/` | The brief, sections 2.3 and 7.1 | Asked the lecturer instead of moving files on our own; the lecturer approved our layout |
 | Starting point | Noticed that the uploaded branch was v0.4.9 and contained only `backend/`, not v0.5.0 with the root files | `git log origin/feature/Gemini_API`, the version in `backend/pyproject.toml` | Fast-forwarded our branch to v0.5.0 before writing anything |
 | `main.py --live` | Suggested `--live` calls only the configured AI provider, and stops with a clear message when no real provider is configured | That `.env` keys are never printed; the brief: no simulated data shown as if it came from the network | Kept: no silent fallback; every Stage 2 result is tagged SIMULATED or REAL; site checks stay simulated (the sample sites are not real) |
-| Demo content | Suggested showing the same steps the worker runs (prompt → `analyze()` → comments), a service failure that changes nothing but the error comment, and the patterns | Ran `main.py` offline and the `--live` error cases | Kept; sections for Persons A and B print "pending" until their code is merged |
-| Tests for the demo | Suggested extending `tests/test_main_demo.py` | Our own expected results: <!-- TODO(C): Roi - confirm these are the two you wrote --> (1) an offline run prints SIMULATED and never `[REAL]`; (2) `--live` with `GEMINI_API_KEY` empty exits with an error, prints the reason and nothing else | Kept both |
-| Verification limits | The AI's sandbox could not install FastAPI/pytest (no network), so it ran `main.py` and the two demo tests directly, not the whole suite | Ran the full suite locally: <!-- TODO(C): Roi - paste the pytest summary line --> | — |
+| Demo content | Suggested showing the same steps the worker runs (prompt → `analyze()` → comments), a service failure that changes nothing but the error comment, and the patterns | Ran `main.py` offline and the `--live` error cases | Kept; the Stage 2 sections print "pending" until the code they show is merged |
+| Tests for the demo | Suggested extending `tests/test_main_demo.py` | Our own expected results: (1) an offline run prints SIMULATED and never `[REAL]`; (2) `--live` with `GEMINI_API_KEY` empty exits with an error, prints the reason and nothing else | Kept both |
+| Verification limits | The AI's sandbox could not install FastAPI/pytest (no network), so it ran `main.py` and the two demo tests directly, not the whole suite | Ran the full suite locally: `1488 passed` | — |
+| Merging the branches | Traced a drop in the test count to a stray branch and stale counts in the README, and found two seed-script password tests lost when commits were combined | `git log` of each branch; the test count after every merge | Restored the two tests (`9dbcdb2`); the stray branch was never merged |
+| Windows | Found that the activity-log file stayed open after the app stopped, and that two `serve_app.py` tests read the developer's real `.env` | Ran the suite on Windows | Fixed both (`bea5f9e`, `8093c32`) |
+| Settings and security | We decided to keep every setting in the app and to drop the requirements demo page (it ran code from inside the app, and the brief does not ask for it); the AI planned the move and pointed out that the brief (§2.3) still needs the API key to be readable from the environment | A fresh setup and a restart with an edited `.env` (ignored); the key's fallback to `.env` | Settings are copied into the encrypted database at setup; an API key not saved in the app is still read from `.env`; the demo page removed (`c1930c5`) |
