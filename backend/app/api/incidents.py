@@ -48,6 +48,7 @@ from app.events import EventBroadcaster, incident_event
 from app.models import Fault, IncidentStatus, MaintenanceTask, Role, User
 from app.services import SeverityScorer
 from app.state import AppState
+from app.threaded_processing import claim_most_severe_fault, claim_queued_fault
 from datetime import datetime, timedelta, timezone
 from app.iterators import STALE_AFTER, first_pressing_calls, stale_in_progress_work
 router = APIRouter(prefix="/incidents", tags=["incidents"])
@@ -478,10 +479,11 @@ def claim_next_fault(state: AppState = Depends(get_state), current_user: User = 
     the queue once the domain claim has succeeded. 404 (IndexError) if the
     queue is empty. Unlike /faults/{id}/claim, no priority check is needed:
     the fault claimed here is by definition the most severe one waiting.
+    The three steps run under the queue's claim lock, so two simultaneous
+    requests never get the same fault (app/threaded_processing.py); saving and
+    publishing happen after the lock is released.
     """
-    fault = state.faults.peek()
-    fault.claim(current_user)
-    state.faults.remove(fault)
+    fault = claim_most_severe_fault(state.faults, current_user)
     state.incidents.save(fault)
     _publish(broadcaster, client_id, fault, "claimed", current_user)
     return incident_to_dict(fault)
@@ -527,15 +529,17 @@ def claim_fault(incident_id: str, state: AppState = Depends(get_state),
 
     Order matters: the priority rule is checked first, then the domain
     claim (status, assignee, log comment), and only then is the fault taken
-    out of the queue - so a rejected claim changes nothing anywhere.
+    out of the queue - so a rejected claim changes nothing anywhere. The
+    three steps run under the queue's claim lock, so of two technicians
+    claiming the same fault at once exactly one succeeds and the other gets
+    409 (app/threaded_processing.py); saving and publishing happen after the
+    lock is released.
     400 for a maintenance task, 404 for an unknown id.
     """
     fault = state.incidents.get(incident_id)
     if not isinstance(fault, Fault):
         raise HTTPException(status_code=400, detail="Only faults can be claimed.")
-    state.faults.ensure_claimable(fault)
-    fault.claim(current_user)
-    state.faults.remove(fault)
+    claim_queued_fault(state.faults, fault, current_user)
     state.incidents.save(fault)
     _publish(broadcaster, client_id, fault, "claimed", current_user)
     return incident_to_dict(fault)
