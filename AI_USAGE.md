@@ -13,7 +13,7 @@ Incident Bridge started as an idea and was **designed and built by the Project's
 - write follow-up documentation, code comments/docstrings and usage instructions for the code files;
 - generate the synthetic sample data where needed as required by the project's requirements document and help check it.
 
-Every AI suggestion was **run, tested and reviewed by us before it was kept** (the project has 1451 automated tests, run on every push since implementation). Responsibility for the code and the decisions stays with the team members, and we can explain every part of the business process behind it.
+Every AI suggestion was **run, tested and reviewed by us before it was kept** (the project has 1487 automated tests, run on every push since implementation). Responsibility for the code and the decisions stays with the team members, and we can explain every part of the business process behind it.
 
 **Tool used:** Claude (Anthropic), in chat sessions.
 
@@ -63,18 +63,11 @@ The fields and rules match the validation in our classes (`from_dict` constructo
 ### How to import the data
 
 **Incidents** (`data/sample_data.jsonl`) — any one of:
-- **In the app:** log in as an admin → dashboard → **Import seed data** → choose `data/sample_data.jsonl`.
+- **In the app:** log in as an admin → **Server settings** → **Import data** → Incidents → choose `data/sample_data.jsonl`.
 - **From the command line, into a running server:** start the app (`cd backend && python serve_app.py`), then in a second terminal `cd backend && python seed_from_jsonl.py` (it reads `../data/sample_data.jsonl` by default, or pass another path). The new incidents appear live in every open browser.
 - **Demo only (in memory):** `python main.py` from the repository root.
 
-**Sites and mailing lists** (`data/sites.jsonl`, `data/mailing_lists.jsonl`) — imported when the app starts, only if enabled. In `backend/.env` set:
-
-```
-SITES_SEED_PATH=data/sites.jsonl
-MAILING_LISTS_SEED_PATH=data/mailing_lists.jsonl
-```
-
-then restart the app. Paths are relative to the repository root. Leaving these lines commented out or empty means no import.
+**Sites and mailing lists** (`data/sites.jsonl`, `data/mailing_lists.jsonl`) — in the app: **Server settings** → **Import data** → Sites, then Mailing lists (lists refer to sites, so sites first).
 
 **Re-importing is always safe:** records whose id already exists are skipped, never overwritten.
 

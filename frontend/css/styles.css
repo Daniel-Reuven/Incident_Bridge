@@ -239,7 +239,7 @@ textarea { resize: vertical; }
 .fault-fields legend { font-size: 13px; color: var(--ink-soft); padding: 0 4px; }
 .fault-fields > * + * { margin-top: 10px; }
 
-/* --- seed-data import dialog result summary --- */
+/* --- data import result summary (Server settings page) --- */
 .import-summary {
   margin: 14px 0;
   padding: 10px 12px;
@@ -293,6 +293,10 @@ textarea { resize: vertical; }
    right and bottom borders darken - the LEFT border is the row's color code
    (severity, site status, notification state) and must keep its color, so
    this rule must not use the border-color shorthand, which would override it. */
+a.row { color: inherit; text-decoration: none; }           /* rows that open a page are real links */
+a.row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.row-link { color: inherit; text-decoration: none; }
+.row-link:hover { text-decoration: underline; }
 .row:hover {
   background: var(--row-hover);
   border-top-color: var(--ink-soft);
@@ -500,6 +504,15 @@ textarea { resize: vertical; }
 .status-text.notification-draft { color: var(--major); }
 .status-text.notification-sent { color: var(--accent); }
 .status-text.notification-dismissed, .status-text.notification-skipped { color: var(--ink-soft); }
+/* AI requests (site portal): waiting/running stand out, answered is done, failed is a problem */
+.ai-queued, .ai-running { border-left-color: var(--major); }
+.ai-success, .ai-success_unstructured { border-left-color: var(--accent); }
+.ai-failed { border-left-color: var(--critical); }
+.status-text.ai-queued, .status-text.ai-running { color: var(--major); }
+.status-text.ai-success, .status-text.ai-success_unstructured { color: var(--accent); }
+.status-text.ai-failed { color: var(--critical); }
+.status-text.ai-cancelled, .status-text.ai-dropped { color: var(--ink-soft); }
+.status-text[class*=" ai-"] { text-transform: none; }    /* "Answered, no findings" stays as written */
 
 .report-checks { margin: 0 0 24px; padding: 0; list-style: none; font-size: 14px; }
 .report-checks li { padding: 6px 0; border-bottom: 1px solid var(--line); }
@@ -518,6 +531,7 @@ textarea { resize: vertical; }
   cursor: pointer;
 }
 .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+a.tab { text-decoration: none; }
 .tab-count { font-weight: 400; color: var(--ink-soft); }
 
 /* Rows on the portal: same .row as the dashboard, plus inline actions. */
@@ -681,26 +695,6 @@ body > main { flex: 1 0 auto; }
 .jump-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .jump-btn[hidden] { display: none; }
 
-/* Requirements demo page (js/demo.js) */
-.demo-item { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 28px; }
-.demo-item h2 { margin-top: 18px; }
-.demo-number { color: var(--ink-soft); font-weight: 500; }
-.demo-run { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
-.demo-status { margin-inline-start: 0; }
-.demo-output, .demo-code pre {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12.5px; line-height: 1.5; background: var(--paper); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 10px 12px; margin: 0 0 10px; overflow-x: auto; white-space: pre;
-}
-.demo-output { border-left: 4px solid var(--accent); }
-.demo-output.failed { border-left-color: var(--critical); }
-.demo-code { margin: 0 0 6px; }
-.demo-code summary { cursor: pointer; font-size: 14px; color: var(--ink-soft); padding: 4px 0; }
-.demo-code summary:hover { color: var(--accent); }
-.demo-code[open] summary { color: var(--ink); }
-.demo-uses li { max-width: 72ch; }
-.demo-page .doc-note:empty { display: none; }
-
 /* a screenshot with its caption */
 .doc-figure { margin: 18px 0 8px; }
 .doc-figure a { display: block; }
@@ -846,7 +840,17 @@ body > main { flex: 1 0 auto; }
 .source-tag { font-size: 11px; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 999px;
               padding: 0 6px; margin-inline-start: 4px; font-weight: 400; }
 .source-tag:empty { display: none; }
-.source-tag[data-kind="page"] { color: var(--accent); border-color: var(--accent); }
+.source-tag[data-kind="saved"] { color: var(--accent); border-color: var(--accent); }
+.config-group { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 14px 0; margin: 10px 0 14px; }
+.config-group legend { font-size: 13px; color: var(--ink-soft); padding: 0 4px; }
+.config-group .field-hint { margin-bottom: 4px; }
+.config-group label.checkbox { margin-bottom: 2px; }
+.config-group label.checkbox + .field-hint { margin: 0 0 14px 26px; }
+.import-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; align-items: end;
+               border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.import-form label { margin-bottom: 0; }
+.import-form input[type="file"] { display: block; margin-top: 6px; }
+.import-form .import-summary { grid-column: 1 / -1; margin-top: 10px; }
 .cert-fields { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 14px 4px; margin: 4px 0 14px; }
 .cert-fields[disabled] { opacity: 0.6; }
 .cert-fields legend { font-size: 13px; color: var(--ink-soft); padding: 0 4px; }

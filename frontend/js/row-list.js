@@ -59,13 +59,24 @@ export function renderRowList(container, items, keyFn, renderFn, emptyMessage) {
   for (const item of items) {
     const key = String(keyFn(item));
     usedKeys.add(key);
-    const { className, html, sig } = renderFn(item);
+    const { className, html, sig, href } = renderFn(item);
 
+    // A row that opens a page is a real link (<a href>): right-click "Open in
+    // new tab", middle-click and Ctrl+click work as on any link. Such a row
+    // must not contain buttons or links of its own.
+    const tag = href ? "A" : "DIV";
     let el = existing.get(key);
-    if (!el) {
-      el = document.createElement("div");
+    if (el && el.tagName !== tag) {
+      const replacement = document.createElement(tag);
+      el.replaceWith(replacement);
+      el = replacement;
       el.dataset.key = key;
     }
+    if (!el) {
+      el = document.createElement(tag);
+      el.dataset.key = key;
+    }
+    if (href && el.getAttribute("href") !== href) el.setAttribute("href", href);
     if (el.dataset.sig !== sig) {
       el.className = className;
       el.innerHTML = html;

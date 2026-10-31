@@ -2,17 +2,20 @@
 How the server listens: HTTP and HTTPS ports, "HTTPS only for remote
 connections", the certificate and the trusted proxies.
 
-    .env                 HOST, PORT, HTTPS_ENABLED, HTTPS_PORT, HTTPS_ONLY_REMOTE,
-                         TLS_CERT_FILE, TLS_KEY_FILE, TLS_KEY_PASSWORD, TRUSTED_PROXIES
-    Server settings page saved encrypted in the database ("server") and WINS over
-                         .env, field by field; "Use .env" removes them again
+    saved settings       HOST, PORT, HTTPS_ENABLED, HTTPS_PORT, HTTPS_ONLY_REMOTE,
+                         TLS_CERTIFICATE, TLS_CERT_FILE, TLS_KEY_FILE, TLS_KEY_PASSWORD,
+                         TRUSTED_PROXIES - kept encrypted in the database with the
+                         app's other settings (app/app_config.py): copied from
+                         backend/.env at setup, then changed only on the Server
+                         settings page
 
-Both are read by serve_app.py when it starts the server, so a change takes
+They are read by serve_app.py when it starts the server, so a change takes
 effect at the next restart; the page shows what is running and what is
 saved. HTTP from this computer itself (loopback) always stays open, so a
-wrong setting can never lock the admin out.
+wrong setting can never lock the admin out. Before the setup there are no
+saved settings yet: the environment (backend/.env) is used.
 
-APP_MODE (.env only - it describes the deployment, not a preference):
+APP_MODE (a saved setting too - the page's Server section):
     testing     (default) anything goes, including the generated self-signed
                 certificate (app/security/tls.py)
     production  HTTPS must be on, with certificate FILES that chain to a
@@ -28,7 +31,7 @@ import ipaddress
 import json
 import os
 from dataclasses import asdict, dataclass, field, fields
-from typing import Dict, List, Optional
+from typing import Dict, List, Mapping, Optional
 
 MODES = ("testing", "production")
 CERTIFICATE_SOURCES = ("generated", "files")
@@ -42,7 +45,7 @@ ENV_NAMES = {
     "https_enabled": "HTTPS_ENABLED",
     "https_port": "HTTPS_PORT",
     "https_only_remote": "HTTPS_ONLY_REMOTE",
-    "certificate": None,                     # "files" when TLS_CERT_FILE is set, else "generated"
+    "certificate": "TLS_CERTIFICATE",        # unset: "files" when TLS_CERT_FILE is set, else "generated"
     "cert_file": "TLS_CERT_FILE",
     "key_file": "TLS_KEY_FILE",
     "key_password": "TLS_KEY_PASSWORD",
@@ -71,8 +74,9 @@ class ServerSettings:
         return values
 
 
-def app_mode() -> str:
-    mode = (os.environ.get("APP_MODE") or "testing").strip().lower()
+def app_mode(values: Optional[Mapping[str, str]] = None) -> str:
+    """APP_MODE from `values` (the saved settings) or, by default, the environment."""
+    mode = ((values if values is not None else os.environ).get("APP_MODE") or "testing").strip().lower()
     if mode not in MODES:
         raise ValueError(f"APP_MODE must be testing or production (got {mode!r}).")
     return mode
@@ -129,33 +133,57 @@ def _coerce(name: str, raw):
     return str(raw if raw is not None else "").strip()
 
 
-def from_env() -> Dict[str, object]:
-    """The fields .env sets (only those), coerced. ValueError for a bad value."""
+def from_values(source: Mapping[str, str]) -> Dict[str, object]:
+    """The fields `source` (setting name -> text: the saved settings, or the environment) sets, coerced."""
     values: Dict[str, object] = {}
     for name, env in ENV_NAMES.items():
-        raw = os.environ.get(env) if env else None
-        if raw is not None and raw.strip() != "":
+        raw = source.get(env)
+        if raw is not None and str(raw).strip() != "":
             values[name] = _coerce(name, raw)
-    if values.get("cert_file"):
+    if values.get("cert_file") and "certificate" not in values:
         values["certificate"] = "files"
     return values
 
 
-def effective(stored: Optional[dict] = None) -> ServerSettings:
-    """Defaults, then .env, then what the page saved. ValueError for a bad value."""
+def from_env() -> Dict[str, object]:
+    """The fields the environment sets - before the setup, or for main.py."""
+    return from_values(os.environ)
+
+
+def effective(stored: Optional[dict] = None, base: Optional[Mapping[str, str]] = None) -> ServerSettings:
+    """
+    Defaults, then `base` (the saved settings by setting name - by default the
+    environment, which apply() fills from them), then `stored` (field names).
+    ValueError for a bad value.
+    """
     values = asdict(ServerSettings())
-    values.update(from_env())
+    values.update(from_values(base if base is not None else os.environ))
     for name, raw in (stored or {}).items():
         if name in values:
             values[name] = _coerce(name, raw)
     return ServerSettings(**values)
 
 
-def sources(stored: Optional[dict] = None) -> Dict[str, str]:
-    """Where each field's value comes from: "page", ".env" or "default"."""
-    env = from_env()
-    return {f.name: "page" if f.name in (stored or {}) else ".env" if f.name in env else "default"
+def sources(saved: Mapping[str, str]) -> Dict[str, str]:
+    """Where each field's value comes from: "saved" (in the app's settings) or "default"."""
+    return {f.name: "saved" if (ENV_NAMES.get(f.name) or "") in saved else "default"
             for f in fields(ServerSettings)}
+
+
+def to_config(field_values: Mapping[str, object]) -> Dict[str, str]:
+    """Fields (the page's names) as saved settings (setting name -> text)."""
+    out: Dict[str, str] = {}
+    for name, value in field_values.items():
+        env = ENV_NAMES.get(name)
+        if not env:
+            continue
+        if isinstance(value, bool):
+            out[env] = "true" if value else "false"
+        elif isinstance(value, (list, tuple)):
+            out[env] = ",".join(str(v) for v in value)
+        else:
+            out[env] = str(value)
+    return out
 
 
 def coerce_changes(changes: dict) -> dict:

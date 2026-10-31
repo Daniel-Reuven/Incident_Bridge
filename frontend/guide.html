@@ -42,7 +42,7 @@
         <li><a href="#users">Users</a></li>
         <li><a href="#logs">Activity log</a></li>
         <li><a href="#sites">The site portal</a></li>
-        <li><a href="#server">Server settings: HTTPS and AI</a></li>
+        <li><a href="#server">Server settings</a></li>
         <li><a href="#setup">First-time setup and the recovery key</a></li>
         <li><a href="#data">What is recorded and stored</a></li>
         <li><a href="#good-to-know">Good to know</a></li>
@@ -103,16 +103,14 @@
           <tr><td>Claim a fault, resolve a fault</td><td class="yes">✓</td><td class="yes">✓</td></tr>
           <tr><td>Ask for an AI analysis of a fault, or cancel one</td><td class="yes">✓</td><td class="yes">✓</td></tr>
           <tr><td>Pressing maintenance calls, check stale incidents</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-          <tr><td>The course requirements page: run its demos</td><td class="yes">✓</td><td class="yes">✓</td></tr>
           <tr><td>Close as <em>Not an incident</em> or <em>By design</em></td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Change a fault's severity</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Reopen a closed incident</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Run an AI analysis again with no changes (<em>Re-analyze</em>)</td><td class="no">—</td><td class="yes">✓</td></tr>
-          <tr><td>Import seed data</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Site portal: sites, mailing lists, notifications</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Users: create accounts, change roles, disable, reset passwords</td><td class="no">—</td><td class="yes">✓</td></tr>
           <tr><td>Activity log: read it and check its integrity (nobody can edit or delete it)</td><td class="no">—</td><td class="yes">✓</td></tr>
-          <tr><td>Server settings: HTTPS, the certificate, the AI analysis settings</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Server settings: the app's settings, HTTPS, the certificate, the AI analysis settings, importing data</td><td class="no">—</td><td class="yes">✓</td></tr>
         </tbody>
       </table>
     </div>
@@ -121,7 +119,7 @@
     <h2 id="dashboard">The dashboard</h2>
     <figure class="doc-figure">
       <a href="/screenshots/02-dashboard.png"><img src="/screenshots/02-dashboard.png" alt="The dashboard: filters, buttons and tabs above the maintenance queue" width="1440" height="900" loading="lazy"></a>
-      <figcaption>The dashboard, seen by an admin (<em>Import seed data</em>, <em>Site portal</em> and <em>Users</em> are admin-only).</figcaption>
+      <figcaption>The dashboard, seen by an admin (<em>Site portal</em> and <em>Users</em> are admin-only).</figcaption>
     </figure>
     <p>After logging in you land on the dashboard. It has four tabs, each with its count: <strong>Everything</strong> (all of the below), <strong>Maintenance</strong> (just the maintenance queue — every task in it is open or in progress, in order, so there is nothing to sort), <strong>Faults</strong> (the fault queue and the active faults) and <strong>Archive</strong> (closed incidents of both kinds, most recently closed first). The <em>Everything</em> tab, from top to bottom:</p>
     <ul>
@@ -201,7 +199,7 @@
       <li><strong>Not an incident</strong> and <strong>By design</strong> close an incident with that reason, instead of <em>Resolve</em>. A closing message is still required.</li>
       <li><strong>Severity</strong> — on an in-progress fault, the <em>Severity</em> menu changes it; the fault's place in the queue follows.</li>
       <li><strong>Reopen…</strong> on a closed incident, with a reason. A maintenance task asks where in the queue it goes back; a fault goes back to the queue (Open) or to you (In progress). The earlier resolution stays in the history.</li>
-      <li><strong>Import seed data</strong> (dashboard) loads incidents from a <code>.jsonl</code> file; incidents already there are skipped, not duplicated. Every username in the file (who reported, who is assigned, who wrote each update) must be an account here, or that incident is skipped with the reason. The sample data uses <code>admin</code>, <code>tech1</code>, <code>tech2</code> and <code>tech3</code>: name the first admin <code>admin</code> at setup and create the three technicians (for example through <code>INCIDENT_BRIDGE_USERS</code>) before importing it.</li>
+      <li><strong>Importing data</strong> — on the <a href="#server">Server settings</a> page. For incidents, every username in the file (who reported, who is assigned, who wrote each update) must be an account here, or that incident is skipped with the reason. The sample data uses <code>admin</code>, <code>tech1</code>, <code>tech2</code> and <code>tech3</code>: name the first admin <code>admin</code> at setup and create the three technicians (for example through <code>INCIDENT_BRIDGE_USERS</code>) before importing it.</li>
       <li><strong>Re-analyze</strong> — see <a href="#ai">AI analysis</a>.</li>
     </ul>
 
@@ -258,20 +256,24 @@
       <li><strong>Notifications</strong>: each meaningful status change creates a draft to the lists covering that site. Open it with <strong>Review</strong>, edit the text if needed, then <strong>Send to lists</strong> or <strong>Dismiss</strong>.</li>
       <li><strong>Archive</strong> removes a site or list from use; the <em>Archive</em> tab can <strong>Restore</strong> it.</li>
       <li>Sent, dismissed and skipped notifications move to the <em>Archive</em> tab after a set time (30 days unless the operator changed it), where they can only be viewed. Notifications waiting for a decision stay in <em>Notifications</em>.</li>
+      <li><strong>AI requests</strong> lists every <a href="#ai">AI analysis</a> request, newest first: the fault (open it from there), who asked and when, the provider and model, and how it went — queued, running, answered, failed, cancelled or dropped. When an answer names sites affected by the fault, the app <strong>checks each of those sites</strong> at once and the check, not the AI, decides its status; the findings line shows which sites were named. The site list shows each site's AI analyses, and the summary above the tabs lists sites the AI named that are now operational or that nobody was notified about — worth a second look.</li>
+      <li>Finished AI requests move to the <em>Archive</em> tab after a set time (30 days unless the operator changed it) and stop counting in those numbers.</li>
     </ul>
 
-    <h2 id="server">Server settings: HTTPS and AI <span class="role-tag admin">Admin</span></h2>
-    <p><strong>Server</strong> in the top bar sets how the server is reached and which AI provider analyzes faults. The tag at the top shows the server's <strong>mode</strong>, set by the operator in <code>backend/.env</code> (<code>APP_MODE</code>): <em>Testing</em> or <em>Production</em>.</p>
+    <h2 id="server">Server settings <span class="role-tag admin">Admin</span></h2>
+    <p><strong>Server</strong> in the top bar holds every setting of the app, how the server is reached, which AI provider analyzes faults, and the data imports, each on its own tab (<em>Settings</em>, <em>HTTPS</em>, <em>AI analysis</em>, <em>Import data</em> — each a link, so it can be opened in a new browser tab). The tag at the top shows the server's <strong>mode</strong>: <em>Testing</em> or <em>Production</em> (<em>Settings → Server → Mode</em>).</p>
     <figure class="doc-figure">
       <a href="/screenshots/13-server-settings.png"><img src="/screenshots/13-server-settings.png" alt="The Server settings page: what is running now, the HTTP and HTTPS ports, HTTPS only for remote connections, the generated certificate with its details, trusted proxies, and the AI analysis provider" width="1440" height="1363" loading="lazy"></a>
       <figcaption>Server settings while testing: HTTPS with the generated certificate.</figcaption>
     </figure>
     <ul>
+      <li><strong>Settings</strong> — grouped: the mode, logins, the activity log, the site portal and the AI queue's timing. They are kept encrypted with the data. The file <code>backend/.env</code> only gave their first values when the app was set up; changing it now has no effect. Each shows <em>saved</em> or <em>default</em>; an empty field goes back to the default. A value the app could not start with is refused, and production mode only once HTTPS is set up for it.</li>
       <li><strong>HTTPS</strong> — <em>Serve HTTPS</em> adds an encrypted address next to the plain one, on its own port (for example <code>https://your-server:8443</code>). <em>HTTPS only for remote connections</em> sends anyone on another computer who uses the plain address on to the HTTPS one. From the server computer itself the plain address always keeps working, so a wrong setting can never lock you out.</li>
       <li><strong>Certificate</strong> — while testing, the app can make its own (<em>self-signed</em>): each browser warns about it once, then lets you continue. In <strong>production</strong> it must be a certificate from a certificate authority — your organization, your hosting company, or a public one such as Let's Encrypt, DigiCert or GoDaddy. Enter the paths of its certificate file (with the intermediate certificates after it, as the authority provides them) and its key file, and <em>Check the files</em>. In production the server will not start without HTTPS, a valid certificate from an authority, and <em>HTTPS only for remote connections</em>.</li>
       <li><strong>Trusted proxies</strong> — only when another server (a reverse proxy) sits in front of the app: its address, so the app believes what it reports about the visitor. Leave it empty otherwise.</li>
-      <li>Each field shows where its value comes from: <em>set here</em>, <em>from .env</em> or <em>default</em>. Values saved here win over <code>.env</code>; <em>Use .env instead</em> removes them. These settings take effect when the server starts: the page says <strong>Restart the server to apply</strong> until then.</li>
-      <li><strong>AI analysis</strong> — the provider, its API key and models, as at setup; <em>Off</em> turns the analysis off, <em>Use the .env settings</em> goes back to the operator's. Saved changes apply <strong>at once</strong>. The key is stored encrypted and never shown again; leave the field empty to keep it.</li>
+      <li>Each HTTPS field shows <em>saved</em> or <em>default</em>; <em>Back to the defaults</em> clears them. The settings and HTTPS take effect when the server starts: the page says <strong>Restart the server to apply</strong> until then.</li>
+      <li><strong>AI analysis</strong> — the provider, its API key and models, as at setup; <em>Off</em> turns the analysis off. Saved changes apply <strong>at once</strong>. The key is stored encrypted and never shown again; leave the field empty to keep it (or to keep using the key the operator put in <code>backend/.env</code>).</li>
+      <li><strong>Import data</strong> — <code>.jsonl</code> files, one record per line, like the samples in the project's <code>data</code> folder: incidents (they join the live queues at once), sites, and mailing lists (import the sites first — lists refer to them). Records already there are skipped, never overwritten, and invalid ones are listed with the reason.</li>
     </ul>
     <div class="doc-note admin">A login made at the HTTPS address is never sent back over the plain one. In production, browsers are also told to use only HTTPS for this server from then on.</div>
 
@@ -314,7 +316,6 @@
     <!-- 10 -->
     <h2 id="good-to-know">Good to know</h2>
     <ul>
-      <li><strong>Course requirements:</strong> the <a href="/demo.html">Requirements</a> page (any logged-in user) lists every requirement of the course brief, with the code that meets it, where the app uses it, and a <em>Run</em> button that shows it working on sample data held in memory — your data is never touched.</li>
       <li><strong>Live updates:</strong> lists update by themselves. If someone changes the incident you are looking at, a prompt offers to refresh it.</li>
       <li><strong>Server restarts:</strong> open pages reconnect on their own within a few seconds, and you stay logged in.</li>
       <li><strong>Something refused?</strong> The message says why — for example, a task that is not first in line cannot be started, and admin-only actions are not offered to users.</li>

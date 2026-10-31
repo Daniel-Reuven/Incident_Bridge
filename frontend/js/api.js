@@ -55,8 +55,8 @@ export const api = {
   previewDisplay: (body) => request("/users/display-preview", { method: "POST", body }),
   updateUserDetails: (username, details) =>
     request(`/users/${encodeURIComponent(username)}/details`, { method: "PATCH", body: details }),
-  demoRequirements: () => request("/demo/requirements"),
-  runDemo: (id) => request(`/demo/requirements/${encodeURIComponent(id)}/run`, { method: "POST" }),
+  serverConfig: () => request("/server/config"),
+  saveServerConfig: (values) => request("/server/config", { method: "PUT", body: { values } }),
   serverSettings: () => request("/server/settings"),
   saveServerSettings: (changes) => request("/server/settings", { method: "PUT", body: changes }),
   resetServerSettings: () => request("/server/settings", { method: "DELETE" }),
@@ -142,6 +142,8 @@ export const api = {
   cancelAnalysis: (id) => request(`/incidents/faults/${id}/analysis/cancel`, { method: "POST" }),
   // --- bulk import (admin only) ---
   importJsonl: (content) => request("/incidents/import-jsonl", { method: "POST", body: { content } }),
+  importSites: (content) => request("/sites/import-jsonl", { method: "POST", body: { content } }),
+  importMailingLists: (content) => request("/sites/mailing-lists/import-jsonl", { method: "POST", body: { content } }),
 
   // --- site portal (admin only - every call returns 403 for other roles; see backend/app/api/sites.py) ---
   listSites: (includeArchived = false) => request("/sites" + (includeArchived ? "?include_archived=true" : "")),
@@ -156,6 +158,7 @@ export const api = {
   archiveSite: (siteId) => request(`/sites/${siteId}/archive`, { method: "POST" }),
   restoreSite: (siteId) => request(`/sites/${siteId}/restore`, { method: "POST" }),
   siteReport: () => request("/sites/report"),
+  listAiRequests: (archived = false) => request(`/analysis-requests${archived ? "?archived=true" : ""}`),
 
   listMailingLists: (includeArchived = false) =>
     request("/sites/mailing-lists" + (includeArchived ? "?include_archived=true" : "")),

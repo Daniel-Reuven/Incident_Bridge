@@ -38,6 +38,9 @@
       <button class="tab" role="tab" id="tab-notifications" aria-controls="panel-notifications" aria-selected="false">
         Notifications <span class="tab-count" id="draft-count"></span>
       </button>
+      <button class="tab" role="tab" id="tab-ai" aria-controls="panel-ai" aria-selected="false">
+        AI requests <span class="tab-count" id="ai-count"></span>
+      </button>
       <button class="tab" role="tab" id="tab-archive" aria-controls="panel-archive" aria-selected="false">Archive</button>
     </nav>
 
@@ -67,6 +70,11 @@
       <div id="notification-list"><p class="empty">Loading…</p></div>
     </section>
 
+    <section role="tabpanel" id="panel-ai" aria-labelledby="tab-ai" hidden>
+      <p class="hint" id="ai-intro" style="margin:0 0 10px"></p>
+      <div id="ai-request-list"><p class="empty">Loading…</p></div>
+    </section>
+
     <section role="tabpanel" id="panel-archive" aria-labelledby="tab-archive" hidden>
       <h2>Archived sites</h2>
       <div id="archived-site-list"><p class="empty">Loading…</p></div>
@@ -76,6 +84,10 @@
       <p class="hint" style="margin:-6px 0 10px">View only. Sent, dismissed and skipped notifications move here after
         the period set by NOTIFICATION_ARCHIVE_DAYS (30 days by default); ones waiting for a decision never do.</p>
       <div id="archived-notification-list"><p class="empty">Loading…</p></div>
+      <h2 style="margin-top:24px">Archived AI requests</h2>
+      <p class="hint" style="margin:-6px 0 10px">View only. A finished AI analysis request moves here after the period
+        set by AI_REQUEST_ARCHIVE_DAYS (30 days by default) and no longer counts in the site report.</p>
+      <div id="archived-ai-request-list"><p class="empty">Loading…</p></div>
     </section>
   </main>
 

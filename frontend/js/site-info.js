@@ -24,6 +24,7 @@ export const SITE = {
     { github: "Daniel-Reuven" },
     { github: "OfirWasHere" },
     { github: "roi2109" },
+    { github: "Elhai29" },
   ],
   // The public pages, in the order the header and footer list them.
   pages: [

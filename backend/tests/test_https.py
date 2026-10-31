@@ -1,6 +1,6 @@
 """
-Tests for HTTPS: the server settings (app/server_settings.py - .env, the
-page wins, the production rules), the certificate (app/security/tls.py -
+Tests for HTTPS: the server settings (app/server_settings.py - the saved
+settings, the production rules), the certificate (app/security/tls.py -
 generated, files, a chain to a certificate authority), "HTTPS only for
 remote connections" with HSTS and the Secure cookie (app/api/security.py),
 the Server settings page's API (app/api/server.py, also the AI settings)
@@ -40,18 +40,20 @@ def clean(monkeypatch):
 
 # --- settings ---------------------------------------------------------------------------------
 
-def test_defaults_then_env_then_the_page(monkeypatch):
+def test_defaults_then_the_saved_settings(monkeypatch):
     assert server_settings.effective() == ServerSettings()
-    monkeypatch.setenv("PORT", "9000")
-    monkeypatch.setenv("HTTPS_ENABLED", "true")
-    monkeypatch.setenv("TRUSTED_PROXIES", "10.0.0.5, 10.1.0.0/16")
-    settings = server_settings.effective({"http_port": 8080})
+    saved = {"PORT": "9000", "HTTPS_ENABLED": "true", "TRUSTED_PROXIES": "10.0.0.5, 10.1.0.0/16"}
+    settings = server_settings.effective({"http_port": 8080}, base=saved)
     assert (settings.http_port, settings.https_enabled, settings.trusted_proxies) == (8080, True,
                                                                                        ["10.0.0.5/32", "10.1.0.0/16"])
-    assert server_settings.sources({"http_port": 8080})["http_port"] == "page"
-    assert server_settings.sources({})["https_enabled"] == ".env"
-    monkeypatch.setenv("TLS_CERT_FILE", "/x.pem")
-    assert server_settings.effective().certificate == "files"
+    assert server_settings.sources(saved)["https_enabled"] == "saved"
+    assert server_settings.sources(saved)["https_port"] == "default"
+    monkeypatch.setenv("PORT", "7000")                          # the environment only when no saved settings are given
+    assert server_settings.effective(base={}).http_port == ServerSettings().http_port
+    assert server_settings.effective().http_port == 7000
+    assert server_settings.effective(base={"TLS_CERT_FILE": "/x.pem"}).certificate == "files"
+    assert server_settings.to_config({"https_enabled": True, "trusted_proxies": ["10.0.0.5/32"]}) == {
+        "HTTPS_ENABLED": "true", "TRUSTED_PROXIES": "10.0.0.5/32"}
 
 
 @pytest.mark.parametrize("name, value, message", [
@@ -223,21 +225,22 @@ def test_only_admins(user_client):
     assert user_client.put("/server/ai", json={"provider": "off"}).status_code == 403
 
 
-def test_saved_settings_win_and_need_a_restart(admin_client, monkeypatch, caplog):
-    monkeypatch.setenv("PORT", "9000")
-    server_settings.set_running(server_settings.effective(), "testing")
+def test_saved_settings_need_a_restart_and_env_changes_do_nothing(admin_client, monkeypatch, caplog):
+    monkeypatch.setenv("PORT", "9000")                          # .env after the setup: no effect
+    server_settings.set_running(server_settings.effective(base={}), "testing")
     shown = admin_client.get("/server/settings").json()
-    assert shown["settings"]["http_port"] == 9000 and shown["sources"]["http_port"] == ".env"
+    assert shown["settings"]["http_port"] == 8000 and shown["sources"]["http_port"] == "default"
     assert shown["restart_needed"] is False and "key_password" not in shown["settings"]
     caplog.set_level("INFO", logger="incident_bridge.audit")
     saved = admin_client.put("/server/settings", json={"http_port": 8080, "https_enabled": True,
                                                        "trusted_proxies": "10.0.0.5"}).json()
-    assert saved["settings"]["http_port"] == 8080 and saved["sources"]["http_port"] == "page"
+    assert saved["settings"]["http_port"] == 8080 and saved["sources"]["http_port"] == "saved"
     assert saved["restart_needed"] is True and saved["settings"]["trusted_proxies"] == ["10.0.0.5/32"]
     record = next(r.audit for r in caplog.records if getattr(r, "audit", {}).get("event") == "server.settings_changed")
     assert record["fields"] == ["http_port", "https_enabled", "trusted_proxies"]
     reset = admin_client.delete("/server/settings").json()
-    assert reset["settings"]["http_port"] == 9000 and reset["settings"]["https_enabled"] is False
+    assert reset["settings"]["http_port"] == 8000 and reset["settings"]["https_enabled"] is False
+    assert reset["sources"]["http_port"] == "default"
 
 
 @pytest.mark.parametrize("body, message", [
@@ -253,7 +256,9 @@ def test_unusable_settings_are_not_saved(admin_client, body, message):
 
 
 def test_production_refuses_the_generated_certificate(admin_client, monkeypatch, tmp_path, authority):
-    monkeypatch.setenv("APP_MODE", "production")
+    refused = admin_client.put("/server/config", json={"values": {"APP_MODE": "production"}})
+    assert refused.status_code == 400 and "Production needs HTTPS" in refused.json()["detail"]
+    admin_client.app.state.settings.set("config", {"APP_MODE": "production"})     # as if saved with HTTPS set up
     response = admin_client.put("/server/settings", json={"https_enabled": True, "https_only_remote": True})
     assert response.status_code == 400 and "testing only" in response.json()["detail"]
     assert admin_client.post("/server/certificate/generate").status_code == 400
@@ -295,12 +300,21 @@ def test_a_new_generated_certificate(tmp_path, monkeypatch):
 
 def test_the_ai_choice_applies_at_once(admin_client):
     on = admin_client.put("/server/ai", json={"provider": "fake"}).json()
-    assert on["applied"] and on["source"] == "page" and on["status"].startswith("On") and on["running"]
+    assert on["applied"] and on["provider"] == "fake" and on["status"].startswith("On") and on["running"]
     off = admin_client.put("/server/ai", json={"provider": "off"}).json()
-    assert off["applied"] and "off" in off["status"] and not off["running"]
+    assert off["applied"] and "off" in off["status"] and not off["running"] and off["provider"] == "off"
     assert admin_client.post("/server/ai/test", json={"provider": "fake"}).json()["ok"]
-    env = admin_client.put("/server/ai", json={"provider": ""}).json()
-    assert env["source"] == ".env"
+    assert admin_client.put("/server/ai", json={"provider": ""}).json()["provider"] == "off"    # no ".env" choice
+
+
+def test_an_api_key_left_out_is_read_from_env_and_not_saved(admin_client, monkeypatch):
+    """The course brief: the external service's key comes from the environment - it still can."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-from-env")
+    saved = admin_client.put("/server/ai", json={"provider": "claude", "models": "claude-x"}).json()
+    assert saved["has_key"] and saved["key_source"] == ".env" and saved["status"].startswith("On")
+    from app.ai import stored_settings
+    assert "ANTHROPIC_API_KEY" not in stored_settings.stored()
+    assert stored_settings.setting("ANTHROPIC_API_KEY") == "sk-from-env"
 
 
 def test_a_saved_api_key_is_kept_when_left_empty(admin_client):
@@ -349,7 +363,8 @@ def test_the_certificate_made_before_the_start_is_not_reported_as_added_by_hand(
     from app.api.app import app
     with TestClient(app) as client:
         finish_setup(client)
-    monkeypatch.setenv("HTTPS_ENABLED", "true")
+        client.post("/auth/login", json={"username": "admin", "password": "Demo#Pass1"})
+        assert client.put("/server/settings", json={"https_enabled": True}).status_code == 200
     _, _, (cert, _, _) = serve_app.server_plan()
     assert Path(cert).parent == tmp_path / "tls"
     with TestClient(app) as client:

@@ -120,6 +120,16 @@ class SqliteRequestHistoryStore:
                               if row["findings_json"] else ())
                 for row in rows]
 
+    def rows(self) -> List[dict]:
+        """Every stored request as a dict, newest first - for the site portal's AI requests view (app/api/ai_requests.py)."""
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM analysis_requests ORDER BY requested_at DESC").fetchall()
+        return [{"id": row["id"], "incident_id": row["incident_id"], "requested_by": row["requested_by"],
+                 "requested_at": row["requested_at"], "finished_at": row["finished_at"], "outcome": row["outcome"],
+                 "provider": row["provider"], "model": row["model"],
+                 "findings": json.loads(row["findings_json"]) if row["findings_json"] else None}
+                for row in rows]
+
     def __repr__(self) -> str:
         return f"SqliteRequestHistoryStore(db_path={self.db_path!r})"
 

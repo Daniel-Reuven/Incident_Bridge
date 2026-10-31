@@ -29,12 +29,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import analysis, auth, demo, events, incidents, logs, server, setup, sites, users
+from app import app_config
+from app.api import ai_requests, analysis, auth, events, incidents, logs, server, setup, sites, users
 from app.api.deps import get_session_user
 from app.api.lifecycle import start_services, stop_services
 from app.api.request_log import RequestLogMiddleware
-from app.api.security import (HttpsOnlyRemoteMiddleware, SecurityHeadersMiddleware, SessionFromSecrets,
-                              session_settings_from_env)
+from app.api.security import HttpsOnlyRemoteMiddleware, SecurityHeadersMiddleware, SessionFromSecrets
 from app.api.setup import SetupGateMiddleware, SetupSession
 from app.logs import app_log, apply_console_format
 from app.version import app_version
@@ -78,6 +78,9 @@ async def lifespan(app: FastAPI):
         has_admin = any(u.role == Role.ADMIN for u in users_db.load_all())
         users_db.close()
         if has_admin:
+            # The app's settings: saved in the database, .env only their first values (app/app_config.py).
+            app_config.initialize(settings)
+            app_config.apply(settings)
             await start_services(app, settings)
         else:                               # keys saved, but the setup never finished: accounts only
             app.state.setup = SetupSession(installation, settings)
@@ -94,14 +97,12 @@ app = FastAPI(title="Incident Bridge API", version=app_version(), lifespan=lifes
 # --- session cookie (signed, not encrypted - don't put secrets in it) ---
 # Keyed with the installation's session secret, generated at setup and kept in
 # the encrypted database (app/app_secrets.py, app/api/security.py). Lifetime
-# and the Secure flag come from SESSION_MAX_AGE_HOURS (default 12) and
-# SESSION_COOKIE_SECURE (default false - set it to true behind HTTPS). A bad
-# value stops startup with a clear message.
-_session_max_age, _session_secure = session_settings_from_env()
+# and the Secure flag are the app's saved settings SESSION_MAX_AGE_HOURS and
+# SESSION_COOKIE_SECURE (app/app_config.py), read once the app has started.
 # Added BEFORE the session middleware, so it runs inside it and can read who
 # made each request: one activity-log record per request (app/api/request_log.py).
 app.add_middleware(RequestLogMiddleware)
-app.add_middleware(SessionFromSecrets, same_site="lax", max_age=_session_max_age, https_only=_session_secure)
+app.add_middleware(SessionFromSecrets, same_site="lax")
 # Until the setup is finished, only the setup page answers (app/api/setup.py).
 app.add_middleware(SetupGateMiddleware)
 
@@ -132,8 +133,8 @@ app.include_router(incidents.router)
 app.include_router(events.router)
 app.include_router(sites.router)   # admin-only site portal (Sites & Mailing Lists)
 app.include_router(analysis.router)   # AI analysis of faults (app/ai/)
+app.include_router(ai_requests.router)  # admin: the AI request history and archive (site portal)
 app.include_router(server.router)     # admin-only Server settings (HTTPS, AI)
-app.include_router(demo.router)       # the requirements demo page (any logged-in user)
 
 
 # --- centralized exception -> HTTP status mapping ---

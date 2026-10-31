@@ -28,8 +28,8 @@ export function formatDate(iso) {
   return iso ? new Date(`${iso}T00:00:00`).toLocaleDateString() : "";
 }
 
-export function plural(count, word) {
-  return `${count} ${word}${count === 1 ? "" : "s"}`;
+export function plural(count, word, many = `${word}s`) {
+  return `${count} ${count === 1 ? word : many}`;
 }
 
 /** "Site 1042, Site 1043" from a list of ids. */
@@ -73,7 +73,34 @@ export function reportFindings(report) {
   if (unknown.length) items.push({ text: `Incidents mention sites that do not exist: ${unknown.join(", ")}` });
   const drafts = report.notification_counts.draft || 0;
   if (drafts) items.push({ text: `${plural(drafts, "notification")} waiting for a decision`, tab: "notifications" });
+  add(report.ai_resolved_or_unnotified_sites || [],
+    `The AI named these sites as affected, but they are now operational or nobody was notified - worth a second look: ${siteLabels(report.ai_resolved_or_unnotified_sites || [])}`, "ai");
   return items;
+}
+
+/** The per-site AI numbers from the report row, or "" when no AI analysis concerns the site. */
+export function aiCounts(row) {
+  if (!row || !row.ai_analyses_requested) return "";
+  const failed = row.ai_analyses_failed ? `, ${row.ai_analyses_failed} failed` : "";
+  return `AI: ${plural(row.ai_analyses_requested, "analysis", "analyses")} (${row.ai_analyses_succeeded} answered${failed})`;
+}
+
+const AI_STATES = {
+  queued: "Queued", running: "Running", success: "Answered", success_unstructured: "Answered, no findings",
+  failed: "Failed", cancelled: "Cancelled", dropped: "Dropped",
+};
+
+/** An AI request's state for people: queued / running / its outcome. */
+export function aiStateLabel(state) {
+  return AI_STATES[state] || label(state);
+}
+
+/** One line for an AI request's findings (app/ai/result.py), or "" without findings. */
+export function describeFindings(findings) {
+  if (!findings) return "";
+  const sites = findings.affected_site_ids.length ? siteLabels(findings.affected_site_ids) : "no sites";
+  return `Findings: ${sites}; suggested severity ${findings.suggested_severity}; ` +
+    `confidence ${Math.round(findings.confidence * 100)}%`;
 }
 
 /**
@@ -91,6 +118,8 @@ export function describeSiteEvent(event, nameOf = (username) => username) {
     case "site_checked":
       return `${who} checked ${what}: ${event.changed ? "now" : "still"} ${label(event.status)}.${drafted}`;
     case "sites_checked": return `${who} checked ${plural(event.checked, "site")}, ${event.changed} changed status`;
+    case "sites_imported":
+    case "lists_imported": return `${who} imported ${what}`;
     case "site_archived": return `${who} archived ${what}`;
     case "site_restored": return `${who} restored ${what}`;
     case "list_created": return `${who} created ${what}`;

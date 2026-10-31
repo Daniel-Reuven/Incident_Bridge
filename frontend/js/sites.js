@@ -5,15 +5,19 @@
  * the /sites API (backend/app/api/sites.py) and renders:
  *   - an attention sentence, a status board (one chip per active site, most
  *     urgent first) and the report's findings;
- *   - four tabs: Sites, Mailing lists, Notifications, Archive.
+ *   - five tabs: Sites, Mailing lists, Notifications, AI requests, Archive.
+ *     AI requests lists every AI analysis request (GET /analysis-requests,
+ *     backend/app/api/ai_requests.py): queued, running or how it ended, with
+ *     its findings; the Archive tab shows the archived ones (view only).
  * Every action (check, status change, create/edit, archive/restore,
  * send/dismiss) calls the API and then reloads everything; rows are patched
  * in place by row-list.js, so reloads don't flicker.
  *
  * Non-admins are sent back to the dashboard (the API would answer 403 to
  * every call anyway). Live updates: listens to "sites" events (only ever sent
- * to admin tabs) and "incidents" events (incident mentions change the
- * counts), shows a toast for site events, and reloads.
+ * to admin tabs), "incidents" events (incident mentions change the counts)
+ * and "ai_analysis" queue events (requests queued, started, finished), shows
+ * a toast for site events, and reloads.
  *
  * Wording and HTML-escaping helpers live in sites-format.js.
  */
@@ -24,8 +28,8 @@ import { renderRowList } from "./row-list.js";
 import { showToast } from "./toast.js";
 import { personHtml, personText } from "./people.js";
 import {
-  attentionSentence, describeOwnCheck, describeSiteEvent, escapeHtml, formatDate, formatDateTime,
-  label, plural, reportFindings, siteLabels,
+  aiCounts, aiStateLabel, attentionSentence, describeFindings, describeOwnCheck, describeSiteEvent, escapeHtml,
+  formatDate, formatDateTime, label, plural, reportFindings, siteLabels,
 } from "./sites-format.js";
 
 const $ = (id) => document.getElementById(id);
@@ -35,6 +39,9 @@ let sites = [];          // every site, archived included
 let lists = [];          // every mailing list, archived included
 let notifications = [];  // current ones, filtered by the Notifications tab's selector
 let archivedNotifications = [];  // finished longer than NOTIFICATION_ARCHIVE_DAYS ago - Archive tab, view only
+let aiRequests = { enabled: false, archive_days: null, requests: [] };   // AI requests tab
+let archivedAiRequests = [];     // finished longer than AI_REQUEST_ARCHIVE_DAYS ago - Archive tab, view only
+let reportRows = {};             // site id -> its report row (for the per-site AI numbers)
 let editingSiteId = null;
 let editingListId = null;
 let statusSiteId = null;
@@ -49,7 +56,7 @@ if (user && user.role !== "admin") {
   wireActions();
   wireDialogs();
   await refresh();
-  connectLiveUpdates(onLiveEvent, { scopes: ["sites", "incidents"] });
+  connectLiveUpdates(onLiveEvent, { scopes: ["sites", "incidents", "ai_analysis"] });
 }
 
 // ---------------------------------------------------------------------------
@@ -58,19 +65,24 @@ if (user && user.role !== "admin") {
 
 async function refresh() {
   try {
-    const [allSites, allLists, report, filtered, archived] = await Promise.all([
+    const [allSites, allLists, report, filtered, archived, ai, archivedAi] = await Promise.all([
       api.listSites(true), api.listMailingLists(true), api.siteReport(),
       api.listNotifications($("notification-filter").value),
       api.listNotifications("", { archived: true }),
+      api.listAiRequests(), api.listAiRequests(true),
     ]);
     sites = allSites;
     lists = allLists;
     notifications = filtered;
     archivedNotifications = archived;
+    aiRequests = ai;
+    archivedAiRequests = archivedAi.requests;
+    reportRows = Object.fromEntries(report.rows.map((row) => [row.site_id, row]));
     renderReport(report);
     renderSites();
     renderLists();
     renderNotifications();
+    renderAiRequests();
     renderArchive();
   } catch (err) {
     $("attention").textContent = err.message;
@@ -128,7 +140,8 @@ function renderSites() {
         <span class="row-sub">${s.label}, ${escapeHtml(s.site_url)}</span>
         <span class="row-sub">${escapeHtml(check)}</span>
       </span>
-      <span class="row-meta">${plural(s.incident_ids.length, "active incident")}</span>
+      <span class="row-meta">${plural(s.incident_ids.length, "active incident")}${
+        aiCounts(reportRows[s.site_id]) ? `<br>${escapeHtml(aiCounts(reportRows[s.site_id]))}` : ""}</span>
       ${siteActions(s)}`;
     return { className: `row status-${s.status}`, html, sig: JSON.stringify(s) };
   }, "No active sites. Add one with New site.");
@@ -184,6 +197,53 @@ function renderNotifications() {
   renderRowList($("notification-list"), notifications, (n) => n.id, notificationRow, empty);
 }
 
+/**
+ * One AI analysis request (AI requests tab and Archive tab): its state -
+ * queued, running or how it ended - the fault (a link), who asked and when,
+ * the provider and model, its findings and when it moves to the archive.
+ */
+function aiRequestRow(r) {
+  const shortId = escapeHtml(r.incident_id.slice(0, 8));
+  const fault = r.incident_title ? escapeHtml(r.incident_title) : `Fault ${shortId} (no longer exists)`;
+  const model = r.model ? `${escapeHtml(r.provider || "")}, model ${escapeHtml(r.model)}` : escapeHtml(r.provider || "");
+  const finished = r.finished_at ? `, finished ${formatDateTime(r.finished_at)}` : "";
+  const archiveNote = r.archive_at
+    ? `, ${new Date(r.archive_at) <= new Date() ? "archived" : "moves to the archive"} ${formatDateTime(r.archive_at)}` : "";
+  const findings = describeFindings(r.findings);
+  return {
+    className: `row ai-${r.state}`,
+    sig: JSON.stringify(r),
+    html: `
+      <span class="status-text ai-${r.state}">${aiStateLabel(r.state)}</span>
+      <span class="row-main">
+        <span class="row-title"><a href="/incident.html?id=${encodeURIComponent(r.incident_id)}">${fault}</a></span>
+        <span class="row-sub">Fault ${shortId}, requested ${formatDateTime(r.requested_at)} by ${personHtml(r.requested_by)}; ${model}${finished}${archiveNote}</span>
+        ${findings ? `<span class="row-sub">${escapeHtml(findings)}</span>` : ""}
+      </span>`,
+  };
+}
+
+/** AI_REQUEST_ARCHIVE_DAYS in words: "30 days", "12 hours", "5 minutes". */
+function period(days) {
+  const round = (n) => Number(n.toFixed(1));
+  if (days >= 1) return plural(round(days), "day");
+  if (days * 24 >= 1) return plural(round(days * 24), "hour");
+  return days * 1440 >= 1 ? plural(round(days * 1440), "minute") : "less than a minute";
+}
+
+function renderAiRequests() {
+  const days = aiRequests.archive_days;
+  const pending = aiRequests.requests.filter((r) => r.state === "queued" || r.state === "running").length;
+  $("ai-count").textContent = pending ? `(${pending})` : "";
+  $("ai-intro").textContent = (aiRequests.enabled ? "" : "AI analysis is off on this server - earlier requests are still shown. ")
+    + "Every AI analysis request, newest first. When the answer names sites, each one is checked for real and "
+    + "the check decides its status. "
+    + (days ? `Finished requests move to the Archive tab after ${period(days)}.`
+      : "Requests are never archived (AI_REQUEST_ARCHIVE_DAYS=0).");
+  renderRowList($("ai-request-list"), aiRequests.requests, (r) => r.id, aiRequestRow,
+    "No AI analysis requests yet. Ask for one on a fault's page.");
+}
+
 function renderArchive() {
   renderRowList($("archived-site-list"), sites.filter((s) => s.is_archived), (s) => s.site_id, (s) => ({
     className: "row",
@@ -207,6 +267,8 @@ function renderArchive() {
   }), "No archived mailing lists.");
   renderRowList($("archived-notification-list"), archivedNotifications, (n) => n.id, notificationRow,
     "No archived notifications.");
+  renderRowList($("archived-ai-request-list"), archivedAiRequests, (r) => r.id, aiRequestRow,
+    "No archived AI requests.");
 }
 
 // ---------------------------------------------------------------------------
