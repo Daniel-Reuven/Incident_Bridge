@@ -3,6 +3,7 @@ A user's interface preferences, stored with their account (users table,
 column "preferences", JSON) so they follow the person to any browser:
 
     theme          "system" | "light" | "dark"       (Settings > Interface)
+    dark_level     "soft" | "medium" | "deep"         (Settings > Interface: how dark the dark scheme is)
     text_scale     "0.9" | "1" | "1.15" | "1.3"       (Settings > Interface)
     updates_order  "asc" | "desc"                     (incident page: updates oldest / newest first)
 
@@ -14,10 +15,11 @@ from typing import Dict
 
 ALLOWED: Dict[str, tuple] = {
     "theme": ("system", "light", "dark"),
+    "dark_level": ("soft", "medium", "deep"),
     "text_scale": ("0.9", "1", "1.15", "1.3"),
     "updates_order": ("asc", "desc"),
 }
-DEFAULTS: Dict[str, str] = {"theme": "system", "text_scale": "1", "updates_order": "asc"}
+DEFAULTS: Dict[str, str] = {"theme": "system", "dark_level": "medium", "text_scale": "1", "updates_order": "asc"}
 
 
 def validated(changes: dict) -> Dict[str, str]:

@@ -5,7 +5,8 @@
  *              the policy tooltip and live checklist (password-fields.js).
  *              Saving ends this user's other sessions (the server bumps
  *              their session version) - this one stays logged in.
- *   Interface  color scheme (System / Light / Dark) and text size, applied
+ *   Interface  color scheme (System / Light / Dark), how dark the dark
+ *              scheme is, and text size, applied
  *              at once and saved with the account (js/preferences.js).
  *
  * Forced mode (openSettings({ forced: true })): when the server says the
@@ -20,6 +21,7 @@ import { savePreferences } from "./preferences.js";
 import { personText } from "./people.js";
 
 const THEME_LABELS = { system: "System", light: "Light", dark: "Dark" };
+const DARK_LABELS = { soft: "Soft", medium: "Medium", deep: "Deep" };
 const SCALE_LABELS = { "0.9": "Small (90%)", "1": "Normal (100%)", "1.15": "Large (115%)", "1.3": "Larger (130%)" };
 
 let dialog = null;
@@ -76,6 +78,12 @@ async function build(user) {
           <p class="hint">System follows your computer's light or dark setting.</p>
         </fieldset>
         <fieldset class="choice-group">
+          <legend>Dark shade</legend>
+          ${window.ibPrefs.DARK_LEVELS.map((value) => `
+            <label class="choice"><input type="radio" name="dark-level" value="${value}"> ${DARK_LABELS[value]}</label>`).join("")}
+          <p class="hint">How dark the dark color scheme is: Soft is the lightest, Deep the darkest.</p>
+        </fieldset>
+        <fieldset class="choice-group">
           <legend>Text size</legend>
           ${window.ibPrefs.TEXT_SCALES.map((value) => `
             <label class="choice"><input type="radio" name="text-scale" value="${value}"> ${SCALE_LABELS[value]}</label>`).join("")}
@@ -97,6 +105,8 @@ async function build(user) {
 
   dialog.querySelectorAll('input[name="theme"]').forEach((input) =>
     input.addEventListener("change", () => savePreferences({ theme: input.value })));
+  dialog.querySelectorAll('input[name="dark-level"]').forEach((input) =>
+    input.addEventListener("change", () => savePreferences({ darkLevel: input.value })));
   dialog.querySelectorAll('input[name="text-scale"]').forEach((input) =>
     input.addEventListener("change", () => savePreferences({ textScale: input.value })));
 
@@ -128,6 +138,7 @@ function showTab(name) {
 function syncInterface() {
   const prefs = window.ibPrefs.get();
   dialog.querySelectorAll('input[name="theme"]').forEach((input) => { input.checked = input.value === prefs.theme; });
+  dialog.querySelectorAll('input[name="dark-level"]').forEach((input) => { input.checked = input.value === prefs.darkLevel; });
   dialog.querySelectorAll('input[name="text-scale"]').forEach((input) => { input.checked = input.value === prefs.textScale; });
 }
 

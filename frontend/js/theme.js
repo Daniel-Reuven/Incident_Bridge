@@ -1,6 +1,6 @@
 /*
- * Interface preferences: color scheme (light / dark / system), text scale
- * and the incident page's updates order.
+ * Interface preferences: color scheme (light / dark / system), how dark the
+ * dark scheme is, text scale and the incident page's updates order.
  *
  * They belong to the ACCOUNT (stored on the server - backend
  * app/models/preferences.py, PATCH /auth/preferences). This browser keeps a
@@ -20,11 +20,15 @@
  * The text scale uses CSS zoom on <html>, which scales every pixel size the
  * stylesheet uses.
  *
- * window.ibPrefs: { get(), set(changes), load(prefs), clear(), THEMES, TEXT_SCALES }
- *   prefs: { theme, textScale, updatesOrder }
+ * The dark shade sets data-dark on <html> ("soft" | "medium" | "deep"); the
+ * stylesheet only uses it while data-theme is "dark".
+ *
+ * window.ibPrefs: { get(), set(changes), load(prefs), clear(), THEMES, DARK_LEVELS, TEXT_SCALES }
+ *   prefs: { theme, darkLevel, textScale, updatesOrder }
  */
 (function () {
   var THEMES = ["system", "light", "dark"];
+  var DARK_LEVELS = ["soft", "medium", "deep"];
   var TEXT_SCALES = ["0.9", "1", "1.15", "1.3"];
   var ORDERS = ["asc", "desc"];
   var KEY = "incidentBridge.prefs";
@@ -32,12 +36,13 @@
   var darkQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 
   function defaults() {
-    return { theme: "system", textScale: "1", updatesOrder: "asc" };
+    return { theme: "system", darkLevel: "medium", textScale: "1", updatesOrder: "asc" };
   }
 
   function clean(stored) {
     var prefs = defaults();
     if (stored && THEMES.indexOf(stored.theme) !== -1) prefs.theme = stored.theme;
+    if (stored && DARK_LEVELS.indexOf(stored.darkLevel) !== -1) prefs.darkLevel = stored.darkLevel;
     if (stored && TEXT_SCALES.indexOf(String(stored.textScale)) !== -1) prefs.textScale = String(stored.textScale);
     if (stored && ORDERS.indexOf(stored.updatesOrder) !== -1) prefs.updatesOrder = stored.updatesOrder;
     return prefs;
@@ -57,6 +62,7 @@
     var dark = prefs.theme === "dark" || (prefs.theme === "system" && darkQuery && darkQuery.matches);
     var root = document.documentElement;
     root.setAttribute("data-theme", dark ? "dark" : "light");
+    root.setAttribute("data-dark", prefs.darkLevel);
     root.style.zoom = prefs.textScale === "1" ? "" : prefs.textScale;
   }
 
@@ -92,6 +98,6 @@
   // Another tab changed the settings, or logged out: follow it.
   window.addEventListener("storage", function (e) { if (e.key === KEY || e.key === null) apply(); });
 
-  window.ibPrefs = { get: get, set: set, load: load, clear: clear, THEMES: THEMES, TEXT_SCALES: TEXT_SCALES };
+  window.ibPrefs = { get: get, set: set, load: load, clear: clear, THEMES: THEMES, DARK_LEVELS: DARK_LEVELS, TEXT_SCALES: TEXT_SCALES };
   apply();
 })();

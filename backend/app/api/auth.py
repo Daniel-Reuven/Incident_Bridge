@@ -89,7 +89,7 @@ def me(current_user: User = Depends(get_session_user)):
 def update_preferences(body: PreferencesRequest, state: AppState = Depends(get_state),
                        current_user: User = Depends(get_current_user)):
     """
-    Save your interface preferences (theme, text_scale, updates_order - see
+    Save your interface preferences (theme, dark_level, text_scale, updates_order - see
     app/models/preferences.py) with your account; only the given ones change.
     Returns all of them. An unknown value is 400.
     """

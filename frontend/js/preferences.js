@@ -11,8 +11,9 @@
 import { api } from "./api.js";
 import { showToast } from "./toast.js";
 
-const fromServer = (p) => ({ theme: p.theme, textScale: p.text_scale, updatesOrder: p.updates_order });
-const SERVER_NAMES = { theme: "theme", textScale: "text_scale", updatesOrder: "updates_order" };
+const fromServer = (p) => ({ theme: p.theme, darkLevel: p.dark_level, textScale: p.text_scale,
+                             updatesOrder: p.updates_order });
+const SERVER_NAMES = { theme: "theme", darkLevel: "dark_level", textScale: "text_scale", updatesOrder: "updates_order" };
 
 export function applyAccountPreferences(prefs) {
   if (prefs) window.ibPrefs.load(fromServer(prefs));

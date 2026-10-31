@@ -28,6 +28,7 @@ class ChangePasswordRequest(BaseModel):
 class PreferencesRequest(BaseModel):
     """Any of the interface preferences (app/models/preferences.py); omitted ones stay as they are."""
     theme: Optional[str] = None
+    dark_level: Optional[str] = None
     text_scale: Optional[str] = None
     updates_order: Optional[str] = None
 

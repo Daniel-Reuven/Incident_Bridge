@@ -82,6 +82,32 @@
   color-scheme: dark;
 }
 
+/* How dark the dark scheme is (Settings > Interface > Dark shade; js/theme.js
+   sets data-dark). The block above is "deep", the darkest; "medium" (the
+   default) and "soft" lift the backgrounds and lines, and "soft" also
+   lightens the colored text so every color keeps at least 4.5:1 contrast. */
+:root[data-theme="dark"][data-dark="medium"] {
+  --paper: #1A222B;
+  --surface: #232D37;
+  --line: #3A4855;
+  --row-hover: #26393B;
+  --stale-bg: #45391C;
+  --stale-bg-hover: #524222;
+}
+:root[data-theme="dark"][data-dark="soft"] {
+  --paper: #262F38;
+  --surface: #303B46;
+  --line: #4A5966;
+  --row-hover: #33494B;
+  --stale-bg: #524425;
+  --stale-bg-hover: #5F4F2B;
+  --accent: #4FC4B8;
+  --accent-hover: #6DD3C8;
+  --critical: #F59680;
+  --status-unknown: #A3B0BA;
+  --status-maintenance: #93B1D2;
+}
+
 * { box-sizing: border-box; }
 
 /* Without this, the browser's default `[hidden] { display: none }` rule

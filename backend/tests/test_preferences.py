@@ -20,17 +20,18 @@ def login(client, username, password):
 
 def test_a_new_account_has_the_defaults_in_login_and_me(app_client):
     assert login(app_client, "tech1", "Demo#Pass2").json()["preferences"] == DEFAULTS
-    assert app_client.get("/auth/me").json()["preferences"] == {"theme": "system", "text_scale": "1",
-                                                                "updates_order": "asc"}
+    assert app_client.get("/auth/me").json()["preferences"] == {"theme": "system", "dark_level": "medium",
+                                                                "text_scale": "1", "updates_order": "asc"}
 
 
 def test_saved_preferences_follow_the_user_to_another_browser(user_client, second_client):
-    saved = user_client.patch("/auth/preferences", json={"theme": "dark", "text_scale": "1.15"})
+    saved = user_client.patch("/auth/preferences", json={"theme": "dark", "dark_level": "soft", "text_scale": "1.15"})
     assert saved.status_code == 200
-    assert saved.json() == {"theme": "dark", "text_scale": "1.15", "updates_order": "asc"}   # only the given ones
+    assert saved.json() == {"theme": "dark", "dark_level": "soft", "text_scale": "1.15",
+                            "updates_order": "asc"}                                       # only the given ones
     user_client.patch("/auth/preferences", json={"updates_order": "desc"})
     other_browser = login(second_client, "tech1", "Demo#Pass2").json()["preferences"]
-    assert other_browser == {"theme": "dark", "text_scale": "1.15", "updates_order": "desc"}
+    assert other_browser == {"theme": "dark", "dark_level": "soft", "text_scale": "1.15", "updates_order": "desc"}
 
 
 def test_preferences_are_per_user(admin_client, user_client):
@@ -41,6 +42,7 @@ def test_preferences_are_per_user(admin_client, user_client):
 @pytest.mark.parametrize("body, reason", [
     ({"theme": "purple"}, "theme must be one of: system, light, dark"),
     ({"text_scale": "2"}, "text_scale must be one of: 0.9, 1, 1.15, 1.3"),
+    ({"dark_level": "black"}, "dark_level must be one of: soft, medium, deep"),
     ({"updates_order": "random"}, "updates_order must be one of: asc, desc"),
 ])
 def test_invalid_values_are_refused_and_nothing_changes(user_client, body, reason):
@@ -63,8 +65,7 @@ def test_preferences_survive_a_restart_and_bad_stored_values_fall_back(tmp_path)
     user = User("tech7", Role.USER, "Tech#Start7")
     user.update_preferences({"theme": "light", "updates_order": "desc"})
     SqliteUserStore(db).save(user)
-    assert SqliteUserStore(db).load_all()[0].preferences == {"theme": "light", "text_scale": "1",
-                                                             "updates_order": "desc"}
+    assert SqliteUserStore(db).load_all()[0].preferences == {**DEFAULTS, "theme": "light", "updates_order": "desc"}
     with database.connect(db) as conn:                                   # edited by hand into nonsense
         conn.execute("""UPDATE users SET preferences = '{"theme": "neon", "text_scale": "1.3"'""")
     assert SqliteUserStore(db).load_all()[0].preferences == DEFAULTS     # not JSON -> the defaults
