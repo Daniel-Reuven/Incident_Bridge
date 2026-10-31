@@ -118,10 +118,21 @@ The full tree is in [§12](#12-project-structure-file-map). The layout differs f
 ### 5. Proof that it works
 
 - **Tests:** 1488 tests, all passing — `cd backend && python -m pytest -q` (GitHub Actions runs them on every push). Coverage per area in [§14](#14-automated-testing).
-- **Real run** (`python main.py --live` with a Gemini key, LIVE_RUN_DATE — the output holds no key or other secret; section 10, the real call):
+- **Real run** (`python main.py --live` with a Gemini key, 2026-10-31 — the output holds no key or other secret; section 10, the real call):
 
 ```
-LIVE_RUN_OUTPUT
+  Trigger: an analysis of fault seed-079 - 'Burst of failed logins on the Internal HR portal' (severity CRITICAL)
+  Data sent: 2,232 characters of JSON (the fault and 5 comments) to Gemini (models: gemini-3.8-flash > gemini-3.6-flash > gemini-3.5-flash-lite > gemini-3.1-flash-lite)
+INFO:     2026-10-31 20:39:26 AI   [MainThread] Asking Gemini gemini-3.8-flash (model 1 of 4)
+INFO:     2026-10-31 20:41:03 AI   [MainThread] Answered by gemini-3.8-flash in 96.3s (2,565 characters)
+  [REAL] Answered by: Gemini (model: gemini-3.8-flash)
+  [REAL] Posted on the fault: 1 comment(s) by ai-assistant, 2,565 characters
+  [REAL] Structured findings: {'suggested_severity': 'critical', 'affected_site_ids': (1007,), 'confidence': 0.95}
+      | AI analysis by Gemini (model: gemini-3.8-flash)
+      | Summary:
+      | - The Internal HR portal (Site 1007) is actively undergoing a distributed credential stuffing attack
+      | - One contractor account without MFA (c.levi) was compromised and used to exfiltrate three payslip d
+  [REAL] Model listing (GET /models): 46 models, e.g. gemini-2.5-flash, gemini-2.5-pro, gemini-2.5-flash-preview-tts
 ```
 
 - **TDD (`AI_REQUEST_ARCHIVE_DAYS`, `backend/tests/test_archive_rules.py`):** Red [`71ee90f`](https://github.com/Daniel-Reuven/Incident_Bridge/commit/71ee90f) (the tests, failing), Green [`4e9bff6`](https://github.com/Daniel-Reuven/Incident_Bridge/commit/4e9bff6) (`is_request_archived()` and `request_archive_after_from_env()`), Refactor [`72b7b29`](https://github.com/Daniel-Reuven/Incident_Bridge/commit/72b7b29) (one shared days-setting parser for both archive settings).
