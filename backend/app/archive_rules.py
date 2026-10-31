@@ -27,14 +27,25 @@ def is_request_archived(finished_at: Optional[datetime], now: datetime, after: O
 
 def request_archive_after_from_env() -> Optional[timedelta]:
     """AI_REQUEST_ARCHIVE_DAYS as a timedelta (None = never). Raises ValueError for a bad value."""
-    raw = (os.environ.get(REQUEST_ARCHIVE_ENV) or "").strip()
+    return archive_after_from_env(REQUEST_ARCHIVE_ENV, DEFAULT_REQUEST_ARCHIVE_DAYS)
+
+
+def archive_after_from_env(name: str, default_days: float) -> Optional[timedelta]:
+    """
+    A "days until archived" setting from the environment, shared by
+    AI_REQUEST_ARCHIVE_DAYS (above) and NOTIFICATION_ARCHIVE_DAYS
+    (app/sites.py). Unset or empty: `default_days`. 0 switches archiving off
+    (None). Fractions work (0.5 = 12 hours). Raises ValueError, naming the
+    setting, for anything that is not a finite number of 0 or more - so a bad
+    value stops startup with one clear message.
+    """
+    raw = (os.environ.get(name) or "").strip()
     if not raw:
-        return timedelta(days=DEFAULT_REQUEST_ARCHIVE_DAYS)
+        return timedelta(days=default_days)
     try:
         days = float(raw)
-        if not days >= 0 or math.isinf(days):
+        if not days >= 0 or math.isinf(days):      # "not >=" also rejects "nan"
             raise ValueError
         return timedelta(days=days) if days > 0 else None
-    except (ValueError, OverflowError):
-        raise ValueError(f"{REQUEST_ARCHIVE_ENV} must be a number of days, 0 or more "
-                         f"(0 = never archive), got {raw!r}") from None
+    except (ValueError, OverflowError):            # OverflowError: more days than timedelta can hold
+        raise ValueError(f"{name} must be a number of days, 0 or more (0 = never archive), got {raw!r}") from None
