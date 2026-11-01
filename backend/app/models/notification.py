@@ -27,10 +27,18 @@ Notifier service's job (app/services/notifier.py). SiteDirectory's
 send_notification() (app/sites.py) runs ensure_sendable(), has the notifier
 deliver, and only then calls mark_sent() - so a failed delivery leaves the
 notification a Draft that can be sent again.
+
+Archiving: a FINAL notification (sent, dismissed or skipped) is archived
+once it has been finished for longer than the configured period
+(NOTIFICATION_ARCHIVE_DAYS - see app/sites.py). It is not a state of its
+own: archive_at() / is_archived() work it out from finished_at, so nothing
+extra is stored. A Draft is never archived - it still needs a decision. An
+archived notification is view-only, which needs no extra rule: only a Draft
+can be edited, sent or dismissed.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import FrozenSet, Iterable, Optional, Tuple
 
 from app.models._permissions import require_admin
@@ -185,6 +193,32 @@ class Notification:
     def is_final(self) -> bool:
         """True once nothing can change it any more (sent, dismissed or skipped)."""
         return self._state != NotificationState.DRAFT
+
+    @property
+    def finished_at(self) -> Optional[datetime]:
+        """
+        When it stopped needing a decision: decided_at for a sent or dismissed
+        notification, created_at for a skipped one (it never needed one);
+        None for a Draft.
+        """
+        if not self.is_final:
+            return None
+        return self.decided_at or self.created_at
+
+    def archive_at(self, archive_after: Optional[timedelta]) -> Optional[datetime]:
+        """
+        When it moves to the archive: `archive_after` after finished_at. None
+        for a Draft, or when archiving is off (`archive_after` is None).
+        """
+        finished = self.finished_at
+        if finished is None or archive_after is None:
+            return None
+        return finished + archive_after
+
+    def is_archived(self, archive_after: Optional[timedelta], now: Optional[datetime] = None) -> bool:
+        """True once archive_at() has passed (see the module docstring)."""
+        moves_at = self.archive_at(archive_after)
+        return moves_at is not None and (now or datetime.now(timezone.utc)) >= moves_at
 
     # ------------------------------------------------------------------
     # Business operations

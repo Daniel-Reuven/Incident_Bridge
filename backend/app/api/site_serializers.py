@@ -8,6 +8,7 @@ dates as ISO 8601 strings, sets as sorted lists - so every response is
 stable and directly JSON-serializable.
 """
 
+from datetime import timedelta
 from typing import Iterable, List, Optional
 
 from app.context import SiteCheckSession
@@ -71,7 +72,8 @@ def site_detail_to_dict(site: Site, directory: SiteDirectory, incidents: List[In
     data["status_history"] = [change_to_dict(c) for c in site.status_history]
     data["archived_list_ids"] = sorted(site.archived_list_ids)
     data["incidents"] = [incident_summary(i) for i in incidents]
-    data["notifications"] = [notification_to_dict(n) for n in directory.notifications()
+    data["notifications"] = [notification_to_dict(n, directory.archive_notifications_after)
+                             for n in directory.notifications()
                              if n.site_id == site.site_id]
     return data
 
@@ -89,7 +91,13 @@ def mailing_list_to_dict(mailing_list: MailingList) -> dict:
     }
 
 
-def notification_to_dict(notification: Notification) -> dict:
+def notification_to_dict(notification: Notification, archive_after: Optional[timedelta] = None) -> dict:
+    """
+    One notification. `archive_after` is the directory's archive period
+    (SiteDirectory.archive_notifications_after): "archived" says whether it is
+    archived now, "archive_at" when it moves (or moved) to the archive - None
+    for a draft or when archiving is off.
+    """
     return {
         "id": notification.id,
         "site_id": notification.site_id,
@@ -106,6 +114,8 @@ def notification_to_dict(notification: Notification) -> dict:
         "decided_by": notification.decided_by,
         "decided_at": _iso(notification.decided_at),
         "dismiss_reason": notification.dismiss_reason,
+        "archived": notification.is_archived(archive_after),
+        "archive_at": _iso(notification.archive_at(archive_after)),
     }
 
 

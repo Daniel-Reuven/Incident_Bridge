@@ -2,6 +2,7 @@
 
 import heapq
 import itertools
+import threading
 from typing import Iterator, List, Tuple
 
 from app.iterators import SeverityOrderIterator
@@ -32,6 +33,10 @@ class FaultPriorityQueue:
     def __init__(self):
         self._heap: List[Tuple[int, int, Fault]] = []
         self._counter = itertools.count()
+        # Held around "check + claim + remove" so two technicians can never claim
+        # the same fault at once (API requests run in a thread pool). Used by
+        # app/threaded_processing.py - see its docstring for the race it prevents.
+        self.claim_lock = threading.Lock()
 
     def push(self, fault: Fault) -> None:
         """Add a fault to the queue at a position determined by its severity."""

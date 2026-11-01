@@ -1,7 +1,9 @@
+import { formatWhen } from "./datetime.js";
 import { api } from "./api.js";
 import { mountTopbar } from "./topbar.js";
 import { connectLiveUpdates } from "./events.js";
 import { showToast, describeEvent } from "./toast.js";
+import { personHtml } from "./people.js";
 
 const table = document.getElementById("pressing-table");
 const tbody = table.querySelector("tbody");
@@ -12,10 +14,11 @@ const limitSelect = document.getElementById("pressing-limit");
 const user = await mountTopbar();
 if (user) {
   limitSelect.addEventListener("change", load);
-  // One delegated click listener (rows are reused, never re-created - see renderRows).
+  // One delegated click listener (rows are reused, never re-created - see renderRows): a click
+  // anywhere on a row opens it; the title itself is a real link (new tab, middle-click...).
   tbody.addEventListener("click", (e) => {
     const row = e.target.closest("tr[data-key]");
-    if (row) window.location.href = `/incident.html?id=${row.dataset.key}`;
+    if (row && !e.target.closest("a")) window.location.href = `/incident.html?id=${row.dataset.key}`;
   });
 
   await load();
@@ -70,9 +73,9 @@ function renderRows(results) {
     if (tr.dataset.sig !== sig) {
       tr.innerHTML = `
         <td class="num">${index + 1}</td>
-        <td>${escapeHtml(call.title)}</td>
-        <td>${escapeHtml(call.created_by)}</td>
-        <td>${new Date(call.created_at).toLocaleDateString()}</td>
+        <td><a class="row-link" href="/incident.html?id=${encodeURIComponent(call.id)}">${escapeHtml(call.title)}</a></td>
+        <td>${personHtml(call.created_by)}</td>
+        <td>${formatWhen(call.created_at)}</td>
         <td>${call.days_open} days</td>`;
       tr.dataset.sig = sig;
     }

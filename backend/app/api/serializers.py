@@ -1,10 +1,27 @@
 """Converts domain objects (User, Comment, Incident subclasses) into plain dicts for API responses."""
 
+from app.display_names import display_of
 from app.models import Comment, Incident, User
+from app.models.user import DETAIL_FIELDS
+
+
+def display_to_dict(user: User) -> dict:
+    """{"display_name", "display_parts": [[text, secondary], ...]} - see app/display_names.py."""
+    text, parts = display_of(user)
+    return {"display_name": text, "display_parts": [[part, secondary] for part, secondary in parts]}
 
 
 def user_to_dict(user: User) -> dict:
-    return {"id": user.id, "username": user.username, "role": user.role.value}
+    return {"id": user.id, "username": user.username, "role": user.role.value,
+            "must_change_password": user.must_change_password, "preferences": dict(user.preferences),
+            **display_to_dict(user)}
+
+
+def account_to_dict(user: User) -> dict:
+    """One account for the admin's user list - never the password hash."""
+    return {"username": user.username, "role": user.role.value, "disabled": user.disabled,
+            "must_change_password": user.must_change_password, "created_at": user.created_at.isoformat(),
+            **{name: getattr(user, name) for name in DETAIL_FIELDS}, **display_to_dict(user)}
 
 
 def comment_to_dict(comment: Comment) -> dict:

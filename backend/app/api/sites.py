@@ -22,8 +22,10 @@ Endpoints:
     POST   /sites                              create a site
     GET    /sites/report                       site health report
     POST   /sites/check-all                    check every active, non-maintenance site
+    POST   /sites/import-jsonl                 import sites from JSONL text (Server settings page)
     GET    /sites/mailing-lists                list mailing lists (?include_archived=true)
     POST   /sites/mailing-lists                create a mailing list
+    POST   /sites/mailing-lists/import-jsonl   import mailing lists from JSONL text (sites first)
     PATCH  /sites/mailing-lists/{list_id}      edit name / members / related sites
     POST   /sites/mailing-lists/{list_id}/archive | /restore
     GET    /sites/notifications                list notifications, newest first (?state=draft)
@@ -44,7 +46,7 @@ Event shape:
     {"scope": "sites", "action": "<what happened>", "actor": "<username>",
      "subject": "<human-readable thing, e.g. 'Site 1042 (Portal)'>", ...extra}
 Actions: site_created, site_updated, site_status_changed, site_checked,
-sites_checked, site_archived, site_restored, list_created, list_updated,
+sites_checked, sites_imported, lists_imported, site_archived, site_restored, list_created, list_updated,
 list_archived, list_restored, notification_sent, notification_dismissed.
 Status-changing events add "status" (the new status) and "notification"
 (the state of the notification created for the change - "draft" or
@@ -55,7 +57,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import get_broadcaster, get_client_id, get_current_admin, get_state
+from app.ai.worker import AnalysisWorker
+from app.api.deps import get_analysis_worker, get_broadcaster, get_client_id, get_current_admin, get_state
 from app.api.site_schemas import (
     ChangeSiteStatusRequest,
     CreateMailingListRequest,
@@ -65,6 +68,7 @@ from app.api.site_schemas import (
     UpdateMailingListRequest,
     UpdateSiteRequest,
 )
+from app.api.schemas import ImportJsonlRequest
 from app.api.site_serializers import (
     check_outcome_to_dict,
     mailing_list_to_dict,
@@ -75,6 +79,7 @@ from app.api.site_serializers import (
 )
 from app.events import EventBroadcaster
 from app.models import NotificationState, Site, User
+from app.sites import ImportReport
 from app.reports import build_site_report
 from app.state import AppState
 
@@ -92,6 +97,13 @@ def _publish(broadcaster: EventBroadcaster, client_id: Optional[str], action: st
 
 def _site_subject(site: Site) -> str:
     return f"{site.label} ({site.site_name})"
+
+
+def _import_result(report: ImportReport) -> dict:
+    return {"created": report.created, "created_ids": report.created_ids,
+            "already_stored_ids": report.already_stored_ids,
+            "skipped_duplicate_ids": report.skipped_duplicate_ids,
+            "skipped_invalid": report.skipped_invalid, "warnings": report.warnings}
 
 
 def _scan(state: AppState):
@@ -121,10 +133,28 @@ def create_site(body: CreateSiteRequest, state: AppState = Depends(get_state),
     return site_to_dict(site, state.sites)
 
 
+@router.post("/import-jsonl")
+def import_sites(body: ImportJsonlRequest, state: AppState = Depends(get_state),
+                 admin: User = Depends(get_current_admin),
+                 broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                 client_id: Optional[str] = Depends(get_client_id)) -> dict:
+    """Sites from JSONL text (data/sites.jsonl's format); ids already stored are skipped, never overwritten."""
+    report = state.sites.load_sites_from_lines(body.content.splitlines())
+    if report.created:
+        _publish(broadcaster, client_id, "sites_imported", admin, f"{report.created} site(s)", count=report.created)
+    return _import_result(report)
+
+
 @router.get("/report")
-def site_report(state: AppState = Depends(get_state), _admin: User = Depends(get_current_admin)) -> dict:
-    """The site health report (app/reports.py) as a dict."""
-    return build_site_report(state.sites, state.incidents.list_all()).to_dict()
+def site_report(state: AppState = Depends(get_state), _admin: User = Depends(get_current_admin),
+                worker: Optional[AnalysisWorker] = Depends(get_analysis_worker)) -> dict:
+    """
+    The site health report (app/reports.py), with AI metrics when the AI feature is on, as a dict.
+    AI requests archived under AI_REQUEST_ARCHIVE_DAYS are left out of those metrics and counted apart.
+    """
+    history = worker.history if worker else None
+    return build_site_report(state.sites, state.incidents.list_all(), history,
+                             archive_after=state.request_archive_after).to_dict()
 
 
 @router.post("/check-all")
@@ -159,6 +189,19 @@ def create_mailing_list(body: CreateMailingListRequest, state: AppState = Depend
     _publish(broadcaster, client_id, "list_created", admin, f"mailing list {mailing_list.name}",
              list_id=mailing_list.list_id)
     return mailing_list_to_dict(mailing_list)
+
+
+@router.post("/mailing-lists/import-jsonl")
+def import_mailing_lists(body: ImportJsonlRequest, state: AppState = Depends(get_state),
+                         admin: User = Depends(get_current_admin),
+                         broadcaster: EventBroadcaster = Depends(get_broadcaster),
+                         client_id: Optional[str] = Depends(get_client_id)) -> dict:
+    """Mailing lists from JSONL text; a link to an unknown or archived site is dropped with a warning."""
+    report = state.sites.load_mailing_lists_from_lines(body.content.splitlines())
+    if report.created:
+        _publish(broadcaster, client_id, "lists_imported", admin, f"{report.created} mailing list(s)",
+                 count=report.created)
+    return _import_result(report)
 
 
 @router.patch("/mailing-lists/{list_id}")
@@ -198,15 +241,20 @@ def restore_mailing_list(list_id: str, state: AppState = Depends(get_state),
 
 @router.get("/notifications")
 def list_notifications(notification_state: Optional[NotificationState] = Query(None, alias="state"),
+                       archived: bool = Query(False),
                        state: AppState = Depends(get_state),
                        _admin: User = Depends(get_current_admin)) -> List[dict]:
     """
-    Notifications, newest first. ?state=draft (or sent / dismissed / skipped)
-    narrows the list; an unknown value is rejected with 422. (The Python
-    parameter is named notification_state only because `state` is already
-    the AppState dependency.)
+    Notifications, newest first. By default the CURRENT ones (drafts, and
+    finished ones not yet archived); ?archived=true gives only the archived
+    ones (finished longer ago than NOTIFICATION_ARCHIVE_DAYS - view only, as
+    only a draft can be sent or dismissed). ?state=draft (or sent / dismissed
+    / skipped) narrows either list; an unknown value is rejected with 422.
+    (The Python parameter is named notification_state only because `state`
+    is already the AppState dependency.)
     """
-    return [notification_to_dict(n) for n in state.sites.notifications()
+    after = state.sites.archive_notifications_after
+    return [notification_to_dict(n, after) for n in state.sites.notifications(archived=archived)
             if notification_state is None or n.state == notification_state]
 
 
@@ -219,7 +267,7 @@ def send_notification(notification_id: str, body: SendNotificationRequest, state
     _publish(broadcaster, client_id, "notification_sent", admin,
              f"the notification about Site {notification.site_id} ({notification.site_name})",
              notification_id=notification.id, site_id=notification.site_id)
-    return notification_to_dict(notification)
+    return notification_to_dict(notification, state.sites.archive_notifications_after)
 
 
 @router.post("/notifications/{notification_id}/dismiss")
@@ -231,7 +279,7 @@ def dismiss_notification(notification_id: str, body: DismissNotificationRequest,
     _publish(broadcaster, client_id, "notification_dismissed", admin,
              f"the notification about Site {notification.site_id} ({notification.site_name})",
              notification_id=notification.id, site_id=notification.site_id)
-    return notification_to_dict(notification)
+    return notification_to_dict(notification, state.sites.archive_notifications_after)
 
 
 # --- one site (after the static routes) ------------------------------------------

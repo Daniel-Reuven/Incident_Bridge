@@ -44,10 +44,11 @@ from app.api.schemas import (
     ReopenMaintenanceRequest,
 )
 from app.api.serializers import incident_to_dict
-from app.events import EventBroadcaster
+from app.events import EventBroadcaster, incident_event
 from app.models import Fault, IncidentStatus, MaintenanceTask, Role, User
 from app.services import SeverityScorer
 from app.state import AppState
+from app.threaded_processing import claim_most_severe_fault, claim_queued_fault
 from datetime import datetime, timedelta, timezone
 from app.iterators import STALE_AFTER, first_pressing_calls, stale_in_progress_work
 router = APIRouter(prefix="/incidents", tags=["incidents"])
@@ -56,22 +57,14 @@ router = APIRouter(prefix="/incidents", tags=["incidents"])
 def _publish(broadcaster: EventBroadcaster, client_id: Optional[str], incident, action: str, actor: User,
              affected_ids: Optional[List[str]] = None) -> None:
     """
-    Shared shape for every live-update event - see frontend/js/toast.js's
-    describeEvent for the consumer. `affected_ids` is optional: the ids of
-    OTHER incidents whose state this action changed (e.g. maintenance tasks
-    whose queue position shifted when one ahead of them was closed), so a
-    browser tab showing one of those can offer a refresh. Left out of the
-    event entirely when empty.
+    Publish one incident live-update event (shape: app/events.py's
+    incident_event) to every tab except the one that made the change.
+    `affected_ids` is optional: the ids of OTHER incidents whose state this
+    action changed (e.g. maintenance tasks whose queue position shifted when
+    one ahead of them was closed), so a browser tab showing one of those can
+    offer a refresh.
     """
-    event = {
-        "type": incident.kind,
-        "id": incident.id,
-        "action": action,
-        "actor": actor.username,
-        "title": incident.title,
-    }
-    if affected_ids:
-        event["affected_ids"] = affected_ids
+    event = incident_event(incident, action, actor.username, affected_ids)
     broadcaster.publish(event, exclude_client_id=client_id)
 
 
@@ -174,7 +167,8 @@ def import_jsonl(body: ImportJsonlRequest, state: AppState = Depends(get_state),
 
     for incident_id in result.created_ids:
         incident = state.incidents.get(incident_id)
-        add_to_queue[incident.kind](incident)
+        if incident.status == IncidentStatus.OPEN:     # a record seeded as closed belongs in no queue
+            add_to_queue[incident.kind](incident)
         _publish(broadcaster, client_id, incident, "created", current_user)
 
     _persist_maintenance_queue(state, state.maintenance.get_queue())
@@ -485,10 +479,11 @@ def claim_next_fault(state: AppState = Depends(get_state), current_user: User = 
     the queue once the domain claim has succeeded. 404 (IndexError) if the
     queue is empty. Unlike /faults/{id}/claim, no priority check is needed:
     the fault claimed here is by definition the most severe one waiting.
+    The three steps run under the queue's claim lock, so two simultaneous
+    requests never get the same fault (app/threaded_processing.py); saving and
+    publishing happen after the lock is released.
     """
-    fault = state.faults.peek()
-    fault.claim(current_user)
-    state.faults.remove(fault)
+    fault = claim_most_severe_fault(state.faults, current_user)
     state.incidents.save(fault)
     _publish(broadcaster, client_id, fault, "claimed", current_user)
     return incident_to_dict(fault)
@@ -534,15 +529,17 @@ def claim_fault(incident_id: str, state: AppState = Depends(get_state),
 
     Order matters: the priority rule is checked first, then the domain
     claim (status, assignee, log comment), and only then is the fault taken
-    out of the queue - so a rejected claim changes nothing anywhere.
+    out of the queue - so a rejected claim changes nothing anywhere. The
+    three steps run under the queue's claim lock, so of two technicians
+    claiming the same fault at once exactly one succeeds and the other gets
+    409 (app/threaded_processing.py); saving and publishing happen after the
+    lock is released.
     400 for a maintenance task, 404 for an unknown id.
     """
     fault = state.incidents.get(incident_id)
     if not isinstance(fault, Fault):
         raise HTTPException(status_code=400, detail="Only faults can be claimed.")
-    state.faults.ensure_claimable(fault)
-    fault.claim(current_user)
-    state.faults.remove(fault)
+    claim_queued_fault(state.faults, fault, current_user)
     state.incidents.save(fault)
     _publish(broadcaster, client_id, fault, "claimed", current_user)
     return incident_to_dict(fault)

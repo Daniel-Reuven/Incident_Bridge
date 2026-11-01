@@ -14,7 +14,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "incident-bridge"
 # The project's single version number - bump it here (there is no separate VERSION file).
-version = "0.3.8"
+version = "0.10.2"
 description = "Incident Bridge - incident management backend (FastAPI)"
 requires-python = ">=3.9"
 
@@ -24,14 +24,18 @@ dependencies = [
     "uvicorn[standard]>=0.53",
     "itsdangerous>=2.2",    # signs the session cookie (SessionMiddleware)
     "python-dotenv>=1.2",   # loads .env in serve_app.py / seed_from_jsonl.py
-    "httpx>=0.28",          # seed_from_jsonl.py and FastAPI's TestClient
+    "httpx>=0.28",          # seed_from_jsonl.py, site availability checks and FastAPI's TestClient
+    "requests>=2.32",       # app/api_client.py - the AI providers' REST calls (no AI SDKs)
+    "sqlcipher3>=0.6.4",    # app/database.py - the whole database encrypted (SQLite + SQLCipher)
+    "cryptography>=43",     # app/security/crypto.py - AES-GCM key wrapping, HKDF
+    "keyring>=25",          # app/security/key_providers.py - the OS credential store for the machine key
+    "certifi>=2024.2",      # app/security/tls.py - the public certificate authorities (production certificate check)
 ]
 
 [project.optional-dependencies]
 # Test-only dependencies (formerly requirements-dev.txt).
 # Install with: pip install -e ".[dev]"
-# Future optional features can get their own group here (e.g. "gemini")
-# so the core install stays small and modular.
+# The tests never need the network or an API key (fake provider, stub server, mocks).
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -40,9 +44,9 @@ dev = [
 [tool.setuptools.packages.find]
 # backend/ is a "flat layout" with several top-level folders (for example
 # app and tests). Without this, setuptools refuses to guess which of them
-# are the real packages. Only "app" is a shippable package today. If you
-# add another top-level package later (for example a Gemini_API folder),
-# add its name here as "<name>*".
+# are the real packages. Only "app" is a shippable package today (the AI
+# feature lives inside it, in app/ai/). If you add another top-level
+# package later, add its name here as "<name>*".
 include = ["app*"]
 
 [tool.pytest.ini_options]

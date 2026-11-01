@@ -10,11 +10,12 @@ import pytest
 
 from app.models import MaintenanceTask, Role, User
 from app.state import AppState, order_pending_maintenance
+from tests.install_helper import add_demo_users
 
 
 @pytest.fixture
 def reporter():
-    return User(username="reporter", role=Role.USER, password="Passw0rd1")
+    return User(username="reporter", role=Role.USER, password="Passw0rd!1")
 
 
 def make_task(reporter, title, minutes, position):
@@ -51,7 +52,7 @@ def test_no_pending_tasks_gives_an_empty_order():
 
 def test_queue_order_and_positions_survive_a_restart_after_a_mid_queue_close(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "restart.db"))
-    state = AppState.create()
+    state = add_demo_users(AppState.create())
     admin = state.users.get("admin")
     queue = state.maintenance.get_queue()
 
@@ -76,7 +77,7 @@ def test_queue_order_and_positions_survive_a_restart_after_a_mid_queue_close(tmp
 
 def test_a_restart_restores_the_current_task_and_the_pending_order(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "restart_current.db"))
-    state = AppState.create()
+    state = add_demo_users(AppState.create())
     admin = state.users.get("admin")
     queue = state.maintenance.get_queue()
 

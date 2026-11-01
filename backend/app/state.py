@@ -9,30 +9,51 @@ give each one its own separate queues, silently breaking the "one shared
 FIFO" and "one shared priority queue" guarantees.
 
 Incidents (and their comments) persist across restarts via SQLite - see
-app/persistence.py. Users do not persist here; they stay env-provisioned
-via seed_users_from_env, exactly as before.
+app/persistence.py. User accounts persist in the same database file
+(app/persistence_users.py): the first users come from INCIDENT_BRIDGE_USERS
+when the users table is empty, after that the table is the source of truth
+(see app/repository.py's load_users()).
 
 Sites, mailing lists and notifications (the Sites & Mailing Lists
 subsystem) live in a SiteDirectory backed by its own SqliteSiteStore (same
-database file, separate tables - see app/persistence_sites.py). At startup
-the stored data is loaded first and the JSONL seed files - only those
-configured in SITES_SEED_PATH / MAILING_LISTS_SEED_PATH - are imported after
-it, so seed records whose ids are already stored are skipped: edits made in
-the app survive restarts and archived sites are never brought back.
+database file, separate tables - see app/persistence_sites.py), loaded at
+startup. JSONL files are imported by an admin on the Server settings page
+(app/api/sites.py); ids already stored are skipped, so edits made in the app
+survive and archived sites are never brought back.
 """
 
 import os
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from datetime import timedelta
+from typing import List, Optional
 
 from app.models import Fault, IncidentStatus, MaintenanceTask
 from app.persistence import SqliteIncidentStore
 from app.persistence_sites import SqliteSiteStore
 from app.queues import FaultPriorityQueue, MaintenanceQueueManager
-from app.repository import IncidentRepository, UserStore, seed_users_from_env
+from app.persistence_users import SqliteUserStore
+from app.repository import IncidentRepository, UserStore, load_users
 from app.services.availability import HttpChecker
+from app.services.login_guard import LoginGuard
 from app.services.notifier import OutboxNotifier
-from app.sites import SiteDirectory, seed_site_directory
+from app.archive_rules import request_archive_after_from_env
+from app.sites import SiteDirectory, notification_archive_after_from_env
+
+
+DATABASE_FILE = "incident_bridge.db"
+
+
+def database_path() -> str:
+    """
+    The database file every store uses: DATABASE_PATH (":memory:" for tests; a
+    relative path is resolved against backend/), else incident_bridge.db in
+    the data folder (DATA_DIR, default backend/instance/ - app/security/data_folders.py).
+    """
+    from app.security.data_folders import data_dir, resolve
+    raw = (os.environ.get("DATABASE_PATH") or "").strip()
+    if raw == ":memory:":
+        return raw
+    return str(resolve(raw, data_dir() / DATABASE_FILE))
 
 
 def order_pending_maintenance(tasks: List[MaintenanceTask], has_current: bool) -> List[MaintenanceTask]:
@@ -67,6 +88,9 @@ class AppState:
     maintenance: MaintenanceQueueManager
     faults: FaultPriorityQueue
     sites: SiteDirectory
+    # AI_REQUEST_ARCHIVE_DAYS (app/archive_rules.py): AI requests finished longer ago leave the report's counts.
+    request_archive_after: Optional[timedelta] = None
+    login_guard: LoginGuard = field(default_factory=LoginGuard)   # failed-login limits (app/services/login_guard.py)
 
     @classmethod
     def create(cls) -> "AppState":
@@ -75,17 +99,16 @@ class AppState:
         app/api/app.py's lifespan). Loads any previously-persisted
         incidents and re-populates the queues so a restart doesn't lose
         in-flight work, not just closed history. Then builds the
-        SiteDirectory: stored sites/lists/notifications first, then the
-        seed files, but only those configured in SITES_SEED_PATH /
-        MAILING_LISTS_SEED_PATH (unset or empty = no import - see
-        app/sites.py), whose already-stored ids are skipped. The directory
+        SiteDirectory from the stored sites/lists/notifications (sites and
+        lists are added in the app, or imported on the Server settings
+        page - app/api/sites.py). The directory
         gets an HttpChecker configured from SITE_CHECK_TIMEOUT_SECONDS /
         SITE_CHECK_SLOW_MS for availability checks, and an OutboxNotifier
         that records sent notifications in the app (no real email).
         """
-        users = seed_users_from_env()
+        db_path = database_path()
+        users = load_users(SqliteUserStore(db_path))
 
-        db_path = os.environ.get("DATABASE_PATH", "incident_bridge.db")
         store = SqliteIncidentStore(db_path)
         incidents = IncidentRepository(store)
         maintenance = MaintenanceQueueManager()
@@ -129,8 +152,12 @@ class AppState:
         # HttpChecker.from_env() raises ValueError (stopping startup with a
         # clear message) if SITE_CHECK_TIMEOUT_SECONDS / SITE_CHECK_SLOW_MS
         # hold something that is not a positive number.
-        sites = SiteDirectory(site_store, checker=HttpChecker.from_env(), notifier=OutboxNotifier())
+        # notification_archive_after_from_env() raises ValueError the same way for a
+        # bad NOTIFICATION_ARCHIVE_DAYS.
+        sites = SiteDirectory(site_store, checker=HttpChecker.from_env(), notifier=OutboxNotifier(),
+                              archive_notifications_after=notification_archive_after_from_env())
         sites.bulk_load(*site_store.load_all())
-        seed_site_directory(sites)
 
-        return cls(users=users, incidents=incidents, maintenance=maintenance, faults=faults, sites=sites)
+        # A bad AI_REQUEST_ARCHIVE_DAYS raises ValueError here too - startup stops with its message.
+        return cls(users=users, incidents=incidents, maintenance=maintenance, faults=faults, sites=sites,
+                   request_archive_after=request_archive_after_from_env())

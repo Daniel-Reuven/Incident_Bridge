@@ -26,6 +26,7 @@ What a single check observes is not the final word: Site.record_check()
 failed checks in a row.
 """
 
+import logging
 import os
 import time
 from abc import ABC, abstractmethod
@@ -35,6 +36,7 @@ from typing import Dict, Iterable, List, Optional
 
 import httpx
 
+from app.audit import audit
 from app.models import AvailabilityCheck, SiteStatus
 
 DEFAULT_TIMEOUT_SECONDS = 5.0
@@ -122,6 +124,15 @@ class HttpChecker(AvailabilityChecker):
                    slow_after_ms=read("SITE_CHECK_SLOW_MS", DEFAULT_SLOW_AFTER_MS))
 
     def check(self, url: str) -> AvailabilityCheck:
+        """One GET request, recorded in the activity log (event "external.site_check")."""
+        result = self._check(url)
+        audit("external.site_check", level=logging.INFO if result.observed_status == SiteStatus.OPERATIONAL
+              else logging.WARNING, url=url, status=result.http_status, observed=result.observed_status.value,
+              duration_ms=result.response_ms, error=result.error,
+              message=f"Site check {url} -> {result.http_status or result.error} ({result.observed_status.value})")
+        return result
+
+    def _check(self, url: str) -> AvailabilityCheck:
         """One GET request; every network failure becomes a DOWN result, never an exception."""
         checked_at = datetime.now(timezone.utc)
         started = time.perf_counter()

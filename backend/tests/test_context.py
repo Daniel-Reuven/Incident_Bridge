@@ -14,7 +14,7 @@ from app.models.user import User
 
 @pytest.fixture
 def actor():
-    return User(username="tech", role=Role.USER, password="Passw0rd1")
+    return User(username="tech", role=Role.USER, password="Passw0rd!1")
 
 
 @pytest.fixture

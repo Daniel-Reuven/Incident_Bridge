@@ -42,11 +42,51 @@ async function request(path, { method = "GET", body } = {}) {
 
 export const api = {
   // --- auth ---
+  // First-start setup (backend/app/api/setup.py) - every call carries the console's setup code.
+  setupStart: (code) => request("/setup/start", { method: "POST", body: { code } }),
+  setupTestAI: (code, ai) => request("/setup/test-ai", { method: "POST", body: { code, ai } }),
+  setupComplete: (body) => request("/setup/complete", { method: "POST", body }),
   login: (username, password) => request("/auth/login", { method: "POST", body: { username, password } }),
   logout: () => request("/auth/logout", { method: "POST" }),
   me: () => request("/auth/me"),
-  changePassword: (current_password, new_password) =>
-    request("/auth/change-password", { method: "POST", body: { current_password, new_password } }),
+  peopleDirectory: () => request("/users/directory"),
+  displayFormat: () => request("/users/display-format"),
+  setDisplayFormat: (format) => request("/users/display-format", { method: "PUT", body: { format } }),
+  previewDisplay: (body) => request("/users/display-preview", { method: "POST", body }),
+  updateUserDetails: (username, details) =>
+    request(`/users/${encodeURIComponent(username)}/details`, { method: "PATCH", body: details }),
+  serverConfig: () => request("/server/config"),
+  saveServerConfig: (values) => request("/server/config", { method: "PUT", body: { values } }),
+  serverSettings: () => request("/server/settings"),
+  saveServerSettings: (changes) => request("/server/settings", { method: "PUT", body: changes }),
+  resetServerSettings: () => request("/server/settings", { method: "DELETE" }),
+  checkCertificate: (body) => request("/server/certificate/check", { method: "POST", body }),
+  generateCertificate: () => request("/server/certificate/generate", { method: "POST" }),
+  serverAI: () => request("/server/ai"),
+  saveServerAI: (body) => request("/server/ai", { method: "PUT", body }),
+  testServerAI: (body) => request("/server/ai/test", { method: "POST", body }),
+  savePreferences: (changes) => request("/auth/preferences", { method: "PATCH", body: changes }),
+  changePassword: (current_password, new_password, confirm_password) =>
+    request("/auth/change-password", { method: "POST", body: { current_password, new_password, confirm_password } }),
+  passwordPolicy: () => request("/auth/password-policy"),
+
+  // --- activity log (admin only - backend/app/api/logs.py) ---
+  logMonths: () => request("/logs/months"),
+  verifyLog: () => request("/logs/verify"),
+  readLog: (params = {}) => {
+    const query = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null)));
+    return request("/logs" + (query.toString() ? `?${query}` : ""));
+  },
+
+  // --- user management (admin only - backend/app/api/users.py) ---
+  listUsers: () => request("/users"),
+  createUser: (username, role, password, confirm_password, details = {}) =>
+    request("/users", { method: "POST", body: { username, role, password, confirm_password, ...details } }),
+  updateUser: (username, changes) =>
+    request(`/users/${encodeURIComponent(username)}`, { method: "PATCH", body: changes }),
+  resetUserPassword: (username, new_password, confirm_password) =>
+    request(`/users/${encodeURIComponent(username)}/reset-password`,
+      { method: "POST", body: { new_password, confirm_password } }),
 
   // --- shared incident operations ---
   listIncidents: (params = {}) => {
@@ -91,8 +131,19 @@ export const api = {
     request(`/incidents/faults/${id}/close`, { method: "POST", body: { resolution_type, message } }),
   reopenFault: (id, status, reason) =>
     request(`/incidents/faults/${id}/reopen`, { method: "POST", body: { status, reason } }),
+
+  // --- AI analysis of a fault (backend/app/api/analysis.py) ---
+  // Each returns { enabled, provider, model, models, state: "idle"|"queued"|"running", position,
+  //   last_analysis, blocked, reason, can_force, force_wait_seconds } (see backend/app/api/analysis.py).
+  analysisStatus: (id) => request(`/incidents/faults/${id}/analysis`),
+  // { force: true }: an admin's Re-analyze when nothing changed since the last analysis.
+  requestAnalysis: (id, { force = false } = {}) =>
+    request(`/incidents/faults/${id}/analysis${force ? "?force=true" : ""}`, { method: "POST" }),
+  cancelAnalysis: (id) => request(`/incidents/faults/${id}/analysis/cancel`, { method: "POST" }),
   // --- bulk import (admin only) ---
   importJsonl: (content) => request("/incidents/import-jsonl", { method: "POST", body: { content } }),
+  importSites: (content) => request("/sites/import-jsonl", { method: "POST", body: { content } }),
+  importMailingLists: (content) => request("/sites/mailing-lists/import-jsonl", { method: "POST", body: { content } }),
 
   // --- site portal (admin only - every call returns 403 for other roles; see backend/app/api/sites.py) ---
   listSites: (includeArchived = false) => request("/sites" + (includeArchived ? "?include_archived=true" : "")),
@@ -107,6 +158,7 @@ export const api = {
   archiveSite: (siteId) => request(`/sites/${siteId}/archive`, { method: "POST" }),
   restoreSite: (siteId) => request(`/sites/${siteId}/restore`, { method: "POST" }),
   siteReport: () => request("/sites/report"),
+  listAiRequests: (archived = false) => request(`/analysis-requests${archived ? "?archived=true" : ""}`),
 
   listMailingLists: (includeArchived = false) =>
     request("/sites/mailing-lists" + (includeArchived ? "?include_archived=true" : "")),
@@ -117,8 +169,14 @@ export const api = {
   archiveMailingList: (listId) => request(`/sites/mailing-lists/${encodeURIComponent(listId)}/archive`, { method: "POST" }),
   restoreMailingList: (listId) => request(`/sites/mailing-lists/${encodeURIComponent(listId)}/restore`, { method: "POST" }),
 
-  // state: "draft" | "sent" | "dismissed" | "skipped" | "" (all)
-  listNotifications: (state = "") => request("/sites/notifications" + (state ? `?state=${state}` : "")),
+  // state: "draft" | "sent" | "dismissed" | "skipped" | "" (all).
+  // archived: false = the current ones (default), true = only the archived ones (view only).
+  listNotifications: (state = "", { archived = false } = {}) => {
+    const query = new URLSearchParams();
+    if (state) query.set("state", state);
+    if (archived) query.set("archived", "true");
+    return request("/sites/notifications" + (query.toString() ? `?${query}` : ""));
+  },
   sendNotification: (id, message) =>
     request(`/sites/notifications/${id}/send`, { method: "POST", body: message ? { message } : {} }),
   dismissNotification: (id, reason) =>

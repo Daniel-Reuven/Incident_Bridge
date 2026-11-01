@@ -8,10 +8,22 @@ __pycache__/
 
 # SQLite database (created automatically - see backend/README.md's Persistence section)
 *.db
+# The database's keys file (app/security/installation.py) - never committed
+*.db.keys
+
+# The installation's data folder (database, keys file, activity log - DATA_DIR) and older log folders
+backend/instance/
+backend/logs/
 
 .idea/
 
 *.egg-info/
+
+# Test and coverage output (python -m pytest --cov ...)
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 .venv/
 .vscode/

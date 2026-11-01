@@ -20,49 +20,98 @@ import mimetypes
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
 
-import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import auth, events, incidents, sites
-from app.events import EventBroadcaster
-from app.state import AppState
+from app import app_config
+from app.api import ai_requests, analysis, auth, docs, events, incidents, logs, server, setup, sites, users
+from app.api.deps import get_session_user
+from app.api.lifecycle import start_services, stop_services
+from app.api.request_log import RequestLogMiddleware
+from app.api.security import HttpsOnlyRemoteMiddleware, SecurityHeadersMiddleware, SessionFromSecrets
+from app.api.setup import SetupGateMiddleware, SetupSession
+from app.logs import app_log, apply_console_format
+from app.version import app_version
+from app.models import Role
+from app.persistence_users import SqliteUserStore
+from app.security.data_folders import check_markers
+from app.security.installation import Installation, InstallationError
+from app.settings_store import SqliteSettingsStore
+from app.state import database_path
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Built once per process, on startup - see app/state.py for why this
-    # must stay a single process (in-memory queues aren't shared across
-    # workers).
-    app.state.incident_bridge = AppState.create()
-
-    # The broadcaster is created here (not in AppState) because it needs
-    # a running event loop to bind to (see app/events.py) - AppState.create()
-    # is plain sync code with no loop available yet at that point.
-    app.state.broadcaster = EventBroadcaster()
-    app.state.broadcaster.bind_loop(asyncio.get_running_loop())
-
+    # The installation's keys (app/security/installation.py): an installed app
+    # unlocks its encrypted database by itself; a new one waits for the setup
+    # page (app/api/setup.py) and starts its services when that is finished.
+    app.state.setup = None
+    app.state.running = False
+    app.state.analysis_worker = None
+    installation = Installation.from_env()
+    app.state.installation = installation
+    status = installation.status()
+    if status == "orphan":
+        raise InstallationError(
+            f"The database {installation.db_path} has no keys file ({installation.keys_path}). Put the keys file "
+            f"back, or restore access with the recovery key: python manage_keys.py restore")
+    if status == "new":
+        app.state.setup = SetupSession(installation)
+    else:
+        installation.unlock()
+        warning = installation.machine_warning()
+        if warning:
+            app_log.warning(f"Key store: {warning}")
+        settings = SqliteSettingsStore(database_path())
+        installed_id = (settings.get("installation") or {}).get("id")
+        if installed_id:
+            problems = check_markers(installation.folders(), installed_id)
+            if problems:
+                raise InstallationError("The data folders do not match this installation:\n  - " + "\n  - ".join(problems))
+        users_db = SqliteUserStore(database_path())
+        has_admin = any(u.role == Role.ADMIN for u in users_db.load_all())
+        users_db.close()
+        if has_admin:
+            # The app's settings: saved in the database, .env only their first values (app/app_config.py).
+            app_config.initialize(settings)
+            app_config.apply(settings)
+            await start_services(app, settings)
+        else:                               # keys saved, but the setup never finished: accounts only
+            app.state.setup = SetupSession(installation, settings)
     yield
+    stop_services(app)
 
 
-app = FastAPI(title="Incident Bridge API", version="0.1.0", lifespan=lifespan)
+# One console format for every line (app/logs.py). serve_app.py already starts
+# Uvicorn with it; this also covers the bare `uvicorn app.api.app:app` command.
+apply_console_format()
+
+# The API docs are served by app/api/docs.py, behind the API_DOCS_ACCESS setting.
+app = FastAPI(title="Incident Bridge API", version=app_version(), lifespan=lifespan,
+              docs_url=None, redoc_url=None, openapi_url=None)
 
 # --- session cookie (signed, not encrypted - don't put secrets in it) ---
-_secret_key = os.environ.get("SESSION_SECRET_KEY")
-if not _secret_key:
-    print(
-        "WARNING: SESSION_SECRET_KEY is not set - using an insecure default. "
-        "Set it before deploying anywhere reachable by anyone else."
-    )
-    _secret_key = "dev-only-insecure-secret-change-me"
-app.add_middleware(SessionMiddleware, secret_key=_secret_key, same_site="lax")
+# Keyed with the installation's session secret, generated at setup and kept in
+# the encrypted database (app/app_secrets.py, app/api/security.py). Lifetime
+# and the Secure flag are the app's saved settings SESSION_MAX_AGE_HOURS and
+# SESSION_COOKIE_SECURE (app/app_config.py), read once the app has started.
+# Added BEFORE the session middleware, so it runs inside it and can read who
+# made each request: one activity-log record per request (app/api/request_log.py).
+app.add_middleware(RequestLogMiddleware)
+app.add_middleware(SessionFromSecrets, same_site="lax")
+# Until the setup is finished, only the setup page answers (app/api/setup.py).
+app.add_middleware(SetupGateMiddleware)
+
+# Security headers on every response (CSP, no framing, nosniff, referrer policy).
+app.add_middleware(SecurityHeadersMiddleware)
+# Outermost: remote plain HTTP -> HTTPS, when the Server settings say so (app/server_settings.py).
+app.add_middleware(HttpsOnlyRemoteMiddleware)
 
 # --- CORS: only needed if the frontend is served from a different origin ---
 # than this API during development. The normal setup (frontend served by
@@ -78,16 +127,23 @@ if _cors_origins:
         allow_headers=["*"],
     )
 
+app.include_router(setup.router)   # first-start setup (until it is done, nothing else answers)
 app.include_router(auth.router)
+app.include_router(users.router)   # admin-only user management
+app.include_router(logs.router)    # admin-only activity log viewer
 app.include_router(incidents.router)
 app.include_router(events.router)
 app.include_router(sites.router)   # admin-only site portal (Sites & Mailing Lists)
+app.include_router(analysis.router)   # AI analysis of faults (app/ai/)
+app.include_router(ai_requests.router)  # admin: the AI request history and archive (site portal)
+app.include_router(server.router)     # admin-only Server settings (HTTPS, AI)
+app.include_router(docs.router)       # /docs, /redoc, /openapi.json (API_DOCS_ACCESS)
 
 
 # --- centralized exception -> HTTP status mapping ---
 # The domain layer (app/models, app/queues) raises plain Python exceptions
 # for business-rule violations rather than HTTP-aware ones, so it stays
-# usable outside a web context too (e.g. from demo.py). These handlers are
+# usable outside a web context too (e.g. from main.py). These handlers are
 # the one place that translates them - see app/api/incidents.py and
 # app/api/auth.py for where each one gets raised.
 
@@ -122,7 +178,18 @@ def _handle_key_error(request: Request, exc: KeyError):
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    """Liveness check, the app's version (app/version.py - the page footer and About page show it) and whether
+    the first-start setup is still waiting (app/api/setup.py)."""
+    return {"status": "ok", "version": app_version(), "setup_required": getattr(app.state, "setup", None) is not None}
+
+
+# --- the README's screenshots, also used by the Guide page (frontend/guide.html).
+# One copy, in docs/screenshots/ at the repository root, served at
+# /screenshots/<file>.png. Mounted before the frontend's "/" catch-all below;
+# skipped if the folder is not there.
+_screenshots_dir = Path(__file__).resolve().parents[3] / "docs" / "screenshots"
+if _screenshots_dir.is_dir():
+    app.mount("/screenshots", StaticFiles(directory=_screenshots_dir), name="screenshots")
 
 
 # --- serve the frontend, same-origin, so no CORS is needed in the normal
@@ -136,6 +203,21 @@ def health_check():
 # own), this is skipped and only the API is served.
 _frontend_dir = Path(__file__).resolve().parents[3] / "frontend"
 if _frontend_dir.is_dir():
+    @app.get("/", include_in_schema=False)
+    @app.get("/index.html", include_in_schema=False)
+    def login_page(request: Request):
+        """
+        The login page - or, for someone already logged in, straight on to the
+        dashboard, decided here before any HTML is sent. Left to the page's
+        script, the login form showed for a moment first (a link to "/" from
+        the Guide, About and Terms pages, or the address typed by hand).
+        """
+        try:
+            get_session_user(request)
+        except Exception:                      # no valid session (or no app state yet): the login page
+            return FileResponse(_frontend_dir / "index.html", headers={"Cache-Control": "no-cache"})
+        return RedirectResponse("/dashboard.html", status_code=303)
+
     app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
 else:
-    print(f"NOTE: no frontend/ directory found at {_frontend_dir} - serving the API only.")
+    app_log.info(f"No frontend/ directory found at {_frontend_dir} - serving the API only.")

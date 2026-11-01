@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Users — Incident Bridge</title>
+<link rel="stylesheet" href="/css/styles.css">
+<script src="/js/theme.js"></script>
+</head>
+<!--
+  User management (admin only). Filled in by js/users.js from the /users API
+  (backend/app/api/users.py), which refuses non-admins with 403; users.js
+  also sends non-admins back to the dashboard.
+-->
+<body>
+  <header id="topbar"></header>
+  <main class="dashboard" id="users-page" hidden>
+    <a href="/dashboard.html" class="back-link">← Back to dashboard</a>
+    <div class="portal-header">
+      <h1>Users</h1>
+      <button class="btn btn-primary" id="new-user-btn">New user</button>
+    </div>
+    <section class="format-panel" aria-labelledby="format-title">
+      <h2 id="format-title">Display names</h2>
+      <p class="hint">How everyone is shown in the app, built from their details. A person can also have a format of their own (<em>Details</em>). Usernames still identify people in the activity log.</p>
+      <div class="format-editor" id="default-format-editor"></div>
+      <div class="dialog-actions"><button class="btn btn-primary btn-sm" id="save-format-btn">Save the format</button></div>
+    </section>
+
+    <p class="hint">Accounts are disabled, never deleted, so their incidents and comments keep their author.
+      A new account and a reset password must be changed at the next login, unless the operator turned this off. You cannot change your own role
+      or disable yourself.</p>
+    <div class="table-wrap">
+      <table class="data-table users-table">
+        <thead><tr><th>Name / username</th><th>Role</th><th>Status</th><th>Created</th><th><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody id="users-body"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+
+  <dialog id="new-user-dialog" class="dialog dialog-wide">
+    <form id="new-user-form" class="dialog-form">
+      <h2>New user</h2>
+      <label>Username<input type="text" name="username" required minlength="3" maxlength="32"
+        pattern="[A-Za-z0-9._\-]{3,32}" autocomplete="off"></label>
+      <p class="hint">3–32 characters: letters, digits, “.”, “_” or “-”.</p>
+      <label>Role
+        <select name="role"><option value="user">User</option><option value="admin">Admin</option></select>
+      </label>
+      <div class="pw-fields"></div>
+      <fieldset class="choice-group details-fields">
+        <legend>Name and role at work <span class="hint">optional - shown instead of the username</span></legend>
+        <div class="details-grid">
+          <label>First name<input type="text" name="first_name" maxlength="60" autocomplete="off"></label>
+          <label>Middle name<input type="text" name="middle_name" maxlength="60" autocomplete="off"></label>
+          <label>Last name<input type="text" name="last_name" maxlength="60" autocomplete="off"></label>
+          <label>Job title<input type="text" name="job_title" maxlength="60" autocomplete="off" placeholder="e.g. Technician"></label>
+          <label>Location<input type="text" name="location" maxlength="60" autocomplete="off" placeholder="e.g. Haifa office"></label>
+        </div>
+      </fieldset>
+      <p class="form-error" id="new-user-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create user</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="reset-dialog" class="dialog dialog-wide">
+    <form id="reset-form" class="dialog-form">
+      <h2 id="reset-title">Reset password</h2>
+      <p class="hint">The user is signed out everywhere now, and must change this password at their next login unless the operator turned this off.</p>
+      <div class="pw-fields"></div>
+      <p class="form-error" id="reset-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Reset password</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="details-dialog" class="dialog dialog-wide">
+    <form id="details-form" class="dialog-form">
+      <h2 id="details-title">Details</h2>
+      <fieldset class="choice-group details-fields">
+        <legend>Name and role at work</legend>
+        <div class="details-grid">
+          <label>First name<input type="text" name="first_name" maxlength="60" autocomplete="off"></label>
+          <label>Middle name<input type="text" name="middle_name" maxlength="60" autocomplete="off"></label>
+          <label>Last name<input type="text" name="last_name" maxlength="60" autocomplete="off"></label>
+          <label>Job title<input type="text" name="job_title" maxlength="60" autocomplete="off" placeholder="e.g. Technician"></label>
+          <label>Location<input type="text" name="location" maxlength="60" autocomplete="off" placeholder="e.g. Haifa office"></label>
+        </div>
+      </fieldset>
+      <fieldset class="choice-group">
+        <legend>Display name</legend>
+        <label class="choice"><input type="radio" name="format_mode" value="default" checked> The format for everyone</label>
+        <label class="choice"><input type="radio" name="format_mode" value="own"> A format of their own</label>
+        <div class="format-editor" id="own-format-editor" hidden></div>
+      </fieldset>
+      <p class="format-preview">Shown as: <strong id="details-preview"></strong></p>
+      <p class="form-error" id="details-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save details</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/js/users.js"></script>
+  <script type="module" src="/js/footer.js"></script>
+</body>
+</html>

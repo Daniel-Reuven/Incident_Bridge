@@ -49,8 +49,8 @@ def test_work_session_repr(admin_user):
 
 def test_store_reprs_never_show_secrets():
     users = UserStore()
-    users.add(User("tech1", Role.USER, "Passw0rd2"))
-    users.add(User("admin", Role.ADMIN, "Passw0rd1"))
+    users.add(User("tech1", Role.USER, "Passw0rd!2"))
+    users.add(User("admin", Role.ADMIN, "Passw0rd!1"))
     assert repr(users) == "UserStore(usernames=['admin', 'tech1'])"
     assert "Passw0rd" not in repr(users)
     store = SqliteIncidentStore(":memory:")
